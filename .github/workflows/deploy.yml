@@ -1,0 +1,160 @@
+name: Deploy
+
+# Every push to main (and a manual run) puts main on the VPS: code, dependencies, .env,
+# systemd units, then `horizon probe` as a smoke whose exit code is the job's. The
+# operator's view of the same sequence is deploy/RUNBOOK.md §7.
+#
+# Secrets live in the GitHub Environment `horizon-vps` and enter a step only through its
+# env: mapping. No run script carries a ${{ }} expression, none echoes a secret, none
+# traces itself with `set -x`, and .env travels to the VPS on ssh's stdin - so no secret
+# is ever part of a command line, here or on the VPS.
+#
+# Command shape mirrors the neighbouring service's deploy (VPS_USER is root-equivalent): repository and venv
+# work runs as `sudo -u horizon`, systemd work as VPS_USER itself.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time; a deploy that started is never cut in half by the next push.
+  group: deploy-horizon-vps
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # The full CI, not a reduced copy of it: what reaches the VPS passed what a PR passes.
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: gate
+    # A manual run from another branch must not put that branch on the VPS.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: horizon-vps
+    steps:
+      - name: Set up SSH
+        # Host alias `vps`: key and known_hosts from the environment, strict host checking.
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${VPS_HOST}
+            User ${VPS_USER}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            StrictHostKeyChecking yes
+            BatchMode yes
+          EOF
+
+      - name: Update the code
+        # The exact commit this run was started for, checked out by the clone's owner;
+        # `uv sync --locked` fails on a stale lock instead of re-resolving (as bootstrap).
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029 # DEPLOY_SHA is meant to expand here, on the runner.
+          ssh vps "set -e; \
+            sudo -u horizon git -C /opt/horizon-tracker fetch --prune origin; \
+            sudo -u horizon git -C /opt/horizon-tracker checkout --detach '${DEPLOY_SHA}'; \
+            sudo -u horizon bash -lc 'cd /opt/horizon-tracker && /usr/local/bin/uv sync --locked'"
+
+      - name: Build .env
+        # The file is built on the runner and read on the VPS by systemd's EnvironmentFile
+        # parser, not by a shell. Every value is written double-quoted with \ " ` $ escaped
+        # by a backslash - the four characters systemd unescapes there (SHELL_NEED_ESCAPE,
+        # as its own write_env_var does) - so a password arrives literally. Non-secret
+        # values are the production contract of RUNBOOK §2.2; the tests hold the two equal.
+        env:
+          HORIZON_URL: https://horizon.example.com/portal/webclient/
+          HORIZON_USERNAME: ${{ secrets.HORIZON_USERNAME }}
+          HORIZON_PASSWORD: ${{ secrets.HORIZON_PASSWORD }}
+          HORIZON_DESKTOP: DEV desktop
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HT_TIMEZONE: Europe/Moscow
+          HT_CHECKIN_WINDOW: "07:55-08:00"
+          HT_CHECKOUT_WINDOW: "17:00-17:05"
+          HT_HOLD_SECONDS: "120"
+          HT_CHROME_PATH: /usr/bin/google-chrome
+          HT_ARTIFACTS_DIR: /opt/horizon-tracker/artifacts
+        run: |
+          set -euo pipefail
+          umask 077
+          names=(HORIZON_URL HORIZON_USERNAME HORIZON_PASSWORD HORIZON_DESKTOP
+                 TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID HT_TIMEZONE HT_CHECKIN_WINDOW
+                 HT_CHECKOUT_WINDOW HT_HOLD_SECONDS HT_CHROME_PATH HT_ARTIFACTS_DIR)
+          for name in "${names[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error title=.env::$name is empty - set it in the horizon-vps environment"
+              exit 1
+            fi
+          done
+          body=""
+          for name in "${names[@]}"; do
+            value=${!name}
+            # Quoted pattern and replacement are literal; SC1003 misreads '\' as an escape.
+            # shellcheck disable=SC1003
+            value=${value//'\'/'\\'}
+            value=${value//'"'/'\"'}
+            value=${value//'`'/'\`'}
+            value=${value//'$'/'\$'}
+            body+="${name}=\"${value}\""$'\n'
+          done
+          printf '%s' "$body" > "$RUNNER_TEMP/horizon.env"
+
+      - name: Write .env
+        # horizon:horizon 0600, written next to the target and renamed over it, so the
+        # services never read a half-written file. The content is ssh's stdin.
+        run: |
+          set -euo pipefail
+          ssh vps "set -e; umask 077; \
+            install -m 600 -o horizon -g horizon /dev/stdin /opt/horizon-tracker/.env.new; \
+            mv -f /opt/horizon-tracker/.env.new /opt/horizon-tracker/.env; \
+            stat -c '%U:%G %a %n' /opt/horizon-tracker/.env" < "$RUNNER_TEMP/horizon.env"
+
+      - name: Install the units
+        # try-restart, not restart: it restarts a timer only if it is already active, so
+        # a deploy never switches the schedule on before the owner's first manual run
+        # (RUNBOOK §6, PLAN BEAD-13).
+        run: |
+          set -euo pipefail
+          ssh vps "set -e; \
+            for unit in horizon-checkin.service horizon-checkin.timer \
+                        horizon-checkout.service horizon-checkout.timer; do \
+              install -m 0644 /opt/horizon-tracker/deploy/\$unit /etc/systemd/system/\$unit; \
+            done; \
+            systemctl daemon-reload; \
+            systemctl try-restart horizon-checkin.timer horizon-checkout.timer; \
+            systemctl list-timers 'horizon-*' --all --no-pager"
+
+      - name: "Smoke: horizon probe"
+        # As horizon, with .env read by the same parser the timers use (RUNBOOK §3). The
+        # probe never logs in; its exit code - 1 when settings, portal or Chrome FAILED -
+        # is the step's through systemd-run --wait and ssh.
+        run: |
+          set -euo pipefail
+          ssh vps "systemd-run --quiet --pipe --wait --collect \
+            --uid=horizon --gid=horizon \
+            --working-directory=/opt/horizon-tracker \
+            -p EnvironmentFile=/opt/horizon-tracker/.env \
+            /opt/horizon-tracker/.venv/bin/horizon probe"
+
+      - name: Remove the key and .env from the runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/config "$RUNNER_TEMP/horizon.env"

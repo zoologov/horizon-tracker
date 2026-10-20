@@ -1,0 +1,74 @@
+name: CI
+
+# The completion checklist of CLAUDE.md, run on every pull request to main, on every push
+# to main, and - through workflow_call - as the gate the deploy waits for (deploy.yml).
+#
+# Two meanings of "blocking", kept apart:
+#  1. Inside a run: every step below fails the run. There is no continue-on-error and no
+#     `|| true`; a step that must stay informational decides its own outcome and prints a
+#     ::warning annotation instead, because continue-on-error turns a red step into a
+#     `success` conclusion that no annotation reports (measured on the neighbouring service's PR #138).
+#  2. On a merge: whether this check is REQUIRED is a branch-protection setting, and for
+#     this repository it is not measured (CLAUDE.md, project layer). Until it is, a red run
+#     is visible on the PR and does not stop a merge by itself.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # github.workflow names the CALLER under workflow_call, so the deploy's gate gets a group
+  # of its own and never cancels, or is cancelled by, the CI run of the same push.
+  # Only a pull request's superseded run is cancelled; every commit on main keeps a verdict.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (with cache)
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          # The VPS runs python3.12; CI builds with the same interpreter.
+          python-version: "3.12"
+
+      - name: Sync deps
+        # --extra dev: ruff, mypy and pytest live in [project.optional-dependencies].dev,
+        # which a bare `uv sync` does not install.
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check src/ tests/
+
+      - name: Mypy
+        run: uv run mypy src/
+
+      - name: Chromium for the adapter tests
+        # tests/adapters drive Playwright against the local HTML Access fixture, never the
+        # portal. The browser comes from the locked Playwright version.
+        run: uv run playwright install --with-deps chromium
+
+      - name: Pytest
+        # -rs prints the reason of every skip, so a skipped check is read as skipped.
+        run: uv run pytest -q -rs
+
+      - name: Install beadloom
+        # 9.0.0 pins tree-sitter itself; no workaround is needed.
+        run: uv tool install beadloom==9.0.0
+
+      - name: Beadloom Gate (clean index)
+        # The index is removed and rebuilt from nothing: an incremental reindex does not
+        # refresh import edges, and lint over a stale index reports a green it did not check.
+        run: |
+          rm -f .beadloom/beadloom.db
+          beadloom reindex
+          beadloom ci
