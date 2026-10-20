@@ -1,7 +1,7 @@
 # BRIEF: HT-002 — HTML Access 2312.1 selectors: tile, canvas, the Log Off item
 
 > **Type:** bug
-> **Status:** Draft
+> **Status:** Approved
 > **Created:** 2026-10-20
 
 ---
