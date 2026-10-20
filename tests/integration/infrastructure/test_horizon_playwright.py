@@ -3,8 +3,9 @@
 The fixture pages under ``tests/fixtures/htmlaccess/`` reproduce the structure the real
 HTML Access 2312.1 bundle renders where the adapter reads the page: the tile, its menu
 and the canvas the Blast session appends. A ``ThreadingHTTPServer`` on 127.0.0.1 serves
-them and plays the broker behind ``/fixture/*``, including a bare WebSocket handshake on
-the Blast path (``/r/`` unless a test moves it) so the client's Blast connection is a
+them and plays the broker: its XML endpoint ``/broker/xml`` (kill-session and the logout
+of a credential cleanup), the fixture's own ``/fixture/*`` and a bare WebSocket handshake
+on the Blast path (``/r/`` unless a test moves it), so the client's Blast connection is a
 real socket the browser opens and closes.
 """
 
@@ -61,7 +62,14 @@ FAST = HorizonTimeouts(
     desktop_open_ms=4_000,
     logoff_confirm_ms=3_000,
     poll_ms=100,
+    kill_session_answer_ms=3_000,
 )
+# Longer than the live poll interval (1 s) the adapter once waited after OK, and well
+# inside FAST.kill_session_answer_ms.
+SLOW_KILL_SESSION_ANSWER_S = 1.5
+# How long a kill-session the broker never answers holds its handler thread when the
+# test does not release it first.
+UNANSWERED_HOLD_S = 30.0
 
 
 # --- the fixture portal ---------------------------------------------------------------
@@ -83,7 +91,17 @@ class PortalState:
     # False: a login's web session serves one launch-items list, so a reload of the page
     # lands on the login form (the live portal's answer to a reload is not measured).
     login_survives_reload: bool = True
+    # The broker's enableCredentialCleanupForHTMLAccess: the client logs out of the
+    # broker when the page unloads, which ends the web session and, in this fixture,
+    # cuts off a kill-session the broker has not answered yet.
+    credential_cleanup: bool = False
+    # How long the broker takes to answer kill-session; it acts on it when it answers.
+    kill_session_answer_s: float = 0.0
+    kill_session_unanswered: bool = False
+    logoff_dialog: bool = True
+    released: threading.Event = field(default_factory=threading.Event)
     logins: dict[str, int] = field(default_factory=dict)
+    logged_out: set[str] = field(default_factory=set)
     events: list[str] = field(default_factory=list)
     user_agents: list[str] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -111,27 +129,40 @@ class PortalHandler(SimpleHTTPRequestHandler):
         elif self.path == "/fixture/behaviour":
             self._json(
                 200,
-                {"draw_canvas": self.state.draw_canvas, "blast_path": self.state.blast_path},
+                {
+                    "draw_canvas": self.state.draw_canvas,
+                    "blast_path": self.state.blast_path,
+                    "credential_cleanup": self.state.credential_cleanup,
+                    "logoff_dialog": self.state.logoff_dialog,
+                },
             )
         else:
             super().do_GET()
 
     def do_POST(self) -> None:
-        body = self._body()
+        raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        if self.path == "/broker/xml":
+            self._broker_xml(raw.decode())
+            return
+        body: dict[str, object] = json.loads(raw or b"{}")
         if self.path == "/fixture/login":
             self._login(body)
-        elif self.path == "/fixture/kill-session":
-            self._kill_session()
         elif self.path == "/fixture/event":
             self.state.record(str(body["name"]))
             self._json(200, {})
         else:
             self._json(404, {})
 
-    def _body(self) -> dict[str, object]:
-        length = int(self.headers.get("Content-Length", "0"))
-        loaded: dict[str, object] = json.loads(self.rfile.read(length) or b"{}")
-        return loaded
+    def _broker_xml(self, document: str) -> None:
+        """The broker's XML endpoint: one ``<broker>`` document per POST, as the bundle sends."""
+        if "<kill-session>" in document:
+            self._kill_session()
+        elif "<do-logout" in document:
+            self._broker_logout()
+        elif "<set-last-user-activity" in document:
+            self._xml(200, "<set-last-user-activity><result>ok</result></set-last-user-activity>")
+        else:
+            self._json(400, {})
 
     def _json(self, status: int, payload: object, cookie: str | None = None) -> None:
         data = json.dumps(payload).encode()
@@ -143,14 +174,21 @@ class PortalHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _xml(self, status: int, message: str) -> None:
+        data = f"<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>{message}</broker>"
+        self.send_response(status)
+        self.send_header("Content-Type", "text/xml")
+        self.send_header("Content-Length", str(len(data.encode())))
+        self.end_headers()
+        self.wfile.write(data.encode())
+
     def _login_token(self) -> str | None:
         morsel = SimpleCookie(self.headers.get("Cookie", "")).get(SESSION_COOKIE)
         if morsel is None or morsel.value not in self.state.logins:
             return None
+        if morsel.value in self.state.logged_out:
+            return None
         return morsel.value
-
-    def _logged_in(self) -> bool:
-        return self._login_token() is not None
 
     def _login(self, body: dict[str, object]) -> None:
         if body.get("username") == USERNAME and body.get("password") == PASSWORD:
@@ -184,15 +222,39 @@ class PortalHandler(SimpleHTTPRequestHandler):
         )
 
     def _kill_session(self) -> None:
-        if not self._logged_in():
+        """Answer kill-session after the broker's delay, acting on it only if it is answered.
+
+        A web session that ended while the answer was pending (the logout of a credential
+        cleanup) cuts the request off: the session stays and nothing is answered.
+        """
+        token = self._login_token()
+        if token is None:
             self._json(401, {})
             return
         self.state.record("kill-session")
+        if self.state.kill_session_unanswered:
+            self.state.released.wait(UNANSWERED_HOLD_S)
+            self.close_connection = True
+            return
+        time.sleep(self.state.kill_session_answer_s)
+        if token in self.state.logged_out:
+            self.state.record("kill-session-cut-off")
+            self.close_connection = True
+            return
         if not self.state.ignore_logoff:
             self.state.logoff_pending = self.state.logoff_lag_lists > 0
             if not self.state.logoff_pending:
                 self.state.session = "none"
-        self._json(200, {})
+        self.state.record("kill-session-answered")
+        self._xml(200, "<kill-session><result>ok</result></kill-session>")
+
+    def _broker_logout(self) -> None:
+        """The client's logout on unload: the web session ends, the desktop's does not."""
+        token = self._login_token()
+        if token is not None:
+            self.state.logged_out.add(token)
+        self.state.record("broker-logout")
+        self._xml(200, "<logout><result>ok</result></logout>")
 
     def _blast(self) -> None:
         key = self.headers.get("Sec-WebSocket-Key")
@@ -255,6 +317,7 @@ def portal() -> Iterator[Portal]:
     try:
         yield Portal(url=f"http://127.0.0.1:{server.server_address[1]}/", state=state)
     finally:
+        state.released.set()
         server.shutdown()
         server.server_close()
 
@@ -639,6 +702,66 @@ def test_a_log_off_is_confirmed_through_a_fresh_login_when_a_reload_ends_the_web
     assert portal.state.events.count("kill-session") == 1
     assert portal.state.events.count("login-accepted") == 2
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_a_log_off_waits_for_the_brokers_kill_session_answer_before_reloading(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    # With credential cleanup on, a reload logs out of the broker; a kill-session still
+    # unanswered then is cut off and the session stays.
+    portal.state.session = "disconnected"
+    portal.state.credential_cleanup = True
+    portal.state.kill_session_answer_s = SLOW_KILL_SESSION_ANSWER_S
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    assert "kill-session-cut-off" not in events
+    assert events.count("kill-session-answered") == 1
+    assert events.index("kill-session-answered") < events.index("broker-logout"), (
+        "the page was reloaded before the broker answered kill-session"
+    )
+    assert portal.state.session == "none"
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_a_log_off_whose_kill_session_is_never_answered_is_not_confirmed(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The wait for the answer is bounded; past it the fresh-list confirmation decides,
+    # and a broker that never acted fails the log off closed.
+    portal.state.session = "disconnected"
+    portal.state.kill_session_unanswered = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    error = fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    assert "kill-session" in portal.state.events
+    assert "kill-session-answered" not in portal.state.events
+    assert "Horizon kill-session unanswered after 3000 ms" in caplog.text
+    assert error.screenshot is not None
+    assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
+
+
+def test_a_log_off_whose_confirmation_never_shows_fails_without_awaiting_an_answer(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.logoff_dialog = False
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    assert "kill-session" not in portal.state.events
+    assert "kill-session unanswered" not in caplog.text, "a failed OK click read as no answer"
 
 
 def test_log_off_without_a_session_is_already_logged_off(

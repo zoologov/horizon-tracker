@@ -1,7 +1,7 @@
 // Fixture client: reproduces the hash routes of HTML Access 2312.1 (home -> launchitems ->
 // desktop) and, where the adapter reads the page, the structure the real bundle
-// app-htmlaccess.4eb7424a56fc03317f06.js renders. The fixture server behind /fixture/*
-// plays the broker; the real client talks XML to /broker/xml, which the adapter never needs.
+// app-htmlaccess.4eb7424a56fc03317f06.js renders. The fixture server plays the broker:
+// /broker/xml where the real client talks to it on a log off, /fixture/* everywhere else.
 //
 // What is reproduced from the bundle, because the adapter depends on it:
 //  - A desktop tile is li#<id> (no title) > button#launch-<id>[title=<name>], which holds
@@ -20,6 +20,12 @@
 //    On OK of the log-off confirmation it clears that flag at once and only then sends
 //    the kill-session request (launchItemsCtrlService._logoffDesktop): the tile shows
 //    "no session" before the broker has answered, whatever the broker answers.
+//  - The kill-session request is a POST of one XML document to /broker/xml:
+//    <broker version='…'><kill-session><session-id>…</session-id></kill-session></broker>
+//    (Kw.setRequestXML and Oi.createXML; the fixture puts the desktop id in session-id).
+//  - With the broker's enableCredentialCleanupForHTMLAccess on, the client logs out of
+//    the broker on beforeunload (_sendLogoutAction, LogoutFromBroker by fetch): a reload
+//    ends the web session.
 // What is the fixture's own:
 //  - The list is fetched when the page loads and after a login, never on a hash
 //    navigation, so the broker's state shows again only on a reload or a fresh login.
@@ -31,6 +37,13 @@
 //  - The kill-session request leaves KILL_SESSION_HOP_MS after OK, standing in for the
 //    client's path through its JSCDK command controller and router. A page reloaded
 //    before then never sends it, so the adapter must let it leave before reloading.
+//  - The broker acts on kill-session when it answers it, and a logout from the broker
+//    before the answer cuts the request off: the session stays. Whether the live broker
+//    drops a kill-session that way is not known; the adapter must not reload before the
+//    answer, so that it does not matter.
+//  - OK also sends set-last-user-activity to /broker/xml at once, answered at once: a
+//    broker command beside the kill-session, so only the kill-session's answer is it.
+//  - The broker can be told the log-off confirmation never shows (logoff_dialog).
 (function () {
   "use strict";
 
@@ -39,6 +52,8 @@
   var menu = { id: null, element: null };
   var launchItemsModel = null;
   var loggingOff = null;
+  var credentialCleanup = false;
+  var logoffDialog = true;
   var wmksCount = 0;
   var KILL_SESSION_HOP_MS = 40;
   var MENU_CLOSE_MS = 150;
@@ -61,6 +76,19 @@
   }
 
   function record(name) { return post("/fixture/event", { name: name }); }
+
+  function broker(message, keepalive) {
+    return fetch("/broker/xml", {
+      method: "POST",
+      headers: { "Content-Type": "text/xml" },
+      body: "<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>" + message + "</broker>",
+      keepalive: keepalive === true
+    });
+  }
+
+  function killSession(id) {
+    return broker("<kill-session><session-id>" + id + "</session-id></kill-session>");
+  }
 
   function behaviour() {
     return fetch("/fixture/behaviour").then(function (response) { return response.json(); });
@@ -175,7 +203,7 @@
     entries.appendChild(menuEntry("menu-item-launch-btn", "Connect", true, function () { launch(id); }));
     entries.appendChild(menuEntry("menu-item-logoff-btn", "Log Off", item.logoffEnabled, function () {
       loggingOff = item;
-      byId("logoffDialog").hidden = false;
+      byId("logoffDialog").hidden = !logoffDialog;
     }));
     entries.appendChild(menuEntry("menu-item-reset-btn", "Reset", false, nothing));
     entries.appendChild(menuEntry("menu-item-restart-btn", "Restart", false, nothing));
@@ -197,7 +225,8 @@
       dialog.hidden = true;
       var item = loggingOff;
       item.logoffEnabled = false;
-      setTimeout(function () { post("/fixture/kill-session", { id: item.id }); }, KILL_SESSION_HOP_MS);
+      broker("<set-last-user-activity/>");
+      setTimeout(function () { killSession(item.id); }, KILL_SESSION_HOP_MS);
     });
   }
 
@@ -248,7 +277,7 @@
     byId("okDialogBtn").addEventListener("click", function () {
       dialog.hidden = true;
       if (mode === "fullscreen") { answered = true; record("fullscreen-accepted").then(draw); }
-      else { post("/fixture/kill-session", { id: id }); }
+      else { killSession(id); }
     });
     byId("sidebar-toggler").addEventListener("click", function () { byId("sidebar").hidden = !byId("sidebar").hidden; });
     byId("sidebar-logout-button").addEventListener("click", function () {
@@ -267,5 +296,12 @@
     setTimeout(function () { if (menu === closing) { closeMenu(); } }, MENU_CLOSE_MS);
   });
   window.addEventListener("hashchange", render);
+  window.addEventListener("beforeunload", function () {
+    if (credentialCleanup) { broker("<do-logout/>", true); }
+  });
+  behaviour().then(function (portal) {
+    credentialCleanup = portal.credential_cleanup;
+    logoffDialog = portal.logoff_dialog;
+  });
   render();
 }());

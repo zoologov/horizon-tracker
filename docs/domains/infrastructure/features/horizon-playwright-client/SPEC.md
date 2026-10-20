@@ -28,7 +28,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `desktop_status(name)` | `CONNECTED` while this client holds that desktop open; otherwise opens the named tile's "…" menu, reads whether it offers Log Off, closes the menu; logs in first when no page is live | `DESKTOP_NOT_FOUND`, `UNEXPECTED`, or the reasons of `login()` when it logs in first |
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), returns once the desktop is open; logs whether a WebSocket on a Blast path was seen | `DESKTOP_DID_NOT_OPEN` |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off") | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, waits (bounded) for the broker's kill-session answer, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off") | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -98,8 +98,17 @@ at once and only then sends the kill-session request
 from that flag, so the tile on the same page reads "no session" before the broker has
 answered, whatever it answers. `log_off()` therefore never confirms from that page:
 
-- after OK it waits one poll interval (`HorizonTimeouts.poll_ms`), so the client's
-  kill-session request has left before the page is reloaded under it;
+- it waits for the broker's answer to the kill-session request before it reloads
+  anything. The wait is armed before the OK click and matches a response from
+  `…/broker/xml` whose request body carries `<kill-session>` (the bundle posts each
+  broker command as one XML document there; `Kw.setRequestXML`, `Oi.createXML`). A
+  reload before the answer can cancel the request, and when the broker sets
+  `enableCredentialCleanupForHTMLAccess` the client logs out of the broker on
+  `beforeunload`, so a reload can end the web session under an unanswered
+  kill-session. The wait is bounded by `HorizonTimeouts.kill_session_answer_ms`; an
+  answer that does not come in time is logged (`Horizon kill-session unanswered after
+  <N> ms`) and the confirmation below decides, so the log off fails closed. An OK
+  click that fails is a `LOGOFF_NOT_CONFIRMED` at once, not an unanswered request;
 - every confirmation read reloads `#/launchitems`, so the tiles are built from a list
   the broker sent, and reads the tile from that list. A reload that lands on the login
   form logs in again in a fresh context, which fetches the list as well;
@@ -108,10 +117,11 @@ answered, whatever it answers. `log_off()` therefore never confirms from that pa
   unchanged.
 
 Not measured on the live portal: whether a reload keeps the web session (the fallback
-covers both answers) and whether one poll interval is enough for the request to leave
-the client. The live `checkout --force` sees a successful log off either way, so it
-cannot tell a broker's answer from the client's flag; a broker-side read after the
-check-out can.
+covers both answers; the bundle ties it to the broker's
+`enableCredentialCleanupForHTMLAccess`, and with it on the next login waits up to 3 s,
+`waitForCredentialClean`) and how long the broker takes to answer kill-session. The
+live `checkout --force` sees a successful log off either way, so it cannot tell a
+broker's answer from the client's flag; a broker-side read after the check-out can.
 
 ### Secrets and failures
 
@@ -147,11 +157,13 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
   exit calls `close()`. `chrome_path=None` uses Playwright's own Chromium. `repr` shows
   the portal URL and the run kind only.
 - `HorizonTimeouts(page_load_ms=30_000, action_ms=15_000, login_ms=30_000,
-  desktop_open_ms=90_000, logoff_confirm_ms=60_000, poll_ms=1_000)` — frozen.
+  desktop_open_ms=90_000, logoff_confirm_ms=60_000, poll_ms=1_000,
+  kill_session_answer_ms=30_000)` — frozen.
 - Route and selector constants: `LOGIN_ROUTE`, `LAUNCH_ITEMS_ROUTE`, `DESKTOP_ROUTE`,
   `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON`, `DIALOG_OK`, `DIALOG_CANCEL`,
   `ANY_TILE`, `LAUNCH_BUTTON`, `TILE_MENU_BUTTON`, `TILE_MENU`, `LOGOFF_MENU_ITEM`,
-  `DESKTOP_CANVAS`, `BLAST_PATH_PREFIXES`.
+  `DESKTOP_CANVAS`, `BLAST_PATH_PREFIXES`; the broker request a log off waits for:
+  `BROKER_XML_PATH`, `KILL_SESSION_TAG`.
 
 ## Testing
 
@@ -163,16 +175,23 @@ bundle's structure where the adapter reads the page: the tile, the tile menu wit
 `[hidden]` items, its document-click dismissal and its "…" that toggles, and the canvas
 the Blast session appends. It reproduces the client's behaviour on a log off too: the
 tile's flag is cleared on OK, before the kill-session request leaves, and the menu reads
-that flag, not the broker.
+that flag, not the broker; the request is a POST of a `<broker>` XML document with
+`<kill-session>` to `/broker/xml`, and with credential cleanup on, the page logs out of
+the broker on `beforeunload`.
 
 The fixture's own assumptions, each stated in its header and chosen so the adapter
 cannot lean on them: the list is fetched only when the page loads and after a login,
 never on a hash navigation; the kill-session request leaves a short hop after OK, so a
-reload at once would cancel it; the menu closes a while after the document click,
+reload at once would cancel it; the broker acts on kill-session when it answers, and a
+logout before the answer cuts the request off; OK also sends a
+`set-last-user-activity` answered at once, so only the kill-session's answer releases
+the wait; the menu closes a while after the document click,
 which pins the adapter's wait for it to go; the tile geometry, which comes from a
 stylesheet not in the bundle. The fixture broker can also refuse a log off, end the
-session only a few lists later, and serve one list per login, so that a reload lands on
-the login form.
+session only a few lists later, serve one list per login, so that a reload lands on
+the login form, answer kill-session late (1.5 s, beyond the 1 s the adapter once waited
+after OK) with credential cleanup on, never answer it, and never show the log-off
+confirmation.
 
 No acceptance scenario reaches this adapter: the scenarios run on a fake of the port
 (`tests/support/fakes.py`). A test on the fixture proves the fixture's contract; the

@@ -35,10 +35,12 @@ from playwright.sync_api import (
     Locator,
     Page,
     Playwright,
+    Response,
     WebSocket,
     sync_playwright,
 )
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from horizon_tracker.domain.ports import ArtifactStore, HorizonClientError
 from horizon_tracker.domain.report import Reason
@@ -74,6 +76,10 @@ LOGOFF_MENU_ITEM = "#menu-item-logoff-btn"
 # ``canvas#canvas`` beside the container is never shown.
 DESKTOP_CANVAS = "#canvas-container canvas"
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
+# The client posts every broker command as one XML document to ``…/broker/xml``; a log
+# off's carries ``<kill-session>`` (``Kw.setRequestXML`` and ``Oi.createXML`` in the bundle).
+BROKER_XML_PATH = "/broker/xml"
+KILL_SESSION_TAG = "<kill-session"
 
 _CANVAS_IS_DRAWN = """(selector) => Array.from(document.querySelectorAll(selector)).some(
     (canvas) => {
@@ -101,6 +107,12 @@ class HorizonTimeouts:
     desktop_open_ms: int = 90_000
     logoff_confirm_ms: int = 60_000
     poll_ms: int = 1_000
+    # The broker's answer to a log off's kill-session, awaited before the launch list is
+    # reloaded: a reload can log out of the broker (enableCredentialCleanupForHTMLAccess)
+    # and cut off a request still unanswered. How long the live broker takes is not
+    # measured; it answers once it has handed the log off on, so this is generous. Past
+    # it the fresh-list confirmation decides, and it fails closed.
+    kill_session_answer_ms: int = 30_000
 
 
 class PlaywrightHorizonClient:
@@ -216,11 +228,7 @@ class PlaywrightHorizonClient:
                 self._close_tile_menu(tile)
                 raise self._failure(Reason.ALREADY_LOGGED_OFF)
             logoff.click()
-            page = self._live_page()
-            page.locator(DIALOG_OK).click()
-            # The kill-session request leaves after OK, through the client's own command
-            # path; a reload before it has left would cancel it. One poll interval first.
-            page.wait_for_timeout(self._timeouts.poll_ms)
+            self._confirm_logoff_dialog()
             confirmed = self._poll(
                 lambda: self._broker_session_state(name) is SessionState.NO_SESSION or None,
                 self._timeouts.logoff_confirm_ms,
@@ -343,6 +351,27 @@ class PlaywrightHorizonClient:
         if _route(page.url) == DESKTOP_ROUTE and cancel.is_visible():
             cancel.click()
         return self._desktop_is_open() or None
+
+    def _confirm_logoff_dialog(self) -> None:
+        """Click OK on the log-off dialog, then wait (bounded) for the broker's kill-session answer.
+
+        The request leaves after OK through the client's own command path, and a reload
+        before the broker answers can cancel it or, with credential cleanup, log out of
+        the broker under it. The wait is armed before the click so a quick answer is not
+        missed. An answer that does not come in time is logged and left to the
+        fresh-list confirmation, which fails closed.
+        """
+        page = self._live_page()
+        bound_ms = self._timeouts.kill_session_answer_ms
+        clicked = False
+        try:
+            with page.expect_response(_answers_kill_session, timeout=bound_ms):
+                page.locator(DIALOG_OK).click()
+                clicked = True
+        except PlaywrightTimeoutError:
+            if not clicked:
+                raise
+            logger.warning("Horizon kill-session unanswered after %d ms", bound_ms)
 
     def _tile(self, name: str) -> Locator:
         """The named desktop's tile on ``#/launchitems``; logs in first when no page is live."""
@@ -486,6 +515,12 @@ def _close_quietly(part: str, close: Callable[[], None]) -> None:
         close()
     except PlaywrightError as error:
         logger.warning("Horizon %s did not close: %s", part, type(error).__name__)
+
+
+def _answers_kill_session(response: Response) -> bool:
+    """Whether a response is the broker's answer to a request that carries kill-session."""
+    carries = KILL_SESSION_TAG in (response.request.post_data or "")
+    return carries and BROKER_XML_PATH in urlsplit(response.url).path
 
 
 def _offered(menu_item: Locator) -> bool:
