@@ -83,8 +83,8 @@ class RunReport:
 
     ``verdict_source`` is ``None`` when the calendar was not asked (a ``--force`` run).
     ``screenshot`` is sent as an attachment and never appears in the text.
-    ``planned_at`` is the drawn moment the run waited for, local wall time; ``None`` when
-    there was none (a ``--force`` run).
+    ``planned_at`` is the drawn moment the run was due at, local wall time (set whether or
+    not the run reached its window); ``None`` when there was none (a ``--force`` run).
     """
 
     kind: RunKind

@@ -82,6 +82,7 @@ the timers fire at the start of the ranges, the service waits for its moment ins
 
 ## Current Phase
 
-- **Phase:** Planning
-- **Current bead:** —
-- **Blockers:** HT-002 (the selectors) goes first: a live run must confirm the check-in and the check-out before the schedule changes
+- **Phase:** Development (wave 5: documentation)
+- **Current bead:** BEAD-08 (ht-6l0)
+- **Blockers:** —
+- **Deferred from review (minor):** the pair of optional `moment`/`range_start` in `WindowedRun` (fold into one value object) and the `schedule` special case in `_probe_line` (carry the moments on `ProbeReport`) — they do not change behaviour, to be filed as a separate work item at the next touch of these modules

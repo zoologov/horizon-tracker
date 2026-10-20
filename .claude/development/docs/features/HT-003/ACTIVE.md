@@ -7,9 +7,9 @@
 
 ## Current Bead
 
-**Bead:** BEAD-07 (ht-evj) review; in parallel HT-005 BEAD-02 (ht-kc1) review
-**Goal:** the daily draw of the moments in the domain
-**Done when:** the unit tests and the core's mutants are green
+**Bead:** BEAD-08 (ht-6l0) tech-writer
+**Goal:** the AS-IS documentation names the ranges and the daily draw, not 07:55/17:00
+**Done when:** `beadloom sync-check` is clean, the stale list from the review is closed
 
 ## Progress
 
@@ -30,7 +30,7 @@
 | BEAD-04 | Done | ht-rat, a059be6: 635 tests, coverage 99 %; `--force` through `run(force=True)` keeping the moment (a window across midnight) |
 | BEAD-05 | Done | ht-978, 6ca59d1: the timers 07:30/16:30, 60 min, .env without the old windows; 644 tests; README and SPEC morning-checkin still name 07:55/17:00 → BEAD-08 |
 | BEAD-06 | Done | ht-slm, cfaaca3: the 7 scenarios are real (9 cases), 733/733, coverage 98.7 %, mutations 241/243 (2 equivalent) |
-| BEAD-07 | Open | — |
+| BEAD-07 | Done | ht-evj: OK — 0 critical, 0 major, 4 minor, 1 nit; 11 sabotages of the core and 4 of the deploy bite; minor 1 and 3 → BEAD-08, minor 2 and 4 — deferred (see CONTEXT) |
 | BEAD-08 | Open | — |
 | BEAD-09 | Open | — |
 
