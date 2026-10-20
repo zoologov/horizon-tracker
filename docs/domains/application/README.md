@@ -7,10 +7,16 @@ it owns no transport and no browser detail.
 
 `src/horizon_tracker/application/`
 
-## Use cases
+## Modules
 
-- morning check-in: open the desktop so the Windows logon is recorded, then disconnect
-- evening check-out: reconnect and log off
+| Module | One responsibility |
+|--------|--------------------|
+| `checkin.py` | the morning check-in: open the desktop until Windows logs on, hold it, then disconnect (`MorningCheckin(client, clock, runner, desktop, hold)`) |
+| `checkout.py` | the evening check-out: log the desktop's Windows session off and confirm it ended; a desktop with no session is reported as already logged off (`EveningCheckout(client, clock, runner, desktop)`) |
+| `windowed_run.py` | drives one daily run through its window: decides each attempt with the domain, retries failures, sends exactly one report (`WindowedRun`, one per window) |
+
+The use cases call the ports only. Waiting goes through `Clock.sleep`; a screenshot
+travels inside the adapter's error and from there into the `RunReport`.
 
 ## Features
 

@@ -33,6 +33,8 @@ graph TD
     B10 --> B11[BEAD-11 P0 review]
     B11 --> B12[BEAD-12 P1 tech-writer: SPEC + graph + docs]
     B09 --> B13[BEAD-13 P1 live run on VPS]
+    B03 --> B14[BEAD-14 P0 fix: early-start Reason]
+    B14 --> B10
 ```
 
 **Critical path:** BEAD-02 → BEAD-06 → BEAD-07 → BEAD-08 → BEAD-09 → BEAD-10 → BEAD-11 → BEAD-12
@@ -69,6 +71,7 @@ created, and then the id the tracker answered.
 | BEAD-11 | ht-9uk | Review: quality, boundaries, secret safety | P0 | 10 |
 | BEAD-12 | ht-6rw | Tech-writer: feature nodes of the graph, SPEC.md, layer READMEs, the CLI doc | P1 | 11 |
 | BEAD-13 | ht-bl6 | Live run on the VPS by the owner's hand | P1 | 09 |
+| BEAD-14 | ht-jz5.1 | Domain: a reason for a start before the window (fix, found by BEAD-03) | P0 | 02, 03 |
 
 ## Bead Details
 
@@ -321,3 +324,20 @@ was not confirmed). The timers are enabled after the confirmation.
 - [ ] `probe` on the VPS answers with the portal version and "config valid"
 - [ ] the check-in and the check-out are confirmed by the owner outside our system
 - [ ] the timers are enabled, the first scheduled run reported to Telegram
+
+### BEAD-14: Domain: a reason for a start before the window (fix)
+
+**Priority:** P0
+**Depends on:** BEAD-02, BEAD-03
+**Blocks:** BEAD-10
+
+**What to do:**
+Found by BEAD-03: `domain/report.py` has no `Reason` for a run that started before the window,
+and `WindowedRun` returns for `Decision.SKIP_EARLY` the text "the run started after its
+window". Add the reason (for example `TOO_EARLY`) and its text in `render`, map
+`SKIP_EARLY` onto it in `application/windowed_run.py`, cover with unit tests and the notification
+text; the test "the password through every field" stays green.
+
+**Done when:**
+- [ ] a run before the window is reported as early, not late (a test on the text)
+- [ ] the core's mutation gate does not lose killed mutants (BEAD-10 will check)

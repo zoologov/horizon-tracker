@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Created:** 2026-10-20
-> **Last updated:** 2026-10-20 (after wave 1)
+> **Last updated:** 2026-10-20 (after wave 2)
 
 ---
 
@@ -94,6 +94,9 @@ Log Off, and reports every run to Telegram.
 | 2026-10-20 | `checkin_succeeded(while_open, after_disconnect)`, not `(before, after)` (BEAD-02) | the state before the check-in does not affect the check-in's success; an unused parameter is a lie in the signature |
 | 2026-10-20 | `Notifier.send(report)` without a screenshot argument; the screenshot path inside `RunReport` (BEAD-02) | one source of truth about the attachment |
 | 2026-10-20 | A parallelism override in `flow.yml` for beads of one package, with a reason and a deadline of 2026-11-20 | the graph knows the layer, not the module; after BEAD-12 the feature nodes remove the need for the override |
+| 2026-10-20 | The attempt loop and the rule "one report per run" moved to `application/windowed_run.py` (BEAD-03) | shared by the two use cases, one responsibility with a name |
+| 2026-10-20 | The screenshot travels inside the adapter's error (`HorizonClientError`) into `RunReport`; the use cases do not hold `ArtifactStore` (BEAD-03, BEAD-06) | the adapter knows when to take it; the use case does not |
+| 2026-10-20 | `Settings` masks both the username and the chat id, not only the password and the token (BEAD-04) | CONTEXT names the account and the chat id as secrets |
 
 ## Related Files
 
@@ -105,5 +108,5 @@ Log Off, and reports every run to Telegram.
 ## Current Phase
 
 - **Phase:** Development
-- **Current bead:** wave 2 — BEAD-03, BEAD-04, BEAD-05, BEAD-06
+- **Current bead:** wave 3 — BEAD-07, BEAD-14
 - **Blockers:** none
