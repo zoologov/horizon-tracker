@@ -14,3 +14,13 @@ language: ru
 # when their modules are disjoint. Each override names the disjoint files and
 # expires: by then BEAD-12 has split the layers into feature nodes and the
 # derivation can decide this itself.
+
+# Wave override (HT-003 test bead beside HT-005 workflows bead): both declare the root
+# node horizon-tracker, but ht-slm owns tests/acceptance/** and ht-5ni owns .github/**,
+# scripts/mutation.sh, .beadloom/flow.yml (mutation.targets) and tests/unit/deploy/**.
+waves:
+  overrides:
+  - beads: [ht-slm, ht-5ni]
+    decision: parallel
+    reason: "disjoint files: tests/acceptance/** (ht-slm) vs .github/**, scripts/mutation.sh, flow.yml mutation.targets, tests/unit/deploy/** (ht-5ni)"
+    until: "2026-11-20"

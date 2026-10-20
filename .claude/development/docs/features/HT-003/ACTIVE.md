@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-**Bead:** wave 4 — BEAD-05 (ht-978) deploy
+**Bead:** wave 5 — BEAD-06 (ht-slm) test; in parallel HT-005 BEAD-01 (ht-5ni) workflows
 **Goal:** the daily draw of the moments in the domain
 **Done when:** the unit tests and the core's mutants are green
 
@@ -17,7 +17,7 @@
 - [x] Wave 1: BEAD-01 (2026-10-20)
 - [x] Wave 2: BEAD-02, BEAD-03 (2026-10-20)
 - [x] Wave 3: BEAD-04 (2026-10-20)
-- [ ] Wave 4: BEAD-05
+- [x] Wave 4: BEAD-05 (2026-10-20)
 - [ ] Wave 5: BEAD-06 → BEAD-07 → BEAD-08 → BEAD-09
 
 ## Results
@@ -28,7 +28,7 @@
 | BEAD-02 | Done | ht-su5, 2a8b179: 38 tests, 615 on the tree |
 | BEAD-03 | Done | ht-4vm, 5634cb1: 51 tests; the adapter was already lazy, pinned by a test; the CLI/BDD fixtures on the new variables |
 | BEAD-04 | Done | ht-rat, a059be6: 635 tests, coverage 99 %; `--force` through `run(force=True)` keeping the moment (a window across midnight) |
-| BEAD-05 | Open | — |
+| BEAD-05 | Done | ht-978, 6ca59d1: the timers 07:30/16:30, 60 min, .env without the old windows; 644 tests; README and SPEC morning-checkin still name 07:55/17:00 → BEAD-08 |
 | BEAD-06 | Open | — |
 | BEAD-07 | Open | — |
 | BEAD-08 | Open | — |
