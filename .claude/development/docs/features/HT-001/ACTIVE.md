@@ -19,7 +19,7 @@
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
 - [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
 - [x] Wave 4: BEAD-08, BEAD-09 (landed 2026-10-20: a784433, 7d68763; 416 tests on the tree)
-- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 (review, in progress) → BEAD-12; BEAD-13 the owner
+- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 fix → BEAD-16 re-review → BEAD-12; BEAD-13 the owner
 
 ## Results
 
@@ -35,9 +35,11 @@
 | BEAD-08 | Done | ht-2h2, a784433: 4 systemd units, bootstrap.sh, RUNBOOK.md (ru); 31 tests, 389 on the tree; the bootstrap does not enable the timers — the owner enables them after BEAD-13 |
 | BEAD-09 | Done | ht-spa, 7d68763: ci.yml, deploy.yml; actionlint rc 0; 27 tests, the .env assembly checked against the systemd parser; the real Actions run and the deploy wait for BEAD-13 |
 | BEAD-10 | Done | ht-1ex, 5aff543: the 12 PRD scenarios in 6 feature files (20 cases), 442/442, coverage 96.38 %, domain mutants 111/111; the rule `scenario-coverage` in the graph; the Playwright test moved to `tests/integration/infrastructure/` |
-| BEAD-11 | Open | — |
+| BEAD-11 | Done | ht-9uk: ISSUES — 0 critical, 1 major (the coverage threshold is not checked in CI), 6 minor; 11 sabotages, each went red by name; fix → ht-jz5.2, re-review → ht-jz5.3 |
 | BEAD-12 | Open | — |
 | BEAD-13 | Open | — |
+| BEAD-15 | Open | ht-jz5.2: fix after the review (major + minors 1–5) |
+| BEAD-16 | Open | ht-jz5.3: re-review |
 | BEAD-14 | Done | ht-jz5.1, aaac43d: `Reason.TOO_EARLY`; 5 tests, 293/293 in a clean room over 4 files |
 
 ## Notes

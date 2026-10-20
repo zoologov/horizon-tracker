@@ -103,6 +103,7 @@ Log Off, and reports every run to Telegram.
 | 2026-10-20 | The bootstrap and the deploy do not enable the timers: `try-restart`, the owner enables them after the first manual run (BEAD-08, BEAD-09) | the first live check-in must be deliberate, not happen because of a deploy |
 | 2026-10-20 | The smoke test `horizon probe` in the deploy through `systemd-run --uid=horizon -p EnvironmentFile` (BEAD-09) | the CLI reads only the environment; `sudo -u` without `.env` would always fail |
 | 2026-10-20 | The deploy job runs only for `main`; the gate before it is the full `ci.yml` (BEAD-09) | a manual run from another branch must not reach the VPS; one CI file instead of two copies |
+| 2026-10-20 | The run window limits the START of an attempt, not the moment of the logon; the PRD's "5 minutes" tolerance reads that way (review ht-9uk, minor 6) | a retry started at 07:59:50 can open the desktop by 08:01:30; narrowing the window for the worst case of an attempt loses attempts for the sake of seconds |
 
 ## Related Files
 

@@ -31,7 +31,9 @@ graph TD
     B08 --> B09[BEAD-09 P1 workflows: ci + deploy]
     B09 --> B10[BEAD-10 P0 test: BDD + coverage + mutation]
     B10 --> B11[BEAD-11 P0 review]
-    B11 --> B12[BEAD-12 P1 tech-writer: SPEC + graph + docs]
+    B11 --> B15[BEAD-15 P0 fix after review]
+    B15 --> B16[BEAD-16 P0 re-review]
+    B16 --> B12[BEAD-12 P1 tech-writer: SPEC + graph + docs]
     B09 --> B13[BEAD-13 P1 live run on VPS]
     B03 --> B14[BEAD-14 P0 fix: early-start Reason]
     B14 --> B10
@@ -72,6 +74,8 @@ created, and then the id the tracker answered.
 | BEAD-12 | ht-6rw | Tech-writer: feature nodes of the graph, SPEC.md, layer READMEs, the CLI doc | P1 | 11 |
 | BEAD-13 | ht-bl6 | Live run on the VPS by the owner's hand | P1 | 09 |
 | BEAD-14 | ht-jz5.1 | Domain: a reason for a start before the window (fix, found by BEAD-03) | P0 | 02, 03 |
+| BEAD-15 | ht-jz5.2 | Fix after the review: the coverage threshold in CI and five minors | P0 | 11 |
+| BEAD-16 | ht-jz5.3 | Re-review after BEAD-15 | P0 | 15 |
 
 ## Bead Details
 
