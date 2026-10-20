@@ -1,0 +1,32 @@
+[Unit]
+Description=Horizon evening check-out: log off the DEV desktop's Windows session
+Documentation=file:///opt/horizon-tracker/deploy/RUNBOOK.md
+# The run reaches the portal, isdayoff.ru and Telegram, so it waits for a
+# configured network rather than for network.target.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# One run per firing of horizon-checkout.timer. The service, not systemd, decides
+# whether to act: outside the 17:00-17:05 window or on a non-working day it
+# reports the skip and exits 0.
+Type=oneshot
+
+# A separate system user beside the neighbouring service; the neighbour's directory is never touched.
+User=horizon
+Group=horizon
+WorkingDirectory=/opt/horizon-tracker
+
+# Written by the deploy workflow from GitHub Environment `horizon-vps`
+# (0600 horizon:horizon). Neither bootstrap.sh nor this unit writes it.
+EnvironmentFile=/opt/horizon-tracker/.env
+
+# Exit code contract (docs/services/cli.md): 1 only when the run's report is
+# FAILED, 0 for success and for every deliberate skip. So this unit is marked
+# `failed` in systemctl/journalctl exactly on a FAILED run, never on a skip.
+ExecStart=/opt/horizon-tracker/.venv/bin/horizon checkout
+
+# Upper bound on one run: the 5-minute window, the log off and its confirmation
+# and the browser's teardown, with margin. A hung Chrome is killed and
+# the unit is marked failed instead of blocking tomorrow's run.
+TimeoutStartSec=15min

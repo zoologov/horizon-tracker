@@ -1,0 +1,20 @@
+[Unit]
+Description=Fire the Horizon morning check-in at 07:55 Moscow time, every day
+
+[Timer]
+# Every day, not Mon-Fri: the working-day verdict (isdayoff.ru, falling back to
+# Mon-Fri) belongs to the service, which reports a non-working day as a skip.
+OnCalendar=*-*-* 07:55:00 Europe/Moscow
+Unit=horizon-checkin.service
+
+# Never catch up a run missed while the VPS was down: a late run is worse than
+# none, and a catch-up at boot would land outside the window anyway, where the
+# service only reports a skip.
+Persistent=no
+
+# The window is five minutes; systemd's default 1-minute accuracy would let it
+# fire up to a minute late, so ask for the second it was scheduled.
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
