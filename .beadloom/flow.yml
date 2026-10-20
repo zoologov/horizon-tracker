@@ -8,3 +8,15 @@ quality:
 - clean-code
 - tdd
 language: ru
+
+# Wave overrides (HT-001). The graph names one node per layer, so two beads
+# inside one package share a node and `beadloom waves` serialises them even
+# when their modules are disjoint. Each override names the disjoint files and
+# expires: by then BEAD-12 has split the layers into feature nodes and the
+# derivation can decide this itself.
+waves:
+  overrides:
+  - beads: [ht-0x2, ht-6sc]
+    decision: parallel
+    reason: "disjoint modules of one package: domain/schedule.py+calendar.py vs domain/session.py+report.py+ports.py; tests under tests/unit/domain/ by module"
+    until: "2026-11-20"
