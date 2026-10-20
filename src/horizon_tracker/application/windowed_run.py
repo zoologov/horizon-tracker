@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _PERFORM = frozenset({Decision.RUN, Decision.RETRY})
 _SKIP_REASON = {
     Decision.SKIP_NON_WORKING_DAY: Reason.NON_WORKING_DAY,
-    Decision.SKIP_EARLY: Reason.WINDOW_MISSED,
+    Decision.SKIP_EARLY: Reason.TOO_EARLY,
     Decision.SKIP_LATE: Reason.WINDOW_MISSED,
 }
 _FIRST_ATTEMPT = 1

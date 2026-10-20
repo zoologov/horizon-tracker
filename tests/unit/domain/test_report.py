@@ -79,6 +79,22 @@ def test_a_holiday_skip_says_it_is_a_day_off() -> None:
     assert "Причина: выходной" in render(report).splitlines()
 
 
+@pytest.mark.parametrize(
+    ("reason", "line"),
+    [
+        (Reason.TOO_EARLY, "Причина: прогон начался до своего окна"),
+        (Reason.WINDOW_MISSED, "Причина: прогон начался после своего окна"),
+    ],
+    ids=["early", "late"],
+)
+def test_a_window_skip_says_on_which_side_of_the_window_the_run_started(
+    reason: Reason, line: str
+) -> None:
+    report = dataclasses.replace(SUCCESS, outcome=Outcome.SKIPPED, reason=reason)
+
+    assert line in render(report).splitlines()
+
+
 @pytest.mark.parametrize("reason", list(Reason))
 def test_every_reason_renders_its_own_non_empty_line(reason: Reason) -> None:
     lines = [line for line in render(_failure(reason)).splitlines() if line.startswith("Причина:")]

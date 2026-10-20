@@ -164,11 +164,16 @@ def test_an_unreachable_calendar_on_a_weekend_skips_and_names_the_fallback() -> 
 
 
 @pytest.mark.parametrize(
-    "start",
-    [at(WEDNESDAY, 8, 0, 1), at(WEDNESDAY, 11, 0), at(WEDNESDAY, 7, 54, 59)],
-    ids=["a second late", "hours late", "a second early"],
+    ("start", "reason"),
+    [
+        (at(WEDNESDAY, 8, 0, 1), Reason.WINDOW_MISSED),
+        (at(WEDNESDAY, 11, 0), Reason.WINDOW_MISSED),
+        (at(WEDNESDAY, 7, 54, 59), Reason.TOO_EARLY),
+        (at(WEDNESDAY, 3, 0), Reason.TOO_EARLY),
+    ],
+    ids=["a second late", "hours late", "a second early", "hours early"],
 )
-def test_a_run_outside_its_window_is_skipped_and_reported(start: datetime) -> None:
+def test_a_run_outside_its_window_is_skipped_and_reported(start: datetime, reason: Reason) -> None:
     world = World(start)
     attempt = world.attempt(Outcome.SUCCEEDED)
 
@@ -177,8 +182,28 @@ def test_a_run_outside_its_window_is_skipped_and_reported(start: datetime) -> No
     assert attempt.made == 0
     assert world.only_report == report
     assert report.outcome is Outcome.SKIPPED
-    assert report.reason is Reason.WINDOW_MISSED
+    assert report.reason is reason
     assert report.verdict_source is VerdictSource.CALENDAR
+
+
+@pytest.mark.parametrize(
+    ("start", "said", "not_said"),
+    [
+        (at(WEDNESDAY, 7, 54, 59), "до своего окна", "после своего окна"),
+        (at(WEDNESDAY, 8, 0, 1), "после своего окна", "до своего окна"),
+    ],
+    ids=["early", "late"],
+)
+def test_the_notification_says_on_which_side_of_the_window_the_run_started(
+    start: datetime, said: str, not_said: str
+) -> None:
+    world = World(start)
+
+    world.run(world.attempt(Outcome.SUCCEEDED))
+
+    text = render(world.only_report)
+    assert said in text
+    assert not_said not in text
 
 
 # --- retries -----------------------------------------------------------------------

@@ -30,6 +30,7 @@ class Reason(StrEnum):
     """Why a run failed or was skipped; a closed vocabulary, never an exception message."""
 
     NON_WORKING_DAY = "non_working_day"
+    TOO_EARLY = "too_early"
     WINDOW_MISSED = "window_missed"
     ALREADY_LOGGED_OFF = "already_logged_off"
     PORTAL_UNREACHABLE = "portal_unreachable"
@@ -56,6 +57,7 @@ _SOURCE_TEXT = {
 
 _REASON_TEXT = {
     Reason.NON_WORKING_DAY: "выходной",
+    Reason.TOO_EARLY: "прогон начался до своего окна",
     Reason.WINDOW_MISSED: "прогон начался после своего окна",
     Reason.ALREADY_LOGGED_OFF: "сессии на столе уже нет, выходить не из чего",
     Reason.PORTAL_UNREACHABLE: "портал Horizon недоступен",
