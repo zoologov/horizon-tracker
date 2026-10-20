@@ -1035,6 +1035,33 @@ def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
     assert portal.state.session == "none"
 
 
+def test_a_log_off_is_photographed_only_once_the_broker_has_ended_the_session(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The client hides "Log Off" on OK, so the page looks logged off before the broker
+    # agrees; a broker that ends the session two lists later tells a photograph taken
+    # after the confirmation from one taken right after the click.
+    portal.state.session = "disconnected"
+    portal.state.logoff_lag_lists = 2
+    broker_at_photo: list[str] = []
+    real_screenshot = Page.screenshot
+
+    def spy(page: Page, *args: Any, **kwargs: Any) -> bytes:
+        broker_at_photo.append(portal.state.session)
+        return real_screenshot(page, *args, **kwargs)
+
+    monkeypatch.setattr(Page, "screenshot", spy)
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    shot = client.log_off(DESKTOP)
+
+    assert shot is not None
+    assert broker_at_photo == ["none"]
+
+
 def test_no_success_screenshot_is_taken_once_the_page_fell_back_to_the_login_page(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,

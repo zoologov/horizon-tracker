@@ -1,8 +1,11 @@
 """Tests for the evening check-out: log off, confirm the session ended, one report."""
 
+from collections.abc import Callable
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from horizon_tracker.application.checkout import EveningCheckout
 from horizon_tracker.application.windowed_run import WindowedRun
@@ -201,6 +204,34 @@ def test_a_log_off_whose_confirmation_was_lost_counts_on_the_retry() -> None:
     assert evening.client.calls == [*ONE_CHECKOUT, "login", "desktop_status"]
     assert evening.only_report == report
     assert report.outcome is Outcome.SUCCEEDED
+
+
+def _log_off_not_confirmed(client: FakeHorizonClient) -> None:
+    """The log off takes effect, then the client answers with its failure screenshot."""
+    client.lose_on("log_off", HorizonClientError(Reason.LOGOFF_NOT_CONFIRMED, SHOT))
+
+
+def _read_after_log_off_fails(client: FakeHorizonClient) -> None:
+    """The log off answers with its photo, then the read that would confirm it fails."""
+    client.fail_on("desktop_status", HorizonClientError(Reason.UNEXPECTED), after=1)
+
+
+@pytest.mark.parametrize("lose", [_log_off_not_confirmed, _read_after_log_off_fails])
+def test_a_checkout_confirmed_only_on_the_retry_reports_no_screenshot(
+    lose: Callable[[FakeHorizonClient], None],
+) -> None:
+    # The first log off went through and its attempt was not confirmed: the retry finds
+    # no session and calls no log off, so no photo of the list is taken. Neither the
+    # photo of the lost attempt nor its failure screenshot is carried into the success.
+    evening = Evening()
+    evening.client.success_screenshot = LIST
+    lose(evening.client)
+
+    report = evening.run()
+
+    assert evening.client.calls.count("log_off") == 1
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot is None
 
 
 def test_a_failed_log_off_reports_its_reason_and_screenshot() -> None:

@@ -12,6 +12,9 @@ from pathlib import Path
 from horizon_tracker.domain.report import RunReport
 from horizon_tracker.domain.session import DesktopStatus, SessionState
 
+# The port methods that change the desktop's state, so a lost confirmation means something.
+_EFFECTFUL = frozenset({"open_desktop", "disconnect", "log_off"})
+
 
 @dataclass
 class FakeClock:
@@ -55,7 +58,9 @@ class FakeHorizonClient:
     """One desktop behind a broker: open connects, disconnect detaches, log off ends.
 
     ``calls`` records each port call by method name. ``fail_on(method, error)`` queues
-    an exception that a later call of ``method`` raises before it has any effect.
+    an exception that a later call of ``method`` raises before it has any effect;
+    ``lose_on(method, error)`` one that it raises after its effect, as a step that went
+    through and whose confirmation was lost.
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
     a broker that does not do what it was asked; ``bundles`` are the client bundles the
     portal names and ``browser`` the version the Chrome binary reports. ``success_screenshot``
@@ -76,10 +81,22 @@ class FakeHorizonClient:
     calls: list[str] = field(default_factory=list)
     called_at: list[datetime] = field(default_factory=list)
     _script: dict[str, list[Exception | None]] = field(default_factory=dict)
+    _lost: dict[str, list[Exception]] = field(default_factory=dict)
 
     def fail_on(self, method: str, error: Exception, *, times: int = 1, after: int = 0) -> None:
         """Let the next ``after`` calls of ``method`` pass, then raise ``error`` ``times`` times."""
         self._script.setdefault(method, []).extend([None] * after + [error] * times)
+
+    def lose_on(self, method: str, error: Exception, *, times: int = 1) -> None:
+        """Let the next ``times`` calls of ``method`` take effect, then raise ``error``."""
+        if method not in _EFFECTFUL:
+            raise ValueError(f"{method} has no effect to lose the confirmation of")
+        self._lost.setdefault(method, []).extend([error] * times)
+
+    def _leave(self, method: str) -> None:
+        queued = self._lost.get(method)
+        if queued:
+            raise queued.pop(0)
 
     def _enter(self, method: str, name: str | None = None) -> None:
         self.calls.append(method)
@@ -104,6 +121,7 @@ class FakeHorizonClient:
         self._enter("open_desktop", name)
         if self.open_connects:
             self.state = SessionState.CONNECTED
+        self._leave("open_desktop")
         return self.success_screenshot
 
     def disconnect(self) -> None:
@@ -114,11 +132,13 @@ class FakeHorizonClient:
                 if self.disconnect_keeps_session
                 else SessionState.NO_SESSION
             )
+        self._leave("disconnect")
 
     def log_off(self, name: str) -> Path | None:
         self._enter("log_off", name)
         if self.log_off_takes_effect:
             self.state = SessionState.NO_SESSION
+        self._leave("log_off")
         return self.success_screenshot
 
     def client_bundles(self) -> tuple[str, ...]:
