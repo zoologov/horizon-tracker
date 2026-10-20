@@ -7,22 +7,22 @@
 
 ## Current Bead
 
-**Bead:** BEAD-02 (ht-owz) — the use cases carry the success screenshot into the RunReport
-**Goal:** the path from `open_desktop`/`log_off` reaches the report and the notification
-**Done when:** the use case unit tests are green and bite, mypy is clean
+**Bead:** BEAD-03 (ht-bm9) test — the three PRD scenarios instead of the stubs
+**Goal:** `screenshot_preview.feature` passes with real steps through the fake client (`success_screenshot`)
+**Done when:** the three scenarios are green and bite, no SKIP stubs, coverage ≥ 98 %
 
 ## Progress
 
 - [x] The documents are approved by the owner's standing decision (2026-10-20); the beads are created, parent ht-2r9
-- [x] BEAD-01 (2026-10-20)
-- [ ] BEAD-02 → BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06
+- [x] BEAD-01, BEAD-02 (2026-10-20)
+- [ ] BEAD-03 → BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06
 
 ## Results
 
 | Bead | Status | Details |
 |------|--------|---------|
 | BEAD-01 | Done | ht-ah3, b2b3c23: the port and the adapter return `Path | None`; 8 tests, 7 sabotages bite; `success_settle_ms` 2 s; a failure writing the screenshot → `HorizonClientError` without a screenshot; two lines in the layer READMEs; the «page already closed» line is not covered |
-| BEAD-02 | Open | — |
+| BEAD-02 | Done | ht-owz, f9505e9: `checkin`/`checkout` put the path on `AttemptResult.screenshot` only on success; the chain beyond it was already there (WindowedRun → RunReport → a photo with a caption); 9 tests, 6 sabotages bite; 767 passed / 7 skipped, coverage 98.8 %; the SPEC of morning-checkin/evening-checkout/run-report and the application README updated |
 | BEAD-03 | Open | — |
 | BEAD-04 | Open | — |
 | BEAD-05 | Open | — |
@@ -32,5 +32,7 @@
 
 - BEAD-01 waited for ht-slm and ht-5ni so as not to share the adapter and test files with their waves.
 - A gap in BEAD-01: no test that the log off photo is taken after the confirmation, not before — only the code holds the order; BEAD-03 (ht-bm9) must close it.
-- BEAD-01 went into PR #3 together with HT-003/HT-005 (one branch): the adapter hands out the path, the use cases do not read it yet — the behaviour does not change.
+- BEAD-02 decision: if the log off worked but the confirmation was lost, the retry finds no session and ends in success without a photo — the photo of the first attempt is not carried over (so in the SPEC; not pinned by a test — BEAD-03 may pin it).
+- For BEAD-05 (tech-writer): the telegram-notifier SPEC line «A failure carries its screenshot» is incomplete — a success carries one too; check the windowed-run SPEC.
+- BEAD-01 and BEAD-02 went into PR #3 together with HT-003/HT-005 (one branch): the adapter hands out the path, the use cases do not read it yet — the behaviour does not change.
 - The three PRD scenarios lie in the suite as explicit SKIPs with a reason (`screenshot_preview.feature`); BEAD-03 (ht-bm9) replaces the stubs.
