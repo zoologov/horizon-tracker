@@ -12,7 +12,7 @@ composition root.
 | `cli` | service | `src/horizon_tracker/cli.py` | the `horizon` command; wires adapters into use cases |
 | `infrastructure` | adapters | `src/horizon_tracker/infrastructure/` | Playwright driver for Horizon HTML Access, isdayoff.ru calendar, Telegram notifier, env config, system clock, artifact directory |
 | `application` | application | `src/horizon_tracker/application/` | the shared run loop, the morning check-in, the evening check-out, the probe and the dry run |
-| `domain` | domain | `src/horizon_tracker/domain/` | schedule windows, working-day verdicts, session state, the run report, ports |
+| `domain` | domain | `src/horizon_tracker/domain/` | the daily draw of the check-in and check-out moments, the run windows built from them, working-day verdicts, session state, the run report, ports |
 
 ## Dependency direction
 
@@ -58,17 +58,23 @@ the dependencies below are the imports the reindex derives, not authored edges.
 
 ## The two paths through the code
 
-A scheduled run: the systemd timer starts `horizon checkin` or `horizon checkout` →
-`cli` reads `Settings` and builds the adapters → `MorningCheckin` or `EveningCheckout`
-hands its attempt to `WindowedRun` → `WindowedRun` asks the calendar once, lets
-`decide()` rule on each attempt, retries failures inside the window and sends one
-`RunReport` through the `Notifier`.
+A scheduled run: the systemd timer starts `horizon checkin` or `horizon checkout` at
+the start of its range (`HT_CHECKIN_RANGE` or `HT_CHECKOUT_RANGE`) → `cli` reads
+`Settings`, builds the adapters and draws today's moments with `draw_moments()` → it
+builds the run's window with `window_from()` from the run's own moment → `MorningCheckin`
+or `EveningCheckout` hands its attempt to `WindowedRun` → `WindowedRun` asks the
+calendar once, sleeps through `Clock.sleep` until the drawn moment, lets `decide()` rule
+on each attempt, retries failures inside the window and sends one `RunReport` through
+the `Notifier`. The report names the drawn moment beside the actual time.
 
 A check without logging in: `horizon probe` asks the portal for its client bundles
 (`HorizonClient.client_bundles()`), the calendar for today, and Chrome, once found at
-its path, for its version (`HorizonClient.browser_version()`). `--dry-run` plans the
-use case from `WindowedRun.first_decision()` and the steps of the use case and the
-loop, and calls nothing on the Horizon client.
+its path, for its version (`HorizonClient.browser_version()`), and names the day's
+drawn moments last. `--dry-run` plans the use case from `WindowedRun.first_decision()`
+and the steps of the use case and the loop, names the same moments and the one the run
+would wait until, and calls nothing on the Horizon client. The probe, a dry run and
+both runs of one date draw the same pair, because the draw depends only on the date and
+the seed.
 
 ## Source
 

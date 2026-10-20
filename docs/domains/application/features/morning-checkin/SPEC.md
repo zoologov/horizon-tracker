@@ -11,14 +11,15 @@ logging off and confirms the session runs on.
 
 ### Purpose
 
-At 07:55 Moscow time the accounting system must see a Windows logon on the VM. A
-portal login is not enough: the desktop has to be opened over Blast and drawn. Then
+At the day's drawn check-in moment (inside `HT_CHECKIN_RANGE`, default 07:30-08:10) the
+accounting system must see a Windows logon on the VM. A portal login is not enough: the desktop has to be opened over Blast and drawn. Then
 the client lets go and leaves the Windows session running until the evening check-out.
 
 ### How it works
 
 `MorningCheckin.run(force=...)` hands one attempt to `WindowedRun.run(RunKind.CHECKIN,
-...)`. One attempt:
+...)`. The run loop waits for the drawn moment and decides each attempt (see the
+[windowed run](../windowed-run/SPEC.md)). One attempt:
 
 1. `client.login()`;
 2. `client.open_desktop(desktop)`, which returns once Blast is connected and the
@@ -70,7 +71,8 @@ Scenarios (`tests/acceptance/features/morning_checkin.feature`):
 - `Morning check-in reports success with the recorded time`
 
 The retry and calendar scenarios in `window_and_retries.feature` and
-`production_calendar.feature` run the check-in as well.
+`production_calendar.feature`, and the drawn-moment scenarios in
+`randomised_moments.feature`, run the check-in as well.
 
 ## Dependencies
 

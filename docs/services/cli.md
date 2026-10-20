@@ -14,7 +14,7 @@ factory through click's context object and drive the commands with `CliRunner`.
 |---------|--------------|-----------|
 | `horizon checkin [--dry-run] [--force]` | the morning check-in: open the desktop, hold it until Windows logs on, then disconnect | 1 only when the run's report is FAILED; 0 for success and for every deliberate skip |
 | `horizon checkout [--dry-run] [--force]` | the evening check-out: log the desktop's Windows session off and confirm it ended | same rule |
-| `horizon probe` | check the settings, the portal (the HTML Access client bundles it serves, no login), the calendar, and Chrome (found at `HT_CHROME_PATH`, started headless, its version named) | 1 if the portal or Chrome check FAILED; an unreachable calendar is DEGRADED and keeps 0 |
+| `horizon probe` | check the settings, the portal (the HTML Access client bundles it serves, no login), the calendar, and Chrome (found at `HT_CHROME_PATH`, started headless, its version named); name today's drawn moments last | 1 if the portal or Chrome check FAILED; an unreachable calendar is DEGRADED and keeps 0 |
 | `horizon --version`, `horizon --help` | version; the three commands | 0 |
 
 Each run draws today's moments first: `draw_moments` over today's date (the clock's,
@@ -100,14 +100,14 @@ the retries and the one Telegram report.
 | `HORIZON_USERNAME`, `HORIZON_PASSWORD` | the AD account (secret; masked in every repr and log) |
 | `HORIZON_DESKTOP` | the launch item's title, e.g. `DEV desktop` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | the the notification bot bot token and the owner's chat (secret) |
-| `HT_TIMEZONE` | `Europe/Moscow` |
+| `HT_TIMEZONE` | the IANA zone of every wall time: the ranges, the drawn moments and the report, default `Europe/Moscow` |
 | `HT_CHECKIN_RANGE` | `HH:MM-HH:MM` the check-in moment is drawn from, default `07:30-08:10`; the check-in timer fires at its start |
 | `HT_CHECKOUT_RANGE` | `HH:MM-HH:MM` the check-out moment is clipped to, default `16:30-17:10`; the check-out timer fires at its start |
 | `HT_SESSION_LENGTH_MINUTES` | the check-out moment is at least this long after the check-in one when the range allows, default `540` |
 | `HT_SESSION_EXTRA_MAX_MINUTES` | up to this many minutes drawn on top of the session, default `10` |
 | `HT_WINDOW_GRACE_MINUTES` | how long a run's window stays open from its moment, default `5` |
 | `HT_JITTER_SEED` | optional seed of the daily draw (masked in every repr, never printed); unset or blank: `HORIZON_USERNAME` in UTF-8 |
-| `HT_HOLD_SECONDS` | how long the opened desktop is held in the morning |
+| `HT_HOLD_SECONDS` | how long the opened desktop is held in the morning, default `120` |
 | `HT_CHROME_PATH` | the Chrome binary, `/usr/bin/google-chrome` on the VPS |
 | `HT_ARTIFACTS_DIR` | where screenshots are written and pruned (older than 14 days) |
 

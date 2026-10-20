@@ -1,7 +1,8 @@
 # Windowed run
 
-The run loop both use cases share: asks the calendar once, decides each attempt,
-retries failures inside the window and sends exactly one report.
+The run loop both use cases share: asks the calendar once, waits for the day's drawn
+moment, decides each attempt, retries failures inside the window and sends exactly one
+report.
 
 ## Source
 
@@ -12,8 +13,9 @@ retries failures inside the window and sends exactly one report.
 ### Purpose
 
 The check-in and the check-out differ only in what one attempt does. Everything around
-the attempt is the same: whether today is a working day, whether the window allows an
-attempt now, how failures are retried, and the single report at the end. `WindowedRun`
+the attempt is the same: whether today is a working day, the wait for the drawn
+moment, whether the window allows an attempt now, how failures are retried, and the
+single report at the end. `WindowedRun`
 holds that shared part once. The dry run reads it rather than copying it.
 
 ### How it works
@@ -22,22 +24,29 @@ holds that shared part once. The dry run reads it rather than copying it.
 
 1. Asks the `WorkingDayCalendar` once for today (the date of `Clock.now()`) and turns
    the answer into a verdict with `resolve()`. A forced run asks no calendar.
-2. Asks `decide()` what attempt 1 should do. While the decision is `RUN` or `RETRY`,
+2. Waits for the drawn moment. The systemd timer fires at `range_start`, the start of
+   the range the moment was drawn from. On a working day, a run started at
+   `range_start <= now < moment` sleeps once through `Clock.sleep` until `moment`, where
+   its window opens. A run started before `range_start` or at or after `moment`, a
+   non-working day and a forced run do not wait.
+3. Asks `decide()` what attempt 1 should do. While the decision is `RUN` or `RETRY`,
    it calls `attempt()`:
    - `SUCCEEDED` or `SKIPPED` ends the run with that result;
    - `FAILED` is kept as the last failure. The next attempt number is decided; if it
      may go ahead, the loop waits `policy.backoff` through `Clock.sleep` and decides
      again, because the window may have closed during the wait.
-3. When the loop stops, the result is the last failure if an attempt was made, and
+4. When the loop stops, the result is the last failure if an attempt was made, and
    otherwise a `SKIPPED` result whose reason maps the decision: `SKIP_NON_WORKING_DAY`
    → `NON_WORKING_DAY`, `SKIP_EARLY` → `TOO_EARLY`, `SKIP_LATE` → `WINDOW_MISSED`.
-4. Builds one `RunReport`, logs its outcome, sends it through the `Notifier` and
-   returns it.
+5. Builds one `RunReport`, logs its outcome, sends it through the `Notifier` and
+   returns it. The report's `planned_at` is the drawn moment the run was due at, set
+   whether or not the run reached its window, and `None` for a forced run.
 
 A failed attempt is retried while the window and the policy allow. Once they do not,
 the run reports the last failure rather than a skip, because the attempt was made. The
-window bounds the start of an attempt, not its end: an attempt started at 07:59:45 may
-finish after 08:00.
+window bounds the start of an attempt, not its end: an attempt started 15 seconds
+before the window closes may finish after it has closed. Its retry, due after the
+backoff, then falls outside the window and is not made.
 
 An attempt that raises `HorizonClientError` becomes a `FAILED` result with the error's
 reason and screenshot. Any other exception becomes a `FAILED` result with
@@ -47,18 +56,23 @@ traceback frames and leaves the message out, because an adapter's exception text
 quote what it typed.
 
 A `--force` run treats the day as a working day and the whole day (`00:00` to
-`23:59:59.999999`) as its window. Its report names no calendar source
-(`verdict_source` is `None`). There the attempt count is the bound.
+`23:59:59.999999`) as its window, and waits for no moment. Its report names no calendar
+source (`verdict_source` is `None`) and no planned moment (`planned_at` is `None`).
+There the attempt count is the bound.
 
 `first_decision(*, force=False)` returns the decision `run` would take on its first
-attempt now, with the time and the calendar source. It makes no attempt and sends
-nothing, but it does ask the calendar unless the run is forced. `steps()` names what the
+attempt, with the time it was asked, the calendar source and the moment the run would
+first wait until. When the run would wait, the decision is the one taken at that
+moment. It never sleeps, makes no attempt and sends nothing, but it does ask the
+calendar unless the run is forced. `steps()` names what the
 loop adds around the attempts, in the owner's words. The dry run in `probe.py` prints
 both.
 
 ## Invariants
 
 - Exactly one report is sent per `run()`, whatever the run came to.
+- A run sleeps for its moment at most once, before its first attempt. A forced run and a
+  non-working day never wait.
 - The calendar is asked at most once per run, and never for a forced run.
 - No attempt starts outside the window: every attempt, including a retry after the
   backoff, is decided by `decide()` immediately before it is made.
@@ -97,8 +111,11 @@ Module `src/horizon_tracker/application/windowed_run.py`:
   `0.5`); `checkin.py` uses it in its step list as well.
 
 The CLI builds one `WindowedRun` per command with `RETRY_POLICY` (3 attempts, 30 s
-apart) and the window of the run kind; it passes no moment yet (HT-003 BEAD-04 wires the
-drawn moment, `window_from` and the range start).
+apart), the day's drawn moment of the run kind, `window=window_from(moment,
+settings.window_grace)` and `range_start` set to the start of `HT_CHECKIN_RANGE` or
+`HT_CHECKOUT_RANGE`. It always passes the moment, so the mode without a moment is used
+only by tests. A `--force` run keeps the drawn moment and is told to ignore it by
+`run(force=True)`.
 
 ## Testing
 
@@ -110,6 +127,9 @@ Scenarios:
 - `tests/acceptance/features/window_and_retries.feature`:
   - `A failed attempt is retried inside the window`
   - `A run that starts after its window is skipped and reported`
+- `tests/acceptance/features/randomised_moments.feature`:
+  - `A run started at the range start waits until its drawn moment before the first attempt`
+  - `A dry run names the drawn moment of the day`
 - `tests/acceptance/features/production_calendar.feature`:
   - `A day the calendar marks as a holiday is skipped with a notice`
   - `When the calendar is unreachable the weekday rule decides and says so`

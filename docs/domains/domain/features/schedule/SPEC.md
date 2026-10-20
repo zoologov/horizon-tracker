@@ -1,7 +1,8 @@
 # Schedule
 
-Decides whether a run attempt may go ahead now: run, retry or skip, given its window,
-the working-day verdict and the retry policy.
+Draws each day's check-in and check-out moments, builds a run's window from its moment,
+and decides whether a run attempt may go ahead now: run, retry or skip, given its
+window, the working-day verdict and the retry policy.
 
 ## Source
 
@@ -11,12 +12,35 @@ the working-day verdict and the retry policy.
 
 ### Purpose
 
-Each daily run has a window of local wall time: 07:55-08:00 for the check-in and
-17:00-17:05 for the check-out. This module holds the one rule that says what attempt
-number N should do at a given moment, so the run loop never decides by itself and the
-rule is tested without a clock, a browser or a network.
+Each working day has its own check-in and check-out moment, drawn from configured
+ranges of local wall time, so the runs do not happen at the same minute every day. A
+run's window opens at its moment and closes after a grace. This module holds the draw,
+the window built from a moment, and the one rule that says what attempt number N should
+do at a given moment. The run loop never decides by itself, and every part is tested
+without a clock, a browser or a network.
 
-### How it works
+### The daily draw
+
+`draw_moments(day, seed, checkin_range, session_length, extra_max, checkout_range)`
+computes `hmac-sha256(seed, day.isoformat())` and reads two 32-bit words of the digest:
+
+1. the check-in is `checkin_range.start` plus `word1 % (range minutes + 1)` minutes, so
+   any minute of the range, both ends included, can be drawn;
+2. the extra minutes are `word2 % (extra_max minutes + 1)`;
+3. the check-out is the check-in plus `session_length` plus the extra minutes, raised to
+   `checkout_range.start` if it falls before it and lowered to `checkout_range.end` if it
+   falls after it.
+
+The draw is a pure function of the date and the seed. The morning and the evening run,
+the probe and a dry run of the same date therefore name the same pair without sharing
+any state. With the deployed defaults (check-in 07:30-08:10, session 540 minutes, up to
+10 extra minutes, check-out 16:30-17:10) the check-out falls 540 to 550 minutes after
+the check-in, and it is clipped to 17:10 when the sum would pass the end of the range.
+
+`window_from(moment, grace)` is the window of a run due at `moment`: it opens at the
+moment and closes `grace` later.
+
+### How an attempt is decided
 
 `decide(now, window, verdict, attempt, policy)` applies a fixed precedence:
 
@@ -27,7 +51,8 @@ rule is tested without a clock, a browser or a network.
 5. otherwise the first attempt runs (`RUN`) and every later one retries (`RETRY`).
 
 `now` is read as wall time (`now.time()`) in the zone the `Clock` port hands out, which
-is Europe/Moscow in production. The domain never reads a clock: time is an argument.
+is the zone configured by `HT_TIMEZONE`. The domain never reads a clock: time is an
+argument.
 
 `FIRST_ATTEMPT` (1) is public, so the run loop in `application/windowed_run.py` counts
 attempts from this constant rather than from a copy of it.
@@ -40,6 +65,13 @@ attempts from this constant rather than from a copy of it.
 - An attempt number below `FIRST_ATTEMPT` raises `ValueError`.
 - An attempt outside the window is skipped and never performed late.
 - A non-working day takes precedence over every other rule.
+- The same date and seed always draw the same `DailyMoments`.
+- A drawn check-in lies inside `checkin_range` and a drawn check-out inside
+  `checkout_range`, both ends included.
+- The check-out is at least `session_length` after the check-in whenever the end of
+  `checkout_range` allows it.
+- Both drawn moments and both ends of a `TimeRange` are whole minutes.
+- The draw refuses a check-out range that does not start after the check-in range ends.
 
 ## API
 
@@ -74,13 +106,21 @@ Module `src/horizon_tracker/domain/schedule.py`:
 
 ## Testing
 
-Tests: `tests/unit/domain/test_schedule.py`. The module is inside the mutation gate
-(`scripts/mutation.sh`, `[tool.mutmut]` in `pyproject.toml`).
+Tests: `tests/unit/domain/test_schedule.py`, `tests/unit/domain/test_moments.py`. The
+module is inside the mutation gate (`scripts/mutation.sh`, `[tool.mutmut]` in
+`pyproject.toml`).
 
-Scenarios (`tests/acceptance/features/window_and_retries.feature`):
+Scenarios:
 
-- `A failed attempt is retried inside the window`
-- `A run that starts after its window is skipped and reported`
+- `tests/acceptance/features/window_and_retries.feature`:
+  - `A failed attempt is retried inside the window`
+  - `A run that starts after its window is skipped and reported`
+- `tests/acceptance/features/randomised_moments.feature`:
+  - `The check-in moment of a working day lies inside the check-in range`
+  - `Two different days draw different check-in moments`
+  - `The check-out moment is nine hours plus up to ten minutes after the check-in`
+  - `A check-out past the end of its range is clipped to the end`
+  - `The same date gives the same drawn moments in two separate runs`
 
 ## Dependencies
 

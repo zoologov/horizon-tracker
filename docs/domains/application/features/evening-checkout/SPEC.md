@@ -11,14 +11,16 @@ desktop with no session is reported as already logged off.
 
 ### Purpose
 
-At 17:00 Moscow time the accounting system must see the Windows logoff on the VM. The
-check-out ends the session that the morning check-in left running, and confirms the
+At the day's drawn check-out moment (the check-in plus `HT_SESSION_LENGTH_MINUTES` and
+up to `HT_SESSION_EXTRA_MAX_MINUTES`, clipped into `HT_CHECKOUT_RANGE`, default
+16:30-17:10) the accounting system must see the Windows logoff on the VM. The check-out ends the session that the morning check-in left running, and confirms the
 end by the session state rather than by the click.
 
 ### How it works
 
 `EveningCheckout.run(force=...)` creates one `_CheckoutAttempt` for the run and hands
-it to `WindowedRun.run(RunKind.CHECKOUT, ...)`. One attempt:
+it to `WindowedRun.run(RunKind.CHECKOUT, ...)`. The run loop waits for the drawn moment
+and decides each attempt (see the [windowed run](../windowed-run/SPEC.md)). One attempt:
 
 1. `client.login()`, then reads the desktop's session state;
 2. on the run's first attempt, keeps that state as the state the run first saw;
@@ -66,6 +68,8 @@ Scenarios (`tests/acceptance/features/evening_checkout.feature`):
 
 - `Evening check-out logs the desktop off`
 - `Evening check-out on an already logged-off desktop reports it and stops`
+
+The drawn-moment scenarios in `randomised_moments.feature` run the check-out as well.
 
 ## Dependencies
 

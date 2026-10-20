@@ -1,8 +1,8 @@
 # Probe and dry run
 
 Checks whether the service could run, without ever logging in: `Probe` asks the portal
-for its client bundles, the calendar for today and Chrome for its version; `DryRun`
-plans the run a use case would make.
+for its client bundles, the calendar for today and Chrome for its version, and names the
+day's drawn moments; `DryRun` plans the run a use case would make.
 
 ## Source
 
@@ -26,6 +26,7 @@ The probe asks each dependency the one question it can answer without credential
 | `portal` | which HTML Access client bundles does the portal serve? (`HorizonClient.client_bundles()`) | `client bundles: <names>` | `failed`, `no answer: <reason>` |
 | `calendar` | is today a working day? (`WorkingDayCalendar.is_working_day`) | `isdayoff.ru: <date> is a working day` or `... is a day off` | `degraded`, `isdayoff.ru did not answer for <date>; runs fall back to the Mon-Fri rule` |
 | `chrome` | is Chrome at the configured path, and does it start? (`file_exists`, then `HorizonClient.browser_version()`) | `Chrome <version> started from <path>` | `failed`, `not found at <path>` or `found at <path> but did not start: <reason>` |
+| `schedule` | when do today's runs fall? (the `moments` the probe is given) | `today HH:MM / HH:MM`, the check-in and the check-out moment | never anything but `ok` |
 
 The probe reads no portal version. It names the bundle files as the portal serves them in
 `index.html` and parses nothing out of them, and it names the version the started Chrome
@@ -42,16 +43,25 @@ system libraries) is named separately from a missing one.
 An unreachable calendar degrades the probe rather than failing it, because a run falls
 back to the Monday-Friday rule. `ProbeReport.ok` is true unless a check `FAILED`.
 
+The `schedule` check is a fact to read, not a dependency's health, so it is always `ok`.
+It comes last and only when the probe is given the day's moments. The composition root
+draws them with the same `draw_moments` call a run makes today, so the owner can compare
+the probe's line with the day's runs. The CLI prints it without a status:
+`schedule: today 07:38 / 16:39`.
+
 ### How the dry run works
 
-`DryRun(use_case).plan(force=...)` plans the very use case a run would execute:
+`DryRun(use_case, moments).plan(force=...)` plans the very use case a run would execute:
 
 - the decision is `use_case.runner.first_decision(force=...)`, the decision the run
-  loop would take on its first attempt now (this asks the calendar unless forced);
-- the steps are `use_case.steps()` followed by `use_case.runner.steps()`.
+  loop would take on its first attempt: now, or at the drawn moment when the run would
+  wait for it first (this asks the calendar unless forced);
+- the steps are `use_case.steps()` followed by `use_case.runner.steps()`;
+- `waits_until` is the drawn moment a run started now would sleep until first, taken from
+  the same `first_decision`, and `moments` is the day's drawn pair the dry run was given.
 
-Neither is restated in this module, so a plan cannot describe a run that no longer
-exists. The dry run calls nothing on the Horizon client, so it cannot log in.
+Neither the decision nor the steps are restated in this module, so a plan cannot
+describe a run that no longer exists. The dry run calls nothing on the Horizon client, so it cannot log in.
 
 The settings are validated before either object is built: the composition root
 creates a probe or a dry run only for a configuration `Settings.from_env` accepted.
@@ -63,6 +73,8 @@ creates a probe or a dry run only for a configuration `Settings.from_env` accept
 - The probe runs every check once, whatever the others answered.
 - The probe starts Chrome only after the file was found at the configured path.
 - A degraded calendar never makes the probe fail.
+- The probe and the dry run never draw the moments themselves: they name the pair the
+  composition root drew, so they cannot disagree with a run of the same day.
 - The dry run sends no report and reads its decision and steps from the use case and its
   run loop.
 
@@ -102,6 +114,12 @@ Scenarios (`tests/acceptance/features/checks_without_login.feature`):
 
 - `Probe reports the portal version without logging in`
 - `A dry run walks the plan and performs no login`
+
+Scenarios that read the `schedule:` line (`tests/acceptance/features/randomised_moments.feature`):
+
+- `The check-out moment is nine hours plus up to ten minutes after the check-in`
+- `The same date gives the same drawn moments in two separate runs`
+- `A dry run names the drawn moment of the day`
 
 ## Dependencies
 

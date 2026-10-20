@@ -18,23 +18,28 @@ a credential. A value with no free-text field gives both properties by construct
 ### How it works
 
 `RunReport` holds the run kind, an `Outcome`, an aware `datetime`, the `VerdictSource`
-(or `None` for a `--force` run, which asks no calendar), a `Reason` and an optional
-screenshot `Path`. `__post_init__` checks the type of every field and refuses a value
+(or `None` for a `--force` run, which asks no calendar), a `Reason`, an optional
+screenshot `Path` and `planned_at`, the drawn moment the run was due at. `planned_at`
+is set for every scheduled run, whether or not it reached its window: a skip on a day
+off or a run started after its window names its moment as well. Only a `--force` run
+leaves it `None`. `__post_init__` checks the type of every field and refuses a value
 of the wrong type with `TypeError`, rather than trusting the caller.
 
 `render(report)` builds the message text from fixed Russian phrases:
 
 ```text
 Check-in failed
-Time: 21.10.2026 07:55:00 MSK
+Time: 21.10.2026 07:39:12 MSK, planned for 07:38
 Calendar: the isdayoff.ru production calendar
 Reason: the desktop did not open
 ```
 
 The first line is the run kind (`Check-in` or `Check-out`) and the outcome (`succeeded`,
-`failed`, `skipped`). The calendar line names the source: the isdayoff.ru
-calendar, the Monday-Friday fallback, or "not asked, manual run --force". The
-reason line is present only when there is a reason. The screenshot never appears in
+`failed`, `skipped`). The time line carries the actual time with the abbreviation
+of the configured zone (`MSK` for the default `Europe/Moscow`), followed by
+`planned for HH:MM` when `planned_at` is set. The calendar line names the source: the
+isdayoff.ru calendar, the Monday-Friday fallback, or "not asked, manual run
+--force". The reason line is present only when there is a reason. The screenshot never appears in
 the text: the notifier attaches it beside the text.
 
 ## Invariants
@@ -56,8 +61,9 @@ Module `src/horizon_tracker/domain/report.py`:
   `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `UNEXPECTED`.
 - `RunReport(kind, outcome, at, verdict_source, reason=None, screenshot=None,
   planned_at=None)` — frozen; validated at construction as described above.
-  `planned_at: time | None` is the drawn moment the run waited for; any other type is
-  refused with `TypeError`.
+  `planned_at: time | None` is the drawn moment the run was due at, local wall time,
+  set whether or not the run reached its window. It is `None` for a `--force` run. A
+  value of any other type is refused with `TypeError`.
 - `render(report: RunReport) -> str` — the notification text; when `planned_at` is
   set, the time line carries it beside the actual time:
   `Time: 20.10.2026 07:56:12 MSK, planned for 07:43`.
