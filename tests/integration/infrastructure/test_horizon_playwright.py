@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext
+from playwright.sync_api import Browser, BrowserContext, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
@@ -473,7 +473,7 @@ class Starts:
 @pytest.fixture
 def starts(monkeypatch: pytest.MonkeyPatch) -> Starts:
     counted = Starts()
-    real_driver = horizon_playwright.sync_playwright
+    real_driver = sync_playwright  # the object the adapter imports; mypy sees no re-export
     real_launch = PlaywrightHorizonClient._launch
 
     def driver() -> object:

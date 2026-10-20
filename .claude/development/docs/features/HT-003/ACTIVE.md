@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-**Bead:** wave 5 — BEAD-06 (ht-slm) test; in parallel HT-005 BEAD-01 (ht-5ni) workflows
+**Bead:** BEAD-07 (ht-evj) review; in parallel HT-005 BEAD-02 (ht-kc1) review
 **Goal:** the daily draw of the moments in the domain
 **Done when:** the unit tests and the core's mutants are green
 
