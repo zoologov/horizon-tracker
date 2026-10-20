@@ -1,7 +1,7 @@
 # BRIEF: HT-005 — GitHub Actions by best practice: stages, pins, Dependabot, nightly mutations
 
 > **Type:** chore
-> **Status:** Draft
+> **Status:** Approved
 > **Created:** 2026-10-20
 
 ---
@@ -42,8 +42,14 @@ the version from `uv.lock`.
 **Pins and updates:** every `uses:` by full SHA with a version comment;
 `.github/dependabot.yml` — `github-actions` and `uv` weekly, grouping minor/patch.
 
-**`mutation.yml`:** on a schedule (at night, on weekdays) and `workflow_dispatch`: `scripts/mutation.sh`
-on `domain/`, fails below 85 %, the number of mutants in the summary. Not on a PR — too costly.
+**`mutation.yml`, as in beadloom (the owner's correction of 2026-10-20):** `.beadloom/flow.yml`
+declares `mutation.targets: [src/horizon_tracker/domain/]`; the job `mutation-per-change` on
+`pull_request` mutates only the functions the PR touched within the declared area —
+`beadloom mutation --changed-since <merge-base>` gives the population and the plan, `mutmut` runs
+over it, `beadloom mutation --stats … --min-score 0.85` judges; an empty population is an explicit
+"nothing to mutate", not a green. The job `mutation-sample` on a weekly schedule and by
+button: a random sample of the whole area with a stride (`--sample-of`). A full run of all
+mutants on every PR is not done — that is exactly the beadloom scheme.
 
 **`deploy.yml`:** without changing the contract (`workflow_call` → `ci.yml`, environment
 `horizon-vps`, the same SHA, `try-restart`, smoke `probe`); a preflight SSH step is added
@@ -91,7 +97,7 @@ created, and then the id the tracker answered.
 
 | ID | Tracker | Name | Priority |
 |----|---------|------|----------|
-| BEAD-01 | ht-5ni | Workflows: CI stages, `ci-ok`, pins by SHA, Dependabot, `mutation.yml`, preflight and summary in deploy; contract tests | P1 |
+| BEAD-01 | ht-5ni | Workflows: CI stages, `ci-ok`, pins by SHA, Dependabot, `mutation.yml` per change + a weekly sample, preflight and summary in deploy; contract tests | P1 |
 | BEAD-02 | ht-kc1 | Review: stage order, pins, absence of `continue-on-error`, secrets | P1 |
 | BEAD-03 | ht-hdv | Owner/local agent: branch protection of `main` with required `ci-ok` (or a 403 record in the project layer) | P1 |
 
@@ -102,7 +108,7 @@ Order: BEAD-01 starts after BEAD-05 of HT-003 (`ht-978`), which changes the `.en
 
 - [ ] CI on a PR shows three stages and the `ci-ok` status; a `ruff` error stops the run before Chromium and the tests — non-behavioural: a property of the workflow, checked by the contract test and by a live run on a PR
 - [ ] Every `uses:` is pinned to a SHA; Dependabot opens PRs for updates — non-behavioural: a property of the repository
-- [ ] `mutation.yml` ran manually at least once with the number of mutants in the summary — non-behavioural: an observation in Actions
+- [ ] `mutation-per-change` on a PR mutates only the touched functions and names their count; `mutation-sample` ran by button with a sample stride — non-behavioural: observation in Actions
 - [ ] The deploy on merge is green with preflight and summary — non-behavioural: a Deploy run
 - [ ] Branch protection is set or its unavailability is recorded — non-behavioural: a GitHub setting
 
