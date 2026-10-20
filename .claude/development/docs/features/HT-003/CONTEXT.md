@@ -71,6 +71,7 @@ the timers fire at the start of the ranges, the service waits for its moment ins
 | 2026-10-20 | The default seed is `HORIZON_USERNAME`, an explicit `HT_JITTER_SEED` is optional | stable between deploys; no more secret than the account itself |
 | 2026-10-20 | The old `HT_*_WINDOW` are rejected by `Settings` with a hint | an outdated `.env` after the rollout must not silently work "as before" |
 | 2026-10-20 | `probe` prints `schedule: today HH:MM / HH:MM` | a cheap verification of the draw on the VPS without a check-in |
+| 2026-10-20 | `--force` is a run flag `run(force=True)`, the moment of the day is kept, there is no wait (BEAD-04) | "moment = now" would fail before midnight: `window_from` rejects a window that crosses midnight |
 
 ## Related Files
 
