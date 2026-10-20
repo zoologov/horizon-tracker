@@ -14,13 +14,3 @@ language: ru
 # when their modules are disjoint. Each override names the disjoint files and
 # expires: by then BEAD-12 has split the layers into feature nodes and the
 # derivation can decide this itself.
-waves:
-  overrides:
-  - beads: [ht-c5q, ht-axc, ht-xlh]
-    decision: parallel
-    reason: "disjoint modules of one package: infrastructure/config.py+clock.py+artifacts.py vs isdayoff.py+telegram.py vs horizon_playwright.py+tests/fixtures/htmlaccess; tests under tests/adapters/ and tests/unit/infrastructure/ by module"
-    until: "2026-11-20"
-  - beads: [ht-oqx, ht-jz5.1]
-    decision: parallel
-    reason: "disjoint files: cli.py + application/probe.py (BEAD-07) vs domain/report.py + application/windowed_run.py (BEAD-14 fix); tests by module"
-    until: "2026-11-20"

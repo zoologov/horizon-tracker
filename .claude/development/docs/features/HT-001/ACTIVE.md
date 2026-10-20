@@ -1,15 +1,15 @@
 # ACTIVE: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Last updated:** 2026-10-20 (wave 2 landed)
+> **Last updated:** 2026-10-20 (wave 3 landed)
 > **Phase:** Development
 
 ---
 
 ## Current Bead
 
-**Bead:** wave 3 — BEAD-07 (ht-oqx) CLI and the fix bead BEAD-14 (the reason for an early start)
-**Goal:** composition root, probe, dry-run; the domain gets a `Reason` for a start before the window
-**Done when:** every command is covered through CliRunner, dry-run does not call login, SKIP_EARLY is reported correctly
+**Bead:** wave 4 — BEAD-08 (ht-2h2) deploy, then BEAD-09 (ht-spa) workflows
+**Goal:** the systemd units, bootstrap, RUNBOOK; CI and auto-deploy to the VPS
+**Done when:** the units pass systemd-analyze, the bootstrap is clean under shellcheck, CI is green on the PR, deploy passes actionlint
 
 ## Progress
 
@@ -17,7 +17,7 @@
 - [x] The beads created as one plan, parent ht-jz5, the DAG confirmed by `bd ready`: exactly BEAD-01 and BEAD-02 are ready
 - [x] Wave 1: BEAD-01, BEAD-02 (landed 2026-10-20: 930a582, d21e406; 117 tests on the tree)
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
-- [ ] Wave 3: BEAD-07, BEAD-14 (fix: a Reason for an early start)
+- [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
 - [ ] Wave 4: BEAD-08, BEAD-09
 - [ ] Wave 5: BEAD-10 → BEAD-11 → BEAD-12; BEAD-13 the owner
 
@@ -31,14 +31,14 @@
 | BEAD-04 | Done | ht-c5q, 282811b: config.py, clock.py, artifacts.py; 57 tests, 219/219 in a clean room over 7 files |
 | BEAD-05 | Done | ht-axc, a7695cd: isdayoff.py, telegram.py; 45 tests, 162/162 in a clean room over 4 files |
 | BEAD-06 | Done | ht-xlh, b7bbddc: horizon_playwright.py, the htmlaccess fixture, pytest-bdd+mutmut in dev; 21 adapter tests, 287/287 in a clean room over 10 files |
-| BEAD-07 | Open | — |
+| BEAD-07 | Done | ht-oqx, f0f958c: cli.py, application/probe.py; 65 tests, 359/359 in a clean room over 4 files |
 | BEAD-08 | Open | — |
 | BEAD-09 | Open | — |
 | BEAD-10 | Open | — |
 | BEAD-11 | Open | — |
 | BEAD-12 | Open | — |
 | BEAD-13 | Open | — |
-| BEAD-14 | Open | fix: a `Reason` for a start before the window; found by BEAD-03 |
+| BEAD-14 | Done | ht-jz5.1, aaac43d: `Reason.TOO_EARLY`; 5 tests, 293/293 in a clean room over 4 files |
 
 ## Notes
 
@@ -54,3 +54,5 @@
 - A defect found: a start before the window (`SKIP_EARLY`) is reported as "after the window", the domain has no reason for an early start → BEAD-14.
 - `tests/adapters/test_horizon_playwright.py` is "unplaced" for beadloom (not bound to a node); the other adapter tests lie in `tests/unit/infrastructure/`. The decision on a single place is BEAD-10's.
 - The scratchpad is shared between parallel agents: one agent overwrote another's file. Agents need per-bead subdirectories; recorded in UX-Issues.
+- Wave 3: the owner's gate on the tree — the application README extended with `probe.py`, `docs/services/cli.md` rewritten by the API CHANGE of ht-oqx (commands, exit codes, output, variables), the surface rebased, the inert overrides removed.
+- CLI: the retry policy is a CLI constant (3 attempts 30 s apart, within the window), not in Settings; the log only to stderr under journald, there is no log file (a deviation from the PLAN, the reason — journald holds the rotation).

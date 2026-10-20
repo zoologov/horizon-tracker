@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Created:** 2026-10-20
-> **Last updated:** 2026-10-20 (after wave 2)
+> **Last updated:** 2026-10-20 (after wave 3)
 
 ---
 
@@ -97,6 +97,9 @@ Log Off, and reports every run to Telegram.
 | 2026-10-20 | The attempt loop and the rule "one report per run" moved to `application/windowed_run.py` (BEAD-03) | shared by the two use cases, one responsibility with a name |
 | 2026-10-20 | The screenshot travels inside the adapter's error (`HorizonClientError`) into `RunReport`; the use cases do not hold `ArtifactStore` (BEAD-03, BEAD-06) | the adapter knows when to take it; the use case does not |
 | 2026-10-20 | `Settings` masks both the username and the chat id, not only the password and the token (BEAD-04) | CONTEXT names the account and the chat id as secrets |
+| 2026-10-20 | The CLI log only to stderr (journald), no file and no rotation (BEAD-07) | systemd already stores and rotates the journal; a second log is a second source |
+| 2026-10-20 | The retry policy is a CLI constant, not an environment variable (BEAD-07) | the window already limits the attempts; an extra knob without a consumer |
+| 2026-10-20 | An unreachable calendar in `probe` is DEGRADED, not FAILED (BEAD-07) | the service falls back to Mon–Fri, the deploy smoke test must not fail because of isdayoff |
 
 ## Related Files
 
@@ -108,5 +111,5 @@ Log Off, and reports every run to Telegram.
 ## Current Phase
 
 - **Phase:** Development
-- **Current bead:** wave 3 — BEAD-07, BEAD-14
+- **Current bead:** wave 4 — BEAD-08, then BEAD-09
 - **Blockers:** none
