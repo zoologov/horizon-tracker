@@ -145,6 +145,8 @@ created, and then the id the tracker answered.
 | BEAD-03 | ht-28a | Live check from the VPS: checkin --force, session disconnected, checkout --force (the local agent) | P0 |
 | BEAD-04 | ht-tvn.1 | Fix after review: Log Off confirmation by the broker's state; the fixture models the optimistic flag | P0 |
 | BEAD-05 | ht-tvn.2 | Re-review | P0 |
+| BEAD-06 | ht-tvn.3 | Fix: wait for the broker's answer to kill-session before reloading the list | P0 |
+| BEAD-07 | ht-tvn.4 | Narrow re-review of BEAD-06 | P0 |
 
 ## Acceptance Criteria
 
@@ -153,3 +155,4 @@ created, and then the id the tracker answered.
 - [ ] Scenario: `Evening check-out on an already logged-off desktop reports it and stops`
 - [ ] Live `checkin --force` from the VPS: exit 0, in an external Horizon client "DEV desktop" has a disconnected session — non-behavioural: the observer is outside our system
 - [ ] Live `checkout --force`: exit 0, no session — non-behavioural: the observer is outside our system
+- [ ] Live measurements (review ht-75w item c, ht-tvn.2 minor 2): reloading the list keeps the web session; the `kill-session` request goes out and gets its answer before the reload (per the log); in an external Horizon client there is no session after the check-out and a disconnected one after the check-in — non-behavioural: the observer is outside our system

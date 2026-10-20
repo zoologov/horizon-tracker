@@ -18,7 +18,8 @@
 - [x] BEAD-01 dev (2026-10-20)
 - [x] BEAD-02 review (ISSUES)
 - [x] BEAD-04 fix (ht-tvn.1)
-- [ ] BEAD-05 re-review (ht-tvn.2)
+- [x] BEAD-05 re-review (ht-tvn.2) OK
+- [ ] BEAD-06 fix (ht-tvn.3) → BEAD-07 re-review (ht-tvn.4)
 - [ ] PR → main → deploy
 - [ ] BEAD-03 live check from the VPS (the local agent), then the timers
 
@@ -30,7 +31,9 @@
 | BEAD-02 | Done | ht-75w: ISSUES — 1 major (the Log Off confirmation reads the client's optimistic flag, not the broker), 2 minor, 2 nit; 8 sabotages; fix → ht-tvn.1, re-review → ht-tvn.2 |
 | BEAD-03 | Open | — |
 | BEAD-04 | Done | ht-tvn.1, f706192: 473 tests, coverage 98 %, ci rc 0 |
-| BEAD-05 | Open | ht-tvn.2: re-review |
+| BEAD-05 | Done | ht-tvn.2: OK (0 major, 2 minor, 2 nit); minor 1 → ht-tvn.3, minor 2 → measurements in ht-28a |
+| BEAD-06 | Open | ht-tvn.3: wait for the kill-session answer before the reload |
+| BEAD-07 | Open | ht-tvn.4: narrow re-review |
 
 ## Notes
 
