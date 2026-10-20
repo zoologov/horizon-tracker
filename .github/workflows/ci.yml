@@ -22,7 +22,9 @@ name: CI
 #     on the PR and does not stop a merge by itself.
 #
 # Every action is pinned to a full commit SHA, its version in the comment; Dependabot
-# (.github/dependabot.yml) moves the pins. tests/unit/deploy/ holds this file's contract.
+# (.github/dependabot.yml) moves those pins and uv.lock. It does not move the two tools
+# installed by version below - actionlint (go install ...@v1.7.12) and beadloom==9.0.0 -
+# which move only by hand. tests/unit/deploy/ holds this file's contract.
 on:
   pull_request:
     branches: [main]
@@ -36,7 +38,10 @@ permissions:
 concurrency:
   # github.workflow names the CALLER under workflow_call, so the deploy's gate gets a group
   # of its own and never cancels, or is cancelled by, the CI run of the same push.
-  # Only a pull request's superseded run is cancelled; every commit on main keeps a verdict.
+  # Only a pull request's superseded run is cancelled: a running CI on main is never
+  # cancelled. A group holds at most one WAITING run whatever cancel-in-progress says, so of
+  # several pushes to main queued behind a running one GitHub keeps the newest and drops
+  # the older waiting run - not every commit on main gets a verdict of its own.
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -50,6 +55,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: the token is not left in .git/config for a later step to read.
+          persist-credentials: false
 
       - name: Install uv (with cache)
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -62,11 +70,13 @@ jobs:
         # which a bare `uv sync` does not install.
         run: uv sync --extra dev
 
+      # No path on the command line: ruff takes the whole repository (src/, tests/ and the
+      # CI glue in .github/scripts/), and a bare local run checks exactly what CI checks.
       - name: Ruff
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check
 
       - name: Ruff format
-        run: uv run ruff format --check src/ tests/
+        run: uv run ruff format --check
 
   types:
     runs-on: ubuntu-latest
@@ -75,6 +85,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: the token is not left in .git/config for a later step to read.
+          persist-credentials: false
 
       - name: Install uv (with cache)
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -86,8 +99,10 @@ jobs:
         run: uv sync --extra dev
 
       - name: Mypy
-        # The tests too: a fixture typed wrong is a test that checks something else.
-        run: uv run mypy src/ tests/
+        # The scope is [tool.mypy] files in pyproject.toml: src/, the tests (a fixture typed
+        # wrong is a test that checks something else) and .github/scripts/ (the adapter that
+        # decides which mutants are counted). A path here would override it.
+        run: uv run mypy
 
   workflow-lint:
     runs-on: ubuntu-latest
@@ -96,6 +111,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: the token is not left in .git/config for a later step to read.
+          persist-credentials: false
 
       - name: Install actionlint
         # A pinned version through the Go module proxy: the download is checked against
@@ -153,6 +171,9 @@ jobs:
         python: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: the token is not left in .git/config for a later step to read.
+          persist-credentials: false
 
       - name: Install uv (with cache)
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -196,13 +217,16 @@ jobs:
         run: uv run pytest -q -rs --cov --cov-report=term-missing --cov-report=xml
 
       - name: Coverage in the job summary
+        # The floor is the Pytest step's to judge. Here --fail-under=0 keeps `coverage
+        # report` from exiting 2 under the floor, which under set -e would end the step
+        # before the line is written - in the one run where the figure matters most.
         if: ${{ !cancelled() }}
         env:
           PYTHON: ${{ matrix.python }}
         run: |
           set -euo pipefail
           if [ -f .coverage ]; then
-            total="$(uv run coverage report --format=total)"
+            total="$(uv run coverage report --format=total --fail-under=0)"
             line="Coverage on Python $PYTHON: ${total}% (floor: fail_under in pyproject.toml)"
           else
             line="Coverage on Python $PYTHON: no data - pytest did not reach the end"
@@ -227,6 +251,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: the token is not left in .git/config for a later step to read.
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0

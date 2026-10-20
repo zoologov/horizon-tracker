@@ -43,7 +43,9 @@ select = ["E", "F", "I", "B", "UP", "N", "W", "C4", "SIM", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src"]
+# What a bare `mypy` checks, and what CI's types job runs: the code, the tests and the CI
+# glue that decides which mutants are counted.
+files = ["src", "tests", ".github/scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

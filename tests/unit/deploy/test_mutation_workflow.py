@@ -83,6 +83,14 @@ def test_the_per_change_job_runs_on_pull_requests_and_the_sample_otherwise() -> 
     assert job(SAMPLE)["if"] == "github.event_name != 'pull_request'"
 
 
+@pytest.mark.parametrize("name", [PER_CHANGE, SAMPLE])
+def test_no_job_keeps_the_token_in_its_checkout(name: str) -> None:
+    # Neither job pushes, and the merge base comes from the history fetched at checkout.
+    checkout = steps(mutation(), name)[0]
+    assert str(checkout["uses"]).startswith("actions/checkout@")
+    assert checkout["with"]["persist-credentials"] is False
+
+
 def test_the_per_change_job_reads_the_whole_history_for_the_merge_base() -> None:
     checkout = steps(mutation(), PER_CHANGE)[0]
     assert checkout["with"]["fetch-depth"] == 0

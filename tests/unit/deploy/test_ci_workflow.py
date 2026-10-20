@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from tests.support.repository_root import repository_root
 from tests.support.workflows import ROOT, Mapping, load_workflow, step_named, steps
 
 COVERAGE_FLOOR = 80
+COVERAGE_SUMMARY = "Coverage in the job summary"
 STAGE_1 = {"lint", "types", "workflow-lint"}
 STAGE_2 = {"tests", "beadloom-gate"}
 AGGREGATE = "ci-ok"
@@ -151,19 +153,48 @@ def test_ci_ok_is_red_when_it_was_given_no_job_to_sum() -> None:
 # --- stage 1 --------------------------------------------------------------------------------
 
 
+ADAPTER = ".github/scripts/mutmut_adapter.py"
+RUFF_CHECK = "uv run ruff check"
+RUFF_FORMAT = "uv run ruff format --check"
+MYPY = "uv run mypy"
+
+
 def test_lint_checks_the_rules_and_the_format() -> None:
-    assert_in_order(
-        "lint",
-        [
-            "uv sync --extra dev",
-            "uv run ruff check src/ tests/",
-            "uv run ruff format --check src/ tests/",
-        ],
+    assert_in_order("lint", ["uv sync --extra dev", RUFF_CHECK, RUFF_FORMAT])
+
+
+def test_types_checks_the_code_the_tests_and_the_ci_glue() -> None:
+    assert_in_order("types", ["uv sync --extra dev", MYPY])
+
+
+def test_the_static_checks_take_their_scope_from_pyproject() -> None:
+    # A path on the command line overrides the configured scope: CI and a local bare run
+    # check the same files only when CI names none and pyproject.toml holds the scope.
+    lines = command_lines("lint") + command_lines("types")
+    tools = [line for line in lines if line.startswith(("uv run ruff", "uv run mypy"))]
+    assert tools == [RUFF_CHECK, RUFF_FORMAT, MYPY]
+
+
+def test_mypy_is_configured_over_the_code_the_tests_and_the_ci_glue() -> None:
+    manifest = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert manifest["tool"]["mypy"]["files"] == ["src", "tests", ".github/scripts"]
+    assert (ROOT / ADAPTER).is_file()
+
+
+def test_ruff_discovers_the_mutmut_adapter() -> None:
+    # The adapter decides which mutants are counted; a scope that misses it lints the
+    # code it judges and not the judge. Asked of ruff itself, not of its configuration.
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--show-files"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
-
-
-def test_types_checks_the_code_and_the_tests() -> None:
-    assert_in_order("types", ["uv sync --extra dev", "uv run mypy src/ tests/"])
+    assert result.returncode == 0, result.stderr
+    shown = {Path(line.strip()) for line in result.stdout.splitlines() if line.strip()}
+    assert ROOT / ADAPTER in shown
+    assert ROOT / "src" / "horizon_tracker" / "cli.py" in shown
 
 
 def test_workflow_lint_checks_workflows_scripts_and_units() -> None:
@@ -281,12 +312,88 @@ def test_coverage_is_kept_and_summarised_per_python() -> None:
     upload = step_named(ci(), "tests", "Keep coverage.xml")
     assert upload["with"]["path"] == "coverage.xml"
     assert "${{ matrix.python }}" in upload["with"]["name"]
-    summary = step_named(ci(), "tests", "Coverage in the job summary")
+    summary = step_named(ci(), "tests", COVERAGE_SUMMARY)
     assert "coverage report --format=total" in summary["run"]
     assert '>> "$GITHUB_STEP_SUMMARY"' in summary["run"]
-    # A red pytest still reports its figure; a cancelled run does not pretend to.
+    # A red pytest still reports its figure (executed below); a cancelled run does not
+    # pretend to.
     assert summary["if"] == "${{ !cancelled() }}"
     assert upload["if"] == "${{ !cancelled() }}"
+
+
+HALF_COVERED = """def used():
+    return 1
+
+
+def unused():
+    first = 1
+    second = 2
+    return first + second
+
+
+used()
+"""
+
+
+def coverage_summary(tmp_path: Path, *, measured: bool) -> str:
+    """The summary step run in a project whose coverage is under the floor.
+
+    ``uv run coverage`` reaches the interpreter running these tests, which carries
+    coverage through pytest-cov; nothing else of the step is stood in for.
+    """
+    work = tmp_path / "work"
+    work.mkdir()
+    floor = f"[tool.coverage.report]\nfail_under = {COVERAGE_FLOOR}\n"
+    (work / "pyproject.toml").write_text(floor, encoding="utf-8")
+    (work / "half.py").write_text(HALF_COVERED, encoding="utf-8")
+    clean = {"PATH": os.environ["PATH"]}
+    if measured:
+        run = [sys.executable, "-m", "coverage", "run", "half.py"]
+        subprocess.run(run, cwd=work, env=clean, check=True, capture_output=True)
+        below = subprocess.run(
+            [sys.executable, "-m", "coverage", "report"], cwd=work, env=clean, check=False
+        )
+        assert below.returncode == 2, "the fixture is not under the floor"
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    uv = stubs / "uv"
+    uv.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "assert sys.argv[1:3] == ['run', 'coverage'], sys.argv\n"
+        "os.execv(sys.executable, [sys.executable, '-m', 'coverage', *sys.argv[3:]])\n",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    summary = tmp_path / "summary.md"
+    step = step_named(ci(), "tests", COVERAGE_SUMMARY)
+    env = {
+        "PATH": f"{stubs}{os.pathsep}{os.environ['PATH']}",
+        "PYTHON": "3.12",
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    result = run_step(str(step["run"]), env, cwd=work)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_coverage_line_reaches_the_summary_when_coverage_is_under_the_floor(
+    tmp_path: Path,
+) -> None:
+    # The run where the figure matters most: pytest is red on the floor, and the summary
+    # still says by how much. The floor is pytest's to judge, not this step's.
+    summary = coverage_summary(tmp_path, measured=True)
+    assert re.fullmatch(
+        r"Coverage on Python 3\.12: (\d+)% \(floor: fail_under in pyproject\.toml\)\n", summary
+    ), summary
+    assert int(summary.split(": ")[1].split("%")[0]) < COVERAGE_FLOOR
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_summary_says_so_when_pytest_left_no_coverage_data(tmp_path: Path) -> None:
+    summary = coverage_summary(tmp_path, measured=False)
+    assert summary == "Coverage on Python 3.12: no data - pytest did not reach the end\n"
 
 
 def test_the_floor_ci_enforces_is_the_one_the_plan_names() -> None:
@@ -323,3 +430,9 @@ def test_no_job_runs_without_the_code_it_checks() -> None:
         first = steps(ci(), name)[0]
         assert str(first.get("uses", "")).startswith("actions/checkout@"), name
         assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", first["uses"]), name
+
+
+def test_no_job_keeps_the_token_in_its_checkout() -> None:
+    # No job pushes; a token left in .git/config is one a later step could read.
+    for name in STAGE_1 | STAGE_2:
+        assert steps(ci(), name)[0].get("with", {}).get("persist-credentials") is False, name

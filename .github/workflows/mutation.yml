@@ -29,6 +29,10 @@ name: Mutation
 #
 # No step is excused: there is no continue-on-error and no `|| true`. mutmut exits 0
 # when mutants survive, so its run needs no excuse; a survivor is the score's business.
+# The script exits with beadloom's verdict (tests/unit/deploy/test_mutation_script.py).
+#
+# The action SHAs move with Dependabot; beadloom==9.0.0 is installed by version and moves
+# only by hand.
 on:
   pull_request:
     branches: [main]
@@ -67,6 +71,8 @@ jobs:
         with:
           # The merge base needs the base branch's history, not a single commit.
           fetch-depth: 0
+          # Nothing pushes, and the history is fetched here: no token stays in .git/config.
+          persist-credentials: false
 
       - name: Install uv (with cache)
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -133,6 +139,8 @@ jobs:
       SAMPLE_SEED: ${{ inputs.seed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv (with cache)
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
