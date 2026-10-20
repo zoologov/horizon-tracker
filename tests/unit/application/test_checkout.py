@@ -11,7 +11,7 @@ from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
 from horizon_tracker.domain.session import SessionState
-from tests.unit.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
+from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
 DESKTOP = "DEV desktop"

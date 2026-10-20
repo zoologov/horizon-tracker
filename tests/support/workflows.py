@@ -1,19 +1,18 @@
 """Loads the GitHub Actions workflows as data, so tests read jobs and steps, not text.
 
-PyYAML is not a direct dependency: it arrives with ``libcst`` (through ``mutmut`` in the
-dev extra) as ``yaml`` on CPython 3.12 and as its free-threading fork ``yaml_ft`` on
-3.13, with the same API. Either is taken; with neither the tests fail by name instead
-of skipping, because a skipped guard over the deploy reads as a green one.
+PyYAML is a direct dev dependency, so ``yaml`` is importable wherever
+``uv sync --extra dev`` ran; without it the tests fail at import by name instead of
+skipping, because a skipped guard over the deploy reads as a green one.
 """
 
-import importlib
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
-import pytest
+import yaml  # type: ignore[import-untyped]  # PyYAML ships no stubs; the dict is narrowed below
 
-ROOT = Path(__file__).resolve().parents[3]
+from tests.support.repository_root import repository_root
+
+ROOT: Path = repository_root()
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 RUNBOOK = ROOT / "deploy" / "RUNBOOK.md"
 
@@ -21,18 +20,9 @@ RUNBOOK = ROOT / "deploy" / "RUNBOOK.md"
 Mapping = dict[str, Any]
 
 
-def _yaml() -> ModuleType:
-    for name in ("yaml", "yaml_ft"):
-        try:
-            return importlib.import_module(name)
-        except ModuleNotFoundError:
-            continue
-    pytest.fail("neither yaml nor yaml_ft is importable: `uv sync --extra dev` brings one")
-
-
 def load_workflow(file_name: str) -> Mapping:
     """The workflow as a mapping; YAML 1.1 reads the bare key ``on`` as True, undone here."""
-    data = _yaml().safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
+    data = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
     assert isinstance(data, dict), f"{file_name}: not a mapping"
     if True in data:
         data["on"] = data.pop(True)

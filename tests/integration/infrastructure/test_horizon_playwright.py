@@ -32,8 +32,9 @@ from horizon_tracker.infrastructure.horizon_playwright import (
     HorizonTimeouts,
     PlaywrightHorizonClient,
 )
+from tests.support.repository_root import repository_root
 
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "htmlaccess"
+FIXTURE_DIR = repository_root() / "tests" / "fixtures" / "htmlaccess"
 PRESET_CHROMIUM = Path("/opt/pw-browsers/chromium")
 
 USERNAME = "jdoe"

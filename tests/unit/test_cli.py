@@ -7,8 +7,6 @@ real factory exercise only the paths that open no connection.
 
 import logging
 from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -16,10 +14,10 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from click.testing import CliRunner, Result
+from click.testing import CliRunner
 
 from horizon_tracker import __version__
-from horizon_tracker.cli import Adapters, main, open_adapters
+from horizon_tracker.cli import main, open_adapters
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason
 from horizon_tracker.domain.schedule import RunKind
@@ -30,10 +28,9 @@ from horizon_tracker.infrastructure.config import ConfigError, Settings
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
-from tests.unit.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
+from tests.support.cli_world import DESKTOP, World, cli_log_handlers_restored
 
 MSK = ZoneInfo("Europe/Moscow")
-DESKTOP = "DEV desktop"
 USERNAME = "svc.horizon.user"
 PASSWORD = "Pa$$w0rd-never-shown"
 TOKEN = "123456:SECRET-token_never-shown"
@@ -55,11 +52,8 @@ def package_logger() -> logging.Logger:
 @pytest.fixture(autouse=True)
 def _detach_cli_log_handler() -> Iterator[None]:
     """Take off the handler an invocation left behind, so it never outlives its stream."""
-    before = list(package_logger().handlers)
-    yield
-    for handler in package_logger().handlers:
-        if handler not in before:
-            package_logger().removeHandler(handler)
+    with cli_log_handlers_restored():
+        yield
 
 
 @pytest.fixture
@@ -81,55 +75,6 @@ def env(tmp_path: Path) -> dict[str, str | None]:
         "HT_CHROME_PATH": str(chrome),
         "HT_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
     }
-
-
-@dataclass
-class FakeArtifacts:
-    """An artifact store that counts its prunes and writes nothing."""
-
-    prunes: int = 0
-
-    def screenshot_path(self, kind: RunKind) -> Path:
-        return Path("/nonexistent") / f"{kind.value}.png"
-
-    def prune(self) -> list[Path]:
-        self.prunes += 1
-        return []
-
-
-class World:
-    """The fakes behind one CLI invocation, and the factory that hands them out."""
-
-    def __init__(
-        self,
-        now: datetime,
-        calendar_answer: bool | None = True,
-        state: SessionState = SessionState.NO_SESSION,
-    ) -> None:
-        self.clock = FakeClock(now)
-        self.calendar = FakeCalendar(calendar_answer)
-        self.notifier = FakeNotifier()
-        self.client = FakeHorizonClient(desktop=DESKTOP, state=state)
-        self.artifacts = FakeArtifacts()
-        self.opened: list[tuple[Settings, RunKind]] = []
-        self.closed = 0
-
-    @contextmanager
-    def factory(self, settings: Settings, kind: RunKind) -> Iterator[Adapters]:
-        self.opened.append((settings, kind))
-        try:
-            yield Adapters(
-                clock=self.clock,
-                calendar=self.calendar,
-                notifier=self.notifier,
-                horizon=self.client,
-                artifacts=self.artifacts,
-            )
-        finally:
-            self.closed += 1
-
-    def invoke(self, args: list[str], env: dict[str, str | None]) -> Result:
-        return CliRunner().invoke(main, args, obj=self.factory, env=env)
 
 
 # --- the group ------------------------------------------------------------------------

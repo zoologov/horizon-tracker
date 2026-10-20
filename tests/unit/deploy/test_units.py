@@ -12,7 +12,9 @@ from pathlib import Path
 
 import pytest
 
-DEPLOY_DIR = Path(__file__).resolve().parents[3] / "deploy"
+from tests.support.repository_root import repository_root
+
+DEPLOY_DIR = repository_root() / "deploy"
 HOME = "/opt/horizon-tracker"
 RUNS = [
     pytest.param("checkin", "07:55", id="checkin"),

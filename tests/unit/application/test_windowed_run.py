@@ -13,7 +13,7 @@ from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
-from tests.unit.fakes import FakeCalendar, FakeClock, FakeNotifier
+from tests.support.fakes import FakeCalendar, FakeClock, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
 WEDNESDAY = date(2026, 10, 21)

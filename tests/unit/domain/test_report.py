@@ -124,19 +124,34 @@ def test_report_keeps_the_screenshot_for_the_notifier() -> None:
 
 
 def test_report_refuses_a_time_without_a_time_zone() -> None:
-    with pytest.raises(ValueError, match="time zone"):
+    with pytest.raises(ValueError, match=r"^RunReport\.at must carry a time zone$"):
         dataclasses.replace(SUCCESS, at=MORNING.replace(tzinfo=None))
 
 
+REASON_RULE = r"^RunReport\.reason is required for a failure or a skip, and only then$"
+
+
 def test_a_success_refuses_a_reason() -> None:
-    with pytest.raises(ValueError, match="reason"):
+    with pytest.raises(ValueError, match=REASON_RULE):
         dataclasses.replace(SUCCESS, reason=Reason.UNEXPECTED)
 
 
 @pytest.mark.parametrize("outcome", [Outcome.FAILED, Outcome.SKIPPED])
 def test_a_failure_or_a_skip_requires_a_reason(outcome: Outcome) -> None:
-    with pytest.raises(ValueError, match="reason"):
+    with pytest.raises(ValueError, match=REASON_RULE):
         dataclasses.replace(SUCCESS, outcome=outcome)
+
+
+@pytest.mark.parametrize(
+    "field", ["kind", "outcome", "at", "verdict_source", "reason", "screenshot"]
+)
+def test_a_value_of_the_wrong_type_is_refused_naming_the_field_and_the_type(field: str) -> None:
+    # The refusal goes to the journal: it names the field and the type, never the value.
+    expected = rf"^RunReport\.{field} has the wrong type: str$"
+
+    with pytest.raises(TypeError, match=expected):
+        # Deliberately ill-typed: the runtime guard of the report is what is under test.
+        dataclasses.replace(_failure(Reason.UNEXPECTED), **{field: "free text"})  # type: ignore[arg-type]
 
 
 def test_report_refuses_free_text_as_a_reason() -> None:

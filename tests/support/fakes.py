@@ -56,7 +56,8 @@ class FakeHorizonClient:
     ``calls`` records each port call by method name. ``fail_on(method, error)`` queues
     an exception that a later call of ``method`` raises before it has any effect.
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
-    a broker that does not do what it was asked.
+    a broker that does not do what it was asked; ``portal_version`` is what ``probe``
+    reads off the portal.
     """
 
     desktop: str
@@ -64,6 +65,7 @@ class FakeHorizonClient:
     open_connects: bool = True
     disconnect_keeps_session: bool = True
     log_off_takes_effect: bool = True
+    portal_version: str = "fake-2312"
     calls: list[str] = field(default_factory=list)
     _script: dict[str, list[Exception | None]] = field(default_factory=dict)
 
@@ -109,4 +111,4 @@ class FakeHorizonClient:
 
     def probe(self) -> str:
         self._enter("probe")
-        return "fake-2312"
+        return self.portal_version

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.deploy.systemd_env import parse_env_file
-from tests.unit.deploy.workflows import (
+from tests.support.systemd_env import parse_env_file
+from tests.support.workflows import (
     ROOT,
     RUNBOOK,
     WORKFLOWS_DIR,

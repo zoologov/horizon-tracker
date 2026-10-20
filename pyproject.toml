@@ -20,6 +20,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-bdd>=7.0",
+    "pyyaml>=6.0",
     "mutmut>=3.0",
     "ruff>=0.6",
     "mypy>=1.11",
@@ -47,3 +48,26 @@ files = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+bdd_features_base_dir = "tests/acceptance/features/"
+
+[tool.coverage.run]
+source = ["horizon_tracker"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 80
+
+[tool.mutmut]
+# The mutation gate covers the pure domain only: no I/O, no clock, no browser, so a
+# surviving mutant is a weak assertion and not an unreachable adapter branch.
+source_paths = ["src/"]
+only_mutate = ["src/horizon_tracker/domain/*"]
+# The fast suites that reach the domain; the browser and deploy tests reach none of it.
+pytest_add_cli_args_test_selection = [
+    "tests/unit/domain",
+    "tests/unit/application",
+    "tests/unit/test_cli.py",
+    "tests/acceptance",
+]

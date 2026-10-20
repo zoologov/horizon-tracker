@@ -7,7 +7,7 @@ tests, pytest, then the Beadloom Gate on an index rebuilt from nothing.
 
 import re
 
-from tests.unit.deploy.workflows import Mapping, all_strings, load_workflow, run_scripts, steps
+from tests.support.workflows import Mapping, all_strings, load_workflow, run_scripts, steps
 
 ORDERED_COMMANDS = [
     "uv sync --extra dev",

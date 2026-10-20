@@ -48,3 +48,15 @@ rules:
     enforce: top-down
     allow_skip: true
     edge_kind: depends_on
+
+  - name: scenario-coverage
+    description: "Every layer with behaviour is pinned by a scenario, and every scenario a PRD names exists in the suite"
+    severity: error
+    scenario_coverage:
+      for: { tag_prefix: "layer-" }
+      features: "tests/acceptance/features/**/*.feature"
+      references:
+        - ".claude/development/docs/features/**/PRD.md"
+      non_behavioural:
+        - node: horizon-tracker
+          reason: "the root service owns no code beyond its four layers; their scenarios pin its behaviour"

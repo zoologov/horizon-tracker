@@ -14,7 +14,9 @@ from pathlib import Path
 
 import pytest
 
-DEPLOY_DIR = Path(__file__).resolve().parents[3] / "deploy"
+from tests.support.repository_root import repository_root
+
+DEPLOY_DIR = repository_root() / "deploy"
 BOOTSTRAP = DEPLOY_DIR / "bootstrap.sh"
 HOME = "/opt/horizon-tracker"
 UNIT_DIR = "/etc/systemd/system"
