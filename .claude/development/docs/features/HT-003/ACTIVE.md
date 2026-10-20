@@ -29,7 +29,7 @@
 | BEAD-03 | Done | ht-4vm, 5634cb1: 51 tests; the adapter was already lazy, pinned by a test; the CLI/BDD fixtures on the new variables |
 | BEAD-04 | Done | ht-rat, a059be6: 635 tests, coverage 99 %; `--force` through `run(force=True)` keeping the moment (a window across midnight) |
 | BEAD-05 | Done | ht-978, 6ca59d1: the timers 07:30/16:30, 60 min, .env without the old windows; 644 tests; README and SPEC morning-checkin still name 07:55/17:00 → BEAD-08 |
-| BEAD-06 | Open | — |
+| BEAD-06 | Done | ht-slm, cfaaca3: the 7 scenarios are real (9 cases), 733/733, coverage 98.7 %, mutations 241/243 (2 equivalent) |
 | BEAD-07 | Open | — |
 | BEAD-08 | Open | — |
 | BEAD-09 | Open | — |

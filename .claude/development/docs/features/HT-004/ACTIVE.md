@@ -30,3 +30,4 @@
 ## Notes
 
 - BEAD-01 waits for ht-slm and ht-5ni so as not to share the adapter and test files with their waves.
+- The three PRD scenarios lie in the suite as explicit SKIPs with a reason (`screenshot_preview.feature`); BEAD-03 (ht-bm9) replaces the stubs.
