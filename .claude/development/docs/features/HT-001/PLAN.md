@@ -1,9 +1,11 @@
 # PLAN: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Status:** Draft
+> **Status:** Approved
 > **Created:** 2026-10-20
 
 ---
+
+**Parent bead:** ht-jz5
 
 ## Epic Description
 
@@ -54,19 +56,19 @@ created, and then the id the tracker answered.
 
 | ID | Tracker | Name | Priority | Depends On |
 |----|---------|------|----------|------------|
-| BEAD-01 | - | Domain: the run window and the calendar verdict | P0 | - |
-| BEAD-02 | - | Domain: session state, report, ports | P0 | - |
-| BEAD-03 | - | Application: the checkin and checkout use cases | P0 | 01, 02 |
-| BEAD-04 | - | Infrastructure: config, clock, artifacts | P1 | 02 |
-| BEAD-05 | - | Infrastructure: the isdayoff and Telegram adapters | P1 | 02 |
-| BEAD-06 | - | Infrastructure: the Playwright Horizon client and the markup fixture | P0 | 02 |
-| BEAD-07 | - | CLI: composition root, probe, dry-run | P0 | 03, 04, 05, 06 |
-| BEAD-08 | - | Deploy: systemd units, bootstrap, RUNBOOK | P1 | 07 |
-| BEAD-09 | - | Workflows: CI and auto-deploy to the VPS | P1 | 08 |
-| BEAD-10 | - | Test: the BDD suite over the PRD, coverage, the core's mutation gate | P0 | 09 |
-| BEAD-11 | - | Review: quality, boundaries, secret safety | P0 | 10 |
-| BEAD-12 | - | Tech-writer: feature nodes of the graph, SPEC.md, layer READMEs, the CLI doc | P1 | 11 |
-| BEAD-13 | - | Live run on the VPS by the owner's hand | P1 | 09 |
+| BEAD-01 | ht-0x2 | Domain: the run window and the calendar verdict | P0 | - |
+| BEAD-02 | ht-6sc | Domain: session state, report, ports | P0 | - |
+| BEAD-03 | ht-0jm | Application: the checkin and checkout use cases | P0 | 01, 02 |
+| BEAD-04 | ht-c5q | Infrastructure: config, clock, artifacts | P1 | 02 |
+| BEAD-05 | ht-axc | Infrastructure: the isdayoff and Telegram adapters | P1 | 02 |
+| BEAD-06 | ht-xlh | Infrastructure: the Playwright Horizon client and the markup fixture | P0 | 02 |
+| BEAD-07 | ht-oqx | CLI: composition root, probe, dry-run | P0 | 03, 04, 05, 06 |
+| BEAD-08 | ht-2h2 | Deploy: systemd units, bootstrap, RUNBOOK | P1 | 07 |
+| BEAD-09 | ht-spa | Workflows: CI and auto-deploy to the VPS | P1 | 08 |
+| BEAD-10 | ht-1ex | Test: the BDD suite over the PRD, coverage, the core's mutation gate | P0 | 09 |
+| BEAD-11 | ht-9uk | Review: quality, boundaries, secret safety | P0 | 10 |
+| BEAD-12 | ht-6rw | Tech-writer: feature nodes of the graph, SPEC.md, layer READMEs, the CLI doc | P1 | 11 |
+| BEAD-13 | ht-bl6 | Live run on the VPS by the owner's hand | P1 | 09 |
 
 ## Bead Details
 

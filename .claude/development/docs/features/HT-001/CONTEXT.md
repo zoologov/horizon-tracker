@@ -1,6 +1,6 @@
 # CONTEXT: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Status:** Draft
+> **Status:** Approved
 > **Created:** 2026-10-20
 > **Last updated:** 2026-10-20
 
