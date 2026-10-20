@@ -37,3 +37,4 @@
 ## Notes
 
 - BEAD-01 depends on the parent HT-002 (ht-tvn): the schedule changes only after a confirmed live check-in and check-out.
+- The seven PRD scenarios lie in the suite as explicit SKIPs with a reason (`randomised_moments.feature`), otherwise `scenario-coverage` would have held the gate red until BEAD-06; BEAD-06 replaces the stubs with real steps.
