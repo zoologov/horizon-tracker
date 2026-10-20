@@ -23,7 +23,8 @@ the client lets go and leaves the Windows session running until the evening chec
 
 1. `client.login()`;
 2. `client.open_desktop(desktop)`, which returns once Blast is connected and the
-   desktop is drawn; the time is recorded as the moment the desktop opened;
+   desktop is drawn, answering with the path of its screenshot of the opened desktop
+   or `None`; the time is recorded as the moment the desktop opened;
 3. `clock.sleep(hold)`, so the Windows logon completes, then reads the session state
    while the desktop is open;
 4. `client.disconnect()`, called in a `finally` block, so the client lets go even when
@@ -33,9 +34,13 @@ the client lets go and leaves the Windows session running until the evening chec
 
 The attempt succeeds when `checkin_succeeded(while_open, after_disconnect)` holds, that
 is the transition `CONNECTED` -> `DISCONNECTED`. The report then carries the moment the
-desktop opened. Any other pair of states is `FAILED` with
-`Reason.DESKTOP_DID_NOT_OPEN`. A `HorizonClientError` from any step is turned into a
-failed attempt by the run loop and retried while the window allows.
+desktop opened and, as `screenshot`, the path `open_desktop` answered with, so the
+notifier sends the opened desktop as a photo with the text as its caption; with `None`
+the report goes out as text. Any other pair of states is `FAILED` with
+`Reason.DESKTOP_DID_NOT_OPEN` and no screenshot: the photo of an opened desktop is not
+evidence for a check-in the broker did not confirm. A `HorizonClientError` from any
+step is turned into a failed attempt by the run loop and retried while the window
+allows.
 
 `steps()` lists the five steps in the owner's words; `horizon checkin --dry-run` prints
 them, followed by the loop's steps.
@@ -48,6 +53,9 @@ them, followed by the loop's steps.
 - Success is decided by the domain rule on session states, never by the portal login.
 - A successful report carries the time the desktop opened, not the time the attempt
   ended.
+- Only a successful report carries the success screenshot; a failed attempt reports the
+  screenshot of its `HorizonClientError`, if any, as before. A forced run behaves the
+  same.
 
 ## API
 

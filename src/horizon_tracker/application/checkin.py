@@ -4,7 +4,8 @@ One attempt logs in, opens the desktop over Blast, holds it open for ``hold`` so
 Windows logon completes, reads the session state the broker shows, and disconnects
 -- never logs off -- so the session runs on until the evening. The disconnect closes
 the client, so the attempt logs in again to read the state the disconnect left.
-The check-in counts only if the broker saw the transition CONNECTED -> DISCONNECTED.
+The check-in counts only if the broker saw the transition CONNECTED -> DISCONNECTED;
+then its report carries the screenshot the client took of the opened desktop, if any.
 """
 
 # beadloom:domain=application
@@ -50,7 +51,7 @@ class MorningCheckin:
 
     def _attempt(self) -> AttemptResult:
         self.client.login()
-        self.client.open_desktop(self.desktop)
+        opened = self.client.open_desktop(self.desktop)
         opened_at = self.clock.now()
         try:
             self.clock.sleep(self.hold.total_seconds())
@@ -60,5 +61,5 @@ class MorningCheckin:
         self.client.login()
         after_disconnect = self.client.desktop_status(self.desktop).state
         if checkin_succeeded(while_open, after_disconnect):
-            return AttemptResult(Outcome.SUCCEEDED, opened_at)
+            return AttemptResult(Outcome.SUCCEEDED, opened_at, screenshot=opened)
         return AttemptResult(Outcome.FAILED, self.clock.now(), Reason.DESKTOP_DID_NOT_OPEN)

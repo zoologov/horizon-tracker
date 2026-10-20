@@ -23,6 +23,7 @@ HOLD = timedelta(seconds=120)
 BACKOFF = timedelta(seconds=20)
 POLICY = RetryPolicy(max_attempts=3, backoff=BACKOFF)
 SHOT = Path("/var/lib/horizon-tracker/shots/checkin.png")
+OPENED = Path("/var/lib/horizon-tracker/shots/checkin-desktop-opened.png")
 PASSWORD = "Pa$$w0rd-never-shown"
 
 ONE_CHECKIN = [
@@ -106,6 +107,27 @@ def test_checkin_reports_success_once_with_the_time_the_desktop_opened() -> None
     assert report.screenshot is None
 
 
+def test_a_checkin_reports_the_screenshot_of_the_opened_desktop() -> None:
+    morning = Morning()
+    morning.client.success_screenshot = OPENED
+
+    report = morning.run()
+
+    assert morning.only_report == report
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == OPENED
+
+
+def test_a_forced_checkin_reports_the_screenshot_of_the_opened_desktop() -> None:
+    morning = Morning(start=at(11, 0), calendar_answer=False)
+    morning.client.success_screenshot = OPENED
+
+    report = morning.run(force=True)
+
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == OPENED
+
+
 def test_checkin_reattaches_to_a_session_left_disconnected() -> None:
     morning = Morning(state=SessionState.DISCONNECTED)
 
@@ -125,6 +147,17 @@ def test_checkin_fails_when_the_session_did_not_survive_the_disconnect() -> None
     assert morning.only_report == report
     assert report.outcome is Outcome.FAILED
     assert report.reason is Reason.DESKTOP_DID_NOT_OPEN
+
+
+def test_a_checkin_the_broker_did_not_confirm_reports_no_screenshot_of_the_desktop() -> None:
+    morning = Morning()
+    morning.client.disconnect_keeps_session = False
+    morning.client.success_screenshot = OPENED
+
+    report = morning.run()
+
+    assert report.outcome is Outcome.FAILED
+    assert report.screenshot is None
 
 
 def test_checkin_fails_when_the_broker_never_saw_the_desktop_connected() -> None:
@@ -150,6 +183,17 @@ def test_a_failed_open_is_retried_after_the_backoff_and_succeeds() -> None:
     assert morning.clock.sleeps == [BACKOFF.total_seconds(), HOLD.total_seconds()]
     assert morning.only_report == report
     assert report.outcome is Outcome.SUCCEEDED
+
+
+def test_a_retried_checkin_reports_the_opened_desktop_not_the_earlier_failure() -> None:
+    morning = Morning()
+    morning.client.fail_on("open_desktop", HorizonClientError(Reason.DESKTOP_DID_NOT_OPEN, SHOT))
+    morning.client.success_screenshot = OPENED
+
+    report = morning.run()
+
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == OPENED
 
 
 def test_a_failure_after_the_desktop_opened_still_disconnects_the_client() -> None:

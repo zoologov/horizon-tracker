@@ -40,7 +40,10 @@ of the configured zone (`MSK` for the default `Europe/Moscow`), followed by
 `planned for HH:MM` when `planned_at` is set. The calendar line names the source: the
 isdayoff.ru calendar, the Monday-Friday fallback, or "not asked, manual run
 --force". The reason line is present only when there is a reason. The screenshot never appears in
-the text: the notifier attaches it beside the text.
+the text: the notifier attaches it beside the text. A failure carries the screenshot of
+the step that failed; a success carries the use case's photo of the step it completed
+(the opened desktop, the launch list without the session). Either may be `None`, and
+the report then goes out as text.
 
 ## Invariants
 

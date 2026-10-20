@@ -24,19 +24,24 @@ and decides each attempt (see the [windowed run](../windowed-run/SPEC.md)). One 
 
 1. `client.login()`, then reads the desktop's session state;
 2. on the run's first attempt, keeps that state as the state the run first saw;
-3. if a session exists, `client.log_off(desktop)` and reads the state again.
+3. if a session exists, `client.log_off(desktop)`, which answers with the path of its
+   screenshot of the launch list without the session or `None`, and reads the state
+   again.
 
 The result:
 
-- `checkout_succeeded(before, after)` holds → `SUCCEEDED`;
+- `checkout_succeeded(before, after)` holds → `SUCCEEDED`, the report carrying the
+  path `log_off` answered with as `screenshot`, so the notifier sends the launch list
+  as a photo with the text as its caption; with `None` it goes out as text;
 - the run first saw no session → `SKIPPED` with `Reason.ALREADY_LOGGED_OFF`. A skip
   ends the run: there is nothing to log off and nothing to retry;
-- otherwise → `FAILED` with `Reason.LOGOFF_NOT_CONFIRMED`, retried while the window
-  allows.
+- otherwise → `FAILED` with `Reason.LOGOFF_NOT_CONFIRMED` and no screenshot, retried
+  while the window allows.
 
 The state the run first saw is kept across its attempts. If a log off went through but
 its confirmation was lost, the retry finds no session and counts the run as the
-check-out it was, not as "already logged off".
+check-out it was, not as "already logged off". That retry calls no `log_off`, so its
+report carries no screenshot; the photo of the lost attempt is not kept across attempts.
 
 `steps()` lists the four steps in the owner's words; `horizon checkout --dry-run`
 prints them, followed by the loop's steps.
@@ -46,6 +51,9 @@ prints them, followed by the loop's steps.
 - A desktop that had no session when the run first looked is never reported as logged
   off by this run.
 - `log_off` is called only when a session exists.
+- Only a successful report carries the success screenshot, and only the one taken in
+  the attempt that succeeded; a failed attempt reports the screenshot of its
+  `HorizonClientError`, if any, as before. A forced run behaves the same.
 - The memory of the first-seen state lives for one run; the next run starts fresh.
 
 ## API

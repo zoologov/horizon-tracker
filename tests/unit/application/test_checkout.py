@@ -18,6 +18,7 @@ DESKTOP = "DEV desktop"
 BACKOFF = timedelta(seconds=20)
 POLICY = RetryPolicy(max_attempts=3, backoff=BACKOFF)
 SHOT = Path("/var/lib/horizon-tracker/shots/checkout.png")
+LIST = Path("/var/lib/horizon-tracker/shots/checkout-launch-list.png")
 
 ONE_CHECKOUT = ["login", "desktop_status", "log_off", "desktop_status"]
 
@@ -91,6 +92,36 @@ def test_checkout_reports_success_once() -> None:
     assert report.verdict_source is VerdictSource.CALENDAR
 
 
+def test_a_checkout_reports_the_screenshot_of_the_launch_list() -> None:
+    evening = Evening()
+    evening.client.success_screenshot = LIST
+
+    report = evening.run()
+
+    assert evening.only_report == report
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == LIST
+
+
+def test_a_checkout_without_a_success_screenshot_reports_success_as_text() -> None:
+    evening = Evening()
+
+    report = evening.run()
+
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot is None
+
+
+def test_a_forced_checkout_reports_the_screenshot_of_the_launch_list() -> None:
+    evening = Evening(start=at(21, 0), calendar_answer=False)
+    evening.client.success_screenshot = LIST
+
+    report = evening.run(force=True)
+
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == LIST
+
+
 def test_checkout_logs_off_a_desktop_someone_is_attached_to() -> None:
     evening = Evening(state=SessionState.CONNECTED)
 
@@ -126,6 +157,28 @@ def test_a_log_off_the_broker_does_not_confirm_fails_after_every_attempt() -> No
     assert evening.only_report == report
     assert report.outcome is Outcome.FAILED
     assert report.reason is Reason.LOGOFF_NOT_CONFIRMED
+
+
+def test_a_log_off_the_broker_does_not_confirm_reports_no_screenshot_of_the_list() -> None:
+    evening = Evening()
+    evening.client.log_off_takes_effect = False
+    evening.client.success_screenshot = LIST
+
+    report = evening.run()
+
+    assert report.outcome is Outcome.FAILED
+    assert report.screenshot is None
+
+
+def test_a_retried_checkout_reports_the_launch_list_not_the_earlier_failure() -> None:
+    evening = Evening()
+    evening.client.fail_on("log_off", HorizonClientError(Reason.LOGOFF_NOT_CONFIRMED, SHOT))
+    evening.client.success_screenshot = LIST
+
+    report = evening.run()
+
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == LIST
 
 
 def test_a_failed_login_is_retried_after_the_backoff_and_succeeds() -> None:

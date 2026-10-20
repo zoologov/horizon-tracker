@@ -58,8 +58,10 @@ class FakeHorizonClient:
     an exception that a later call of ``method`` raises before it has any effect.
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
     a broker that does not do what it was asked; ``bundles`` are the client bundles the
-    portal names and ``browser`` the version the Chrome binary reports. Given a ``clock``,
-    ``called_at`` records the clock's time of each call beside ``calls``.
+    portal names and ``browser`` the version the Chrome binary reports. ``success_screenshot``
+    is the path ``open_desktop`` and ``log_off`` answer with, as the adapter's photo of the
+    step it completed; ``None`` plays a screenshot that could not be taken. Given a
+    ``clock``, ``called_at`` records the clock's time of each call beside ``calls``.
     """
 
     desktop: str
@@ -69,6 +71,7 @@ class FakeHorizonClient:
     log_off_takes_effect: bool = True
     bundles: tuple[str, ...] = ("app-htmlaccess.fake-2312.js",)
     browser: str = "131.0.6778.85"
+    success_screenshot: Path | None = None
     clock: FakeClock | None = None
     calls: list[str] = field(default_factory=list)
     called_at: list[datetime] = field(default_factory=list)
@@ -101,7 +104,7 @@ class FakeHorizonClient:
         self._enter("open_desktop", name)
         if self.open_connects:
             self.state = SessionState.CONNECTED
-        return None
+        return self.success_screenshot
 
     def disconnect(self) -> None:
         self._enter("disconnect")
@@ -116,7 +119,7 @@ class FakeHorizonClient:
         self._enter("log_off", name)
         if self.log_off_takes_effect:
             self.state = SessionState.NO_SESSION
-        return None
+        return self.success_screenshot
 
     def client_bundles(self) -> tuple[str, ...]:
         self._enter("client_bundles")

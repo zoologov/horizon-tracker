@@ -3,7 +3,8 @@
 One attempt logs in, reads the session state the broker shows and, if a session
 exists, logs it off from the tile menu and reads the state again. A desktop that had
 no session when the run first looked is reported as already logged off and the run
-stops; there is nothing to log off and nothing to retry.
+stops; there is nothing to log off and nothing to retry. A confirmed check-out
+reports the screenshot the client took of the launch list after its log off, if any.
 
 The state the run first saw is kept across its attempts: if a log off went through
 but its confirmation was lost, the retry finds no session and counts the run as the
@@ -13,6 +14,7 @@ check-out it was, not as "already logged off".
 # beadloom:domain=application
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from horizon_tracker.application.windowed_run import AttemptResult, WindowedRun
 from horizon_tracker.domain.ports import Clock, HorizonClient
@@ -65,11 +67,12 @@ class _CheckoutAttempt:
         if self._before is None:
             self._before = state
         before = self._before
+        logged_off: Path | None = None
         if state.has_session:
-            self._client.log_off(self._desktop)
+            logged_off = self._client.log_off(self._desktop)
             state = self._client.desktop_status(self._desktop).state
         if checkout_succeeded(before, state):
-            return AttemptResult(Outcome.SUCCEEDED, self._clock.now())
+            return AttemptResult(Outcome.SUCCEEDED, self._clock.now(), screenshot=logged_off)
         if not before.has_session:
             return AttemptResult(Outcome.SKIPPED, self._clock.now(), Reason.ALREADY_LOGGED_OFF)
         return AttemptResult(Outcome.FAILED, self._clock.now(), Reason.LOGOFF_NOT_CONFIRMED)
