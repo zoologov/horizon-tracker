@@ -17,7 +17,8 @@
 - [x] BRIEF approved by the owner (2026-10-20), beads created: ht-m7u, ht-75w, ht-28a
 - [x] BEAD-01 dev (2026-10-20)
 - [x] BEAD-02 review (ISSUES)
-- [ ] BEAD-04 fix (ht-tvn.1) → BEAD-05 re-review (ht-tvn.2)
+- [x] BEAD-04 fix (ht-tvn.1)
+- [ ] BEAD-05 re-review (ht-tvn.2)
 - [ ] PR → main → deploy
 - [ ] BEAD-03 live check from the VPS (the local agent), then the timers
 
@@ -28,7 +29,7 @@
 | BEAD-01 | Done | ht-m7u, 39b1149 + d69cf64: tile/canvas/menu from the bundle, fixture rewritten (the old adapter on it: 13 red of 25), 470 tests, coverage 98 %; found beyond the BRIEF: the menu closes by a click, not by Escape; `canvas#mainCanvas`; risk: the client marks the desktop "logged off" before the broker answers |
 | BEAD-02 | Done | ht-75w: ISSUES — 1 major (the Log Off confirmation reads the client's optimistic flag, not the broker), 2 minor, 2 nit; 8 sabotages; fix → ht-tvn.1, re-review → ht-tvn.2 |
 | BEAD-03 | Open | — |
-| BEAD-04 | Open | ht-tvn.1: fix after the review |
+| BEAD-04 | Done | ht-tvn.1, f706192: 473 tests, coverage 98 %, ci rc 0 |
 | BEAD-05 | Open | ht-tvn.2: re-review |
 
 ## Notes
