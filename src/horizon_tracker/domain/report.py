@@ -1,16 +1,16 @@
 """The run report as a value, and the notification text rendered from it.
 
 A report carries no free text at all: the outcome and the reason come from closed
-vocabularies, the time is a ``datetime`` and the screenshot is a path the notifier
-attaches beside the text. There is no field a password could travel in, so the
-rendered message cannot leak one -- and the report refuses a value of the wrong
-type at construction rather than trusting the caller.
+vocabularies, the time is a ``datetime``, the planned moment a ``time``, and the
+screenshot is a path the notifier attaches beside the text. There is no field a
+password could travel in, so the rendered message cannot leak one -- and the report
+refuses a value of the wrong type at construction rather than trusting the caller.
 """
 
 # beadloom:domain=domain
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 from enum import StrEnum
 from pathlib import Path
 
@@ -69,6 +69,7 @@ _REASON_TEXT = {
 }
 
 _TIME_FORMAT = "%d.%m.%Y %H:%M:%S %Z"
+_PLANNED_FORMAT = "%H:%M"
 
 
 def _require(value: object, expected: type | tuple[type, ...], field: str) -> None:
@@ -82,6 +83,8 @@ class RunReport:
 
     ``verdict_source`` is ``None`` when the calendar was not asked (a ``--force`` run).
     ``screenshot`` is sent as an attachment and never appears in the text.
+    ``planned_at`` is the drawn moment the run waited for, local wall time; ``None`` when
+    there was none (a ``--force`` run).
     """
 
     kind: RunKind
@@ -90,6 +93,7 @@ class RunReport:
     verdict_source: VerdictSource | None
     reason: Reason | None = None
     screenshot: Path | None = None
+    planned_at: time | None = None
 
     def __post_init__(self) -> None:
         _require(self.kind, RunKind, "kind")
@@ -98,6 +102,7 @@ class RunReport:
         _require(self.verdict_source, (VerdictSource, type(None)), "verdict_source")
         _require(self.reason, (Reason, type(None)), "reason")
         _require(self.screenshot, (Path, type(None)), "screenshot")
+        _require(self.planned_at, (time, type(None)), "planned_at")
         if self.at.utcoffset() is None:
             raise ValueError("RunReport.at must carry a time zone")
         if (self.outcome is Outcome.SUCCEEDED) != (self.reason is None):
@@ -105,12 +110,19 @@ class RunReport:
 
 
 def render(report: RunReport) -> str:
-    """The notification text for one run: headline, time, calendar source, reason."""
+    """The notification text for one run: headline, time and plan, calendar source, reason."""
     lines = [
         f"{_KIND_TEXT[report.kind]} {_OUTCOME_TEXT[report.outcome]}",
-        f"Время: {report.at.strftime(_TIME_FORMAT)}",
+        _time_line(report),
         f"Календарь: {_SOURCE_TEXT[report.verdict_source]}",
     ]
     if report.reason is not None:
         lines.append(f"Причина: {_REASON_TEXT[report.reason]}")
     return "\n".join(lines)
+
+
+def _time_line(report: RunReport) -> str:
+    actual = f"Время: {report.at.strftime(_TIME_FORMAT)}"
+    if report.planned_at is None:
+        return actual
+    return f"{actual}, назначено на {report.planned_at.strftime(_PLANNED_FORMAT)}"

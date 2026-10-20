@@ -1,7 +1,7 @@
 """Unit tests for the run report value and the notification text rendered from it."""
 
 import dataclasses
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -67,6 +67,21 @@ def test_render_names_which_rule_decided_the_working_day(
     report = dataclasses.replace(SUCCESS, verdict_source=source)
 
     assert line in render(report).splitlines()
+
+
+def test_render_puts_the_planned_moment_beside_the_actual_time() -> None:
+    report = dataclasses.replace(SUCCESS, planned_at=time(7, 43))
+
+    assert "Время: 20.10.2026 07:56:12 MSK, назначено на 07:43" in render(report).splitlines()
+
+
+def test_render_names_no_planned_moment_when_the_run_had_none() -> None:
+    # A --force run has no drawn moment: the time line stands alone.
+    assert "назначено" not in render(SUCCESS)
+
+
+def test_report_keeps_the_planned_moment() -> None:
+    assert dataclasses.replace(SUCCESS, planned_at=time(16, 41)).planned_at == time(16, 41)
 
 
 def test_a_success_carries_no_reason_line() -> None:
@@ -143,7 +158,7 @@ def test_a_failure_or_a_skip_requires_a_reason(outcome: Outcome) -> None:
 
 
 @pytest.mark.parametrize(
-    "field", ["kind", "outcome", "at", "verdict_source", "reason", "screenshot"]
+    "field", ["kind", "outcome", "at", "verdict_source", "reason", "screenshot", "planned_at"]
 )
 def test_a_value_of_the_wrong_type_is_refused_naming_the_field_and_the_type(field: str) -> None:
     # The refusal goes to the journal: it names the field and the type, never the value.
@@ -188,6 +203,11 @@ def test_a_password_passed_through_any_field_never_reaches_the_text(
 
     if report is not None:
         assert PASSWORD not in render(report)
+
+
+def test_the_password_test_covers_the_planned_moment() -> None:
+    # The any-field test reads the fields at collection; this pins that it reaches the new one.
+    assert "planned_at" in {field.name for field in dataclasses.fields(RunReport)}
 
 
 def test_the_screenshot_travels_beside_the_text_not_inside_it() -> None:

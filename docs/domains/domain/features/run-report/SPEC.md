@@ -54,9 +54,13 @@ Module `src/horizon_tracker/domain/report.py`:
 - `Reason` — `StrEnum`: `NON_WORKING_DAY`, `TOO_EARLY`, `WINDOW_MISSED`,
   `ALREADY_LOGGED_OFF`, `PORTAL_UNREACHABLE`, `LOGIN_REJECTED`, `DESKTOP_NOT_FOUND`,
   `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `UNEXPECTED`.
-- `RunReport(kind, outcome, at, verdict_source, reason=None, screenshot=None)` —
-  frozen; validated at construction as described above.
-- `render(report: RunReport) -> str` — the notification text.
+- `RunReport(kind, outcome, at, verdict_source, reason=None, screenshot=None,
+  planned_at=None)` — frozen; validated at construction as described above.
+  `planned_at: time | None` is the drawn moment the run waited for; any other type is
+  refused with `TypeError`.
+- `render(report: RunReport) -> str` — the notification text; when `planned_at` is
+  set, the time line carries it beside the actual time:
+  `Time: 20.10.2026 07:56:12 MSK, planned for 07:43`.
 
 ## Testing
 

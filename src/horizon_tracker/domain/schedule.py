@@ -1,23 +1,35 @@
-"""Decides whether a run attempt may go ahead now: run, retry, or skip, given its window.
+"""Decides when a run may go ahead: today's drawn moment, its window, and run, retry or skip.
 
-A run has a window of local wall time (07:55-08:00 for the check-in, 17:00-17:05 for
-the check-out). Both ends belong to the window. An attempt outside it is skipped and
-never performed late; inside it, the first attempt runs and later ones retry until the
-policy's attempts are spent. A non-working day is skipped whatever the time.
+Each working day draws one check-in moment from its range (07:30-08:10 as deployed) and
+one check-out moment from its own (16:30-17:10), at least a session length apart when that
+fits. The draw is a pure function of the date and a seed (hmac-sha256), so the morning
+and the evening runs agree on the pair without sharing any state. A run's window opens
+at its moment and closes after a grace. Both ends belong to the window. An attempt
+outside it is skipped and never performed late; inside it, the first attempt runs and
+later ones retry until the policy's attempts are spent. A non-working day is skipped
+whatever the time.
 
 Time is an argument: the domain never reads a clock. ``now`` is read as wall time in
 the window's zone, which is the zone the ``Clock`` port hands out (Europe/Moscow).
 """
 # beadloom:domain=domain
 
+import hmac
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 
 from horizon_tracker.domain.calendar import WorkingDayVerdict
 
 # Attempts are counted from one. Public, so the run loop counts from this value, not a copy.
 FIRST_ATTEMPT = 1
+
+_MINUTE = timedelta(minutes=1)
+# The draw reads two 32-bit words of the digest: the check-in offset, then the extra minutes.
+_WORD = 4
+_DIGEST = "sha256"
+# Any date serves for arithmetic on wall times: a drawn moment or a window never leaves it.
+_REFERENCE_DAY = date(2000, 1, 1)
 
 
 class RunKind(StrEnum):
@@ -98,3 +110,108 @@ def decide(
     if attempt == FIRST_ATTEMPT:
         return Decision.RUN
     return Decision.RETRY
+
+
+@dataclass(frozen=True)
+class TimeRange:
+    """A span of local wall time a moment is drawn from, in whole minutes; both ends included."""
+
+    start: time
+    end: time
+
+    def __post_init__(self) -> None:
+        if not (_is_whole_minute(self.start) and _is_whole_minute(self.end)):
+            msg = f"range ends must be whole minutes, got {self.start}-{self.end}"
+            raise ValueError(msg)
+        if self.start >= self.end:
+            msg = f"range start {self.start} must be before its end {self.end}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class DailyMoments:
+    """The day's drawn pair: when the check-in and the check-out run, in local wall time."""
+
+    check_in: time
+    check_out: time
+
+
+def draw_moments(
+    day: date,
+    seed: bytes,
+    checkin_range: TimeRange,
+    session_length: timedelta,
+    extra_max: timedelta,
+    checkout_range: TimeRange,
+) -> DailyMoments:
+    """Draw ``day``'s check-in and check-out moments from ``seed``, to the minute.
+
+    The check-in falls anywhere in its range. The check-out is the check-in plus the
+    session plus 0 to ``extra_max``, clipped into its range: never shorter than the
+    session when that fits, and the end of the range when it does not.
+    """
+    _check_draw_parameters(seed, checkin_range, session_length, extra_max, checkout_range)
+    digest = hmac.new(seed, day.isoformat().encode(), _DIGEST).digest()
+    check_in = _at(checkin_range.start) + _pick(digest[:_WORD], _span(checkin_range))
+    extra = _pick(digest[_WORD : 2 * _WORD], extra_max)
+    check_out = min(
+        max(check_in + session_length + extra, _at(checkout_range.start)),
+        _at(checkout_range.end),
+    )
+    return DailyMoments(check_in=check_in.time(), check_out=check_out.time())
+
+
+def window_from(moment: time, grace: timedelta) -> Window:
+    """The window of a run due at ``moment``: it opens then and closes ``grace`` later."""
+    if grace <= timedelta(0):
+        msg = f"grace must be positive, got {grace}"
+        raise ValueError(msg)
+    end = _at(moment) + grace
+    if end.date() != _REFERENCE_DAY:
+        msg = f"a window from {moment} with grace {grace} crosses midnight"
+        raise ValueError(msg)
+    return Window(start=moment, end=end.time())
+
+
+def _check_draw_parameters(
+    seed: bytes,
+    checkin_range: TimeRange,
+    session_length: timedelta,
+    extra_max: timedelta,
+    checkout_range: TimeRange,
+) -> None:
+    if not seed:
+        raise ValueError("the draw needs a non-empty seed")
+    if session_length <= timedelta(0):
+        msg = f"session_length must be positive, got {session_length}"
+        raise ValueError(msg)
+    if extra_max < timedelta(0):
+        msg = f"extra_max must not be negative, got {extra_max}"
+        raise ValueError(msg)
+    for name, duration in (("session_length", session_length), ("extra_max", extra_max)):
+        if duration % _MINUTE:
+            msg = f"{name} must be whole minutes, got {duration}"
+            raise ValueError(msg)
+    if checkout_range.start <= checkin_range.end:
+        msg = (
+            f"the check-out range must start after the check-in range ends: "
+            f"{checkout_range.start} is not after {checkin_range.end}"
+        )
+        raise ValueError(msg)
+
+
+def _is_whole_minute(moment: time) -> bool:
+    return moment.second == 0 and moment.microsecond == 0
+
+
+def _at(moment: time) -> datetime:
+    return datetime.combine(_REFERENCE_DAY, moment)
+
+
+def _span(time_range: TimeRange) -> timedelta:
+    return _at(time_range.end) - _at(time_range.start)
+
+
+def _pick(word: bytes, span: timedelta) -> timedelta:
+    """A whole number of minutes from 0 to ``span``, both included, chosen by ``word``."""
+    return _MINUTE * (int.from_bytes(word, "big") % (span // _MINUTE + 1))

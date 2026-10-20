@@ -53,6 +53,24 @@ Module `src/horizon_tracker/domain/schedule.py`:
 - `RetryPolicy(max_attempts: int, backoff: timedelta)` — frozen.
 - `decide(now, window, verdict, attempt, policy) -> Decision` — the rule above;
   `verdict` is a `WorkingDayVerdict` from `calendar.py`.
+- `TimeRange(start: time, end: time)` — frozen; the span a moment is drawn from, both
+  ends included; refuses `start >= end` and ends that are not whole minutes
+  (`ValueError`).
+- `DailyMoments(check_in: time, check_out: time)` — frozen; the day's drawn pair.
+- `draw_moments(day: date, seed: bytes, checkin_range: TimeRange, session_length:
+  timedelta, extra_max: timedelta, checkout_range: TimeRange) -> DailyMoments` — a pure
+  function of `day` and `seed`: `digest = hmac-sha256(seed, day.isoformat())`; the
+  check-in is `checkin_range.start` plus `digest[0:4]` (big-endian) modulo the range's
+  minutes + 1; the check-out is the check-in plus `session_length` plus `digest[4:8]`
+  modulo `extra_max`'s minutes + 1, clipped into `checkout_range`. Both moments are whole
+  minutes. The check-out is never less than `session_length` after the check-in when
+  that fits the range, and is the range end when it does not. Refuses (`ValueError`) an
+  empty seed, a `session_length` that is not positive, a negative `extra_max`, either
+  duration not in whole minutes, and a `checkout_range` that does not start after
+  `checkin_range` ends.
+- `window_from(moment: time, grace: timedelta) -> Window` — the window of a run due at
+  `moment`: `Window(moment, moment + grace)`; refuses a grace that is not positive and a
+  window that would cross midnight (`ValueError`).
 
 ## Testing
 
