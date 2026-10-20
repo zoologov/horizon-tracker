@@ -80,6 +80,11 @@ jobs:
         # by a backslash - the four characters systemd unescapes there (SHELL_NEED_ESCAPE,
         # as its own write_env_var does) - so a password arrives literally. Non-secret
         # values are the production contract of RUNBOOK §2.2; the tests hold the two equal.
+        # The schedule is RFC HT-003's: timers fire at the range starts, the service draws
+        # each day's moments inside the ranges. HT_CHECKIN_WINDOW / HT_CHECKOUT_WINDOW are
+        # retired and must never be written: Settings refuses them, so the smoke would fail.
+        # HT_JITTER_SEED is optional: an undefined secret is empty, and an empty optional
+        # value is left out, so the draw is seeded from HORIZON_USERNAME.
         env:
           HORIZON_URL: https://horizon.example.com/portal/webclient/
           HORIZON_USERNAME: ${{ secrets.HORIZON_USERNAME }}
@@ -88,8 +93,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           HT_TIMEZONE: Europe/Moscow
-          HT_CHECKIN_WINDOW: "07:55-08:00"
-          HT_CHECKOUT_WINDOW: "17:00-17:05"
+          HT_CHECKIN_RANGE: "07:30-08:10"
+          HT_CHECKOUT_RANGE: "16:30-17:10"
+          HT_SESSION_LENGTH_MINUTES: "540"
+          HT_SESSION_EXTRA_MAX_MINUTES: "10"
+          HT_WINDOW_GRACE_MINUTES: "5"
+          HT_JITTER_SEED: ${{ secrets.HT_JITTER_SEED }}
           HT_HOLD_SECONDS: "120"
           HT_CHROME_PATH: /usr/bin/google-chrome
           HT_ARTIFACTS_DIR: /opt/horizon-tracker/artifacts
@@ -97,12 +106,19 @@ jobs:
           set -euo pipefail
           umask 077
           names=(HORIZON_URL HORIZON_USERNAME HORIZON_PASSWORD HORIZON_DESKTOP
-                 TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID HT_TIMEZONE HT_CHECKIN_WINDOW
-                 HT_CHECKOUT_WINDOW HT_HOLD_SECONDS HT_CHROME_PATH HT_ARTIFACTS_DIR)
+                 TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID HT_TIMEZONE HT_CHECKIN_RANGE
+                 HT_CHECKOUT_RANGE HT_SESSION_LENGTH_MINUTES HT_SESSION_EXTRA_MAX_MINUTES
+                 HT_WINDOW_GRACE_MINUTES HT_HOLD_SECONDS HT_CHROME_PATH HT_ARTIFACTS_DIR)
+          optional=(HT_JITTER_SEED)
           for name in "${names[@]}"; do
             if [ -z "${!name:-}" ]; then
               echo "::error title=.env::$name is empty - set it in the horizon-vps environment"
               exit 1
+            fi
+          done
+          for name in "${optional[@]}"; do
+            if [ -n "${!name:-}" ]; then
+              names+=("$name")
             fi
           done
           body=""

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from horizon_tracker.infrastructure.config import Settings
 from tests.support.systemd_env import parse_env_file
 from tests.support.workflows import (
     ROOT,
@@ -39,6 +40,21 @@ SECRETS = {
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
 }
+# Read when the environment defines it, and absent from .env when it does not: an
+# undefined secret evaluates to the empty string, and Settings then seeds the draw
+# from HORIZON_USERNAME (RFC HT-003, "API Changes").
+OPTIONAL_SECRETS = {"HT_JITTER_SEED"}
+# The schedule values of RFC HT-003 "API Changes", pinned here rather than read back
+# from the workflow or the RUNBOOK, which the contract test only holds equal.
+SCHEDULE = {
+    "HT_CHECKIN_RANGE": "07:30-08:10",
+    "HT_CHECKOUT_RANGE": "16:30-17:10",
+    "HT_SESSION_LENGTH_MINUTES": "540",
+    "HT_SESSION_EXTRA_MAX_MINUTES": "10",
+    "HT_WINDOW_GRACE_MINUTES": "5",
+}
+RETIRED = ("HT_CHECKIN_WINDOW", "HT_CHECKOUT_WINDOW")
+SEED_STAND_IN = ' seed "q" $X `id` \\ é '
 UNITS = sorted(p.name for p in (ROOT / "deploy").iterdir() if p.suffix in {".service", ".timer"})
 TIMERS = "horizon-checkin.timer horizon-checkout.timer"
 BUILD_ENV = "Build .env"
@@ -81,12 +97,21 @@ def runbook_contract() -> dict[str, str]:
 def build_env(
     tmp_path: Path, overrides: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    """Run the build step as the runner would: its env, stand-ins in place of secrets."""
+    """Run the build step as the runner would: its env, stand-ins in place of secrets.
+
+    An optional secret is left undefined, as in the horizon-vps environment today, so it
+    reaches the step as the empty string; ``overrides`` defines it.
+    """
     assert BASH is not None
     env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(tmp_path)}
     for key, value in step_named(deploy(), "deploy", BUILD_ENV)["env"].items():
         secret = SECRET_EXPRESSION.match(str(value))
-        env[key] = STAND_INS[secret.group(1)] if secret else str(value)
+        if secret is None:
+            env[key] = str(value)
+        elif secret.group(1) in OPTIONAL_SECRETS:
+            env[key] = ""
+        else:
+            env[key] = STAND_INS[secret.group(1)]
     env.update(overrides or {})
     return subprocess.run(
         [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script(BUILD_ENV)],
@@ -139,7 +164,7 @@ def test_every_secret_of_the_environment_is_used_and_no_other() -> None:
     named = {
         m.group(1) for s in all_strings(deploy()) for m in re.finditer(r"secrets\.([A-Z_]+)", s)
     }
-    assert named == SECRETS
+    assert named == SECRETS | OPTIONAL_SECRETS
 
 
 @pytest.mark.parametrize("workflow", ["ci.yml", "deploy.yml"])
@@ -150,7 +175,7 @@ def test_run_scripts_carry_no_expressions(workflow: str) -> None:
 
 
 def test_no_secret_is_echoed_to_the_log() -> None:
-    secret_ref = re.compile(r"\$\{?(" + "|".join(sorted(SECRETS)) + r")\b")
+    secret_ref = re.compile(r"\$\{?(" + "|".join(sorted(SECRETS | OPTIONAL_SECRETS)) + r")\b")
     for text in run_scripts(deploy()):
         for line in text.splitlines():
             if not secret_ref.search(line):
@@ -188,6 +213,48 @@ def test_env_file_is_the_runbook_contract(tmp_path: Path) -> None:
     for name, shown in contract.items():
         expected = STAND_INS[name] if shown.startswith("<") else shown
         assert values[name] == expected, name
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_env_file_carries_the_schedule_of_the_rfc(tmp_path: Path) -> None:
+    assert build_env(tmp_path).returncode == 0
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    assert {name: values.get(name) for name in SCHEDULE} == SCHEDULE
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_env_file_names_no_retired_window(tmp_path: Path) -> None:
+    # Settings refuses either name, even blank: the smoke probe and every run would exit 1.
+    assert build_env(tmp_path).returncode == 0
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    assert not set(RETIRED) & set(values)
+    assert not set(RETIRED) & set(step_named(deploy(), "deploy", BUILD_ENV)["env"])
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_env_file_is_accepted_by_the_settings_the_cli_loads(tmp_path: Path) -> None:
+    assert build_env(tmp_path).returncode == 0
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    settings = Settings.from_env(values)
+    assert settings.jitter_seed == STAND_INS["HORIZON_USERNAME"].encode("utf-8")
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_an_undefined_seed_secret_leaves_the_seed_unset(tmp_path: Path) -> None:
+    result = build_env(tmp_path)
+    assert result.returncode == 0, result.stderr
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    assert "HT_JITTER_SEED" not in values
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_defined_seed_secret_arrives_literally_and_unprinted(tmp_path: Path) -> None:
+    result = build_env(tmp_path, {"HT_JITTER_SEED": SEED_STAND_IN})
+    assert result.returncode == 0, result.stderr
+    assert SEED_STAND_IN.strip() not in result.stdout + result.stderr
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    assert values["HT_JITTER_SEED"] == SEED_STAND_IN
+    assert Settings.from_env(values).jitter_seed == SEED_STAND_IN.encode("utf-8")
 
 
 @pytest.mark.skipif(BASH is None, reason="bash absent")

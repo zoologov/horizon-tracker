@@ -1,19 +1,24 @@
 [Unit]
-Description=Fire the Horizon morning check-in at 07:55 Moscow time, every day
+Description=Start the Horizon morning check-in daily at 07:30 Moscow time, its range start
 
 [Timer]
 # Every day, not Mon-Fri: the working-day verdict (isdayoff.ru, falling back to
 # Mon-Fri) belongs to the service, which reports a non-working day as a skip.
-OnCalendar=*-*-* 07:55:00 Europe/Moscow
+# At the start of the range the day's moment is drawn from (07:30-08:10), never
+# later: the service draws today's moment and waits for it in its own process,
+# and a run started after the moment's 5-minute window only reports it missed.
+OnCalendar=*-*-* 07:30:00 Europe/Moscow
 Unit=horizon-checkin.service
 
 # Never catch up a run missed while the VPS was down: a late run is worse than
-# none, and a catch-up at boot would land outside the window anyway, where the
-# service only reports a skip.
+# none, and a catch-up at boot would land after the range start anyway, where the
+# service only waits for a moment it may already have missed.
 Persistent=no
 
-# The window is five minutes; systemd's default 1-minute accuracy would let it
-# fire up to a minute late, so ask for the second it was scheduled.
+# The drawn moment can be the range start itself, and its window is five minutes;
+# systemd's default 1-minute accuracy would let the timer fire up to a minute late,
+# so ask for the second it was scheduled. No RandomizedDelaySec: the randomness is
+# the service's draw, which ties the evening to the morning (RFC HT-003).
 AccuracySec=1s
 
 [Install]

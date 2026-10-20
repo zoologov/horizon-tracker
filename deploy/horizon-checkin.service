@@ -8,8 +8,9 @@ Wants=network-online.target
 
 [Service]
 # One run per firing of horizon-checkin.timer. The service, not systemd, decides
-# whether to act: outside the 07:55-08:00 window or on a non-working day it
-# reports the skip and exits 0.
+# whether and when to act: it draws today's moment in 07:30-08:10, sleeps until it,
+# and outside the moment's 5-minute window or on a non-working day it reports the
+# skip and exits 0.
 Type=oneshot
 
 # A separate system user beside the neighbouring service; the neighbour's directory is never touched.
@@ -26,7 +27,9 @@ EnvironmentFile=/opt/horizon-tracker/.env
 # `failed` in systemctl/journalctl exactly on a FAILED run, never on a skip.
 ExecStart=/opt/horizon-tracker/.venv/bin/horizon checkin
 
-# Upper bound on one run: the 5-minute window, the 120 s hold of the opened
-# desktop and the browser's teardown, with margin. A hung Chrome is killed and
-# the unit is marked failed instead of blocking tomorrow's run.
-TimeoutStartSec=15min
+# Upper bound on one run: up to 40 minutes of waiting for the moment drawn in
+# the 40-minute range, the 5-minute window of attempts from it, and the run itself
+# (the 120 s hold of the opened desktop and the browser's teardown), with margin.
+# Chrome starts only after the wait, so the wait holds no browser. A hung Chrome
+# is killed and the unit is marked failed instead of blocking tomorrow's run.
+TimeoutStartSec=60min
