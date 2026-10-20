@@ -1,13 +1,13 @@
 # ACTIVE: HT-002 — HTML Access 2312.1 selectors
 
-> **Last updated:** 2026-10-20
+> **Last updated:** 2026-10-20 (ready for the PR)
 > **Phase:** Development
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-02 (ht-75w) review; then the PR
+**Bead:** PR HT-002 open; then BEAD-03 (ht-28a), the live check per deploy/HANDOFF-live-check.md
 **Was:** BEAD-01 (ht-m7u) — adapter: tile, canvas and menu selectors from the 2312.1 bundle; fixture and tests
 **Goal:** `checkin --force` reaches the click on the tile and sees the open desktop; `checkout` tells "no session" apart
 **Done when:** the adapter tests on the fixture with the real markup are green and bite, `beadloom ci` rc 0
@@ -21,7 +21,8 @@
 - [x] BEAD-05 re-review (ht-tvn.2) OK
 - [x] BEAD-06 fix (ht-tvn.3)
 - [x] BEAD-07 re-review (ht-tvn.4) OK
-- [ ] BEAD-08 fix (ht-tvn.5), then the PR
+- [x] BEAD-08 fix (ht-tvn.5)
+- [ ] PR → main → deploy (opened by the coordinator)
 - [ ] PR → main → deploy
 - [ ] BEAD-03 live check from the VPS (the local agent), then the timers
 
@@ -36,7 +37,7 @@
 | BEAD-05 | Done | ht-tvn.2: OK (0 major, 2 minor, 2 nit); minor 1 → ht-tvn.3, minor 2 → measurements in ht-28a |
 | BEAD-06 | Done | ht-tvn.3, 9f243d8: 476 tests, coverage 99 %, ci rc 0 |
 | BEAD-07 | Done | ht-tvn.4: OK (2 minor, 1 nit) → ht-tvn.5 |
-| BEAD-08 | Open | ht-tvn.5: the predicate by path, a log of the kill-session answer |
+| BEAD-08 | Done | ht-tvn.5, df9fa99: 480 tests, coverage 99 %, ci rc 0; log `Horizon kill-session answered: <status> after <ms> ms`; "armed before OK" pinned by a test |
 
 ## Notes
 
