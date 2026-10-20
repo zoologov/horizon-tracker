@@ -1,15 +1,15 @@
 # ACTIVE: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Last updated:** 2026-10-20 (wave 3 landed)
+> **Last updated:** 2026-10-20 (wave 4 landed)
 > **Phase:** Development
 
 ---
 
 ## Current Bead
 
-**Bead:** wave 4 — BEAD-08 (ht-2h2) deploy, then BEAD-09 (ht-spa) workflows
-**Goal:** the systemd units, bootstrap, RUNBOOK; CI and auto-deploy to the VPS
-**Done when:** the units pass systemd-analyze, the bootstrap is clean under shellcheck, CI is green on the PR, deploy passes actionlint
+**Bead:** wave 5 — BEAD-10 (ht-1ex) test; then BEAD-11 review → BEAD-12 tech-writer; BEAD-13 (ht-bl6) with the owner
+**Goal:** the BDD suite over the 12 PRD scenarios, coverage ≥ 80 %, the core's mutation gate; then the review and the AS-IS documentation
+**Done when:** `beadloom lint` finds no PRD scenario without its text in the suite, coverage and the mutation score are measured and named
 
 ## Progress
 
@@ -18,7 +18,7 @@
 - [x] Wave 1: BEAD-01, BEAD-02 (landed 2026-10-20: 930a582, d21e406; 117 tests on the tree)
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
 - [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
-- [ ] Wave 4: BEAD-08, BEAD-09
+- [x] Wave 4: BEAD-08, BEAD-09 (landed 2026-10-20: a784433, 7d68763; 416 tests on the tree)
 - [ ] Wave 5: BEAD-10 → BEAD-11 → BEAD-12; BEAD-13 the owner
 
 ## Results
@@ -33,7 +33,7 @@
 | BEAD-06 | Done | ht-xlh, b7bbddc: horizon_playwright.py, the htmlaccess fixture, pytest-bdd+mutmut in dev; 21 adapter tests, 287/287 in a clean room over 10 files |
 | BEAD-07 | Done | ht-oqx, f0f958c: cli.py, application/probe.py; 65 tests, 359/359 in a clean room over 4 files |
 | BEAD-08 | Done | ht-2h2, a784433: 4 systemd units, bootstrap.sh, RUNBOOK.md (ru); 31 tests, 389 on the tree; the bootstrap does not enable the timers — the owner enables them after BEAD-13 |
-| BEAD-09 | Open | — |
+| BEAD-09 | Done | ht-spa, 7d68763: ci.yml, deploy.yml; actionlint rc 0; 27 tests, the .env assembly checked against the systemd parser; the real Actions run and the deploy wait for BEAD-13 |
 | BEAD-10 | Open | — |
 | BEAD-11 | Open | — |
 | BEAD-12 | Open | — |
@@ -56,3 +56,6 @@
 - The scratchpad is shared between parallel agents: one agent overwrote another's file. Agents need per-bead subdirectories; recorded in UX-Issues.
 - Wave 3: the owner's gate on the tree — the application README extended with `probe.py`, `docs/services/cli.md` rewritten by the API CHANGE of ht-oqx (commands, exit codes, output, variables), the surface rebased, the inert overrides removed.
 - CLI: the retry policy is a CLI constant (3 attempts 30 s apart, within the window), not in Settings; the log only to stderr under journald, there is no log file (a deviation from the PLAN, the reason — journald holds the rotation).
+- Wave 4: the deploy runs only for `main` (a guard in the job), the gate before the deploy is the full `ci.yml` (on a push to main CI runs twice, deliberately); the smoke test `horizon probe` through `systemd-run --uid=horizon -p EnvironmentFile=...`, because `sudo -u` does not provide the variables from `.env`; the timers `try-restart`, so as not to enable a disabled timer before the owner's first manual run.
+- For BEAD-12: the RFC said `systemctl restart` (corrected in the RFC with a note), RUNBOOK §2.2 names five secret values instead of four. For BEAD-10: `pyyaml` is needed as a direct dev dependency (it currently arrives transitively through mutmut).
+- BEAD-13 is unblocked for the owner: the secrets in the environment `horizon-vps` can be created right now; the deploy itself fires after the PR merge into `main`.

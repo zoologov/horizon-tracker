@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Created:** 2026-10-20
-> **Last updated:** 2026-10-20 (after wave 3)
+> **Last updated:** 2026-10-20 (after wave 4)
 
 ---
 
@@ -100,6 +100,9 @@ Log Off, and reports every run to Telegram.
 | 2026-10-20 | The CLI log only to stderr (journald), no file and no rotation (BEAD-07) | systemd already stores and rotates the journal; a second log is a second source |
 | 2026-10-20 | The retry policy is a CLI constant, not an environment variable (BEAD-07) | the window already limits the attempts; an extra knob without a consumer |
 | 2026-10-20 | An unreachable calendar in `probe` is DEGRADED, not FAILED (BEAD-07) | the service falls back to Mon–Fri, the deploy smoke test must not fail because of isdayoff |
+| 2026-10-20 | The bootstrap and the deploy do not enable the timers: `try-restart`, the owner enables them after the first manual run (BEAD-08, BEAD-09) | the first live check-in must be deliberate, not happen because of a deploy |
+| 2026-10-20 | The smoke test `horizon probe` in the deploy through `systemd-run --uid=horizon -p EnvironmentFile` (BEAD-09) | the CLI reads only the environment; `sudo -u` without `.env` would always fail |
+| 2026-10-20 | The deploy job runs only for `main`; the gate before it is the full `ci.yml` (BEAD-09) | a manual run from another branch must not reach the VPS; one CI file instead of two copies |
 
 ## Related Files
 
@@ -111,5 +114,5 @@ Log Off, and reports every run to Telegram.
 ## Current Phase
 
 - **Phase:** Development
-- **Current bead:** wave 4 — BEAD-08, then BEAD-09
+- **Current bead:** wave 5 — BEAD-10 → BEAD-11 → BEAD-12; BEAD-13 the owner
 - **Blockers:** none
