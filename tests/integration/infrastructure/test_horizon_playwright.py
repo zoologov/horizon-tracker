@@ -76,6 +76,14 @@ class PortalState:
     blast_path: str = "/r/"
     draw_canvas: bool = True
     ignore_logoff: bool = False
+    # How many launch-items lists the broker still answers with the session after it was
+    # told to log the desktop off: a broker that takes its time.
+    logoff_lag_lists: int = 0
+    logoff_pending: bool = False
+    # False: a login's web session serves one launch-items list, so a reload of the page
+    # lands on the login form (the live portal's answer to a reload is not measured).
+    login_survives_reload: bool = True
+    logins: dict[str, int] = field(default_factory=dict)
     events: list[str] = field(default_factory=list)
     user_agents: list[str] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -135,22 +143,37 @@ class PortalHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _login_token(self) -> str | None:
+        morsel = SimpleCookie(self.headers.get("Cookie", "")).get(SESSION_COOKIE)
+        if morsel is None or morsel.value not in self.state.logins:
+            return None
+        return morsel.value
+
     def _logged_in(self) -> bool:
-        cookie = SimpleCookie(self.headers.get("Cookie", ""))
-        return SESSION_COOKIE in cookie
+        return self._login_token() is not None
 
     def _login(self, body: dict[str, object]) -> None:
         if body.get("username") == USERNAME and body.get("password") == PASSWORD:
             self.state.record("login-accepted")
-            self._json(200, {}, cookie=f"{SESSION_COOKIE}=1; Path=/")
+            token = str(len(self.state.logins) + 1)
+            self.state.logins[token] = 0
+            self._json(200, {}, cookie=f"{SESSION_COOKIE}={token}; Path=/")
         else:
             self.state.record("login-rejected")
             self._json(401, {})
 
     def _launch_items(self) -> None:
-        if not self._logged_in():
+        token = self._login_token()
+        if token is None or (not self.state.login_survives_reload and self.state.logins[token] > 0):
             self._json(401, {})
             return
+        self.state.logins[token] += 1
+        if self.state.logoff_pending:
+            if self.state.logoff_lag_lists > 0:
+                self.state.logoff_lag_lists -= 1
+            else:
+                self.state.logoff_pending = False
+                self.state.session = "none"
         self._json(
             200,
             [
@@ -166,7 +189,9 @@ class PortalHandler(SimpleHTTPRequestHandler):
             return
         self.state.record("kill-session")
         if not self.state.ignore_logoff:
-            self.state.session = "none"
+            self.state.logoff_pending = self.state.logoff_lag_lists > 0
+            if not self.state.logoff_pending:
+                self.state.session = "none"
         self._json(200, {})
 
     def _blast(self) -> None:
@@ -406,6 +431,20 @@ def test_a_tile_is_found_by_a_name_with_quotes_and_a_backslash(
     assert client.desktop_status(QUOTED_DESKTOP).state is SessionState.NO_SESSION
 
 
+def test_reading_the_state_waits_for_the_tile_menu_to_close(
+    client: PlaywrightHorizonClient, portal: Portal
+) -> None:
+    # The fixture closes the menu a while after the document click. A read that returned
+    # with the menu still open would make the next read click "…" on an open menu, which
+    # toggles it shut: that read would find no menu and fail.
+    portal.state.session = "disconnected"
+    client.login()
+
+    states = [client.desktop_status(DESKTOP).state for _ in range(3)]
+
+    assert states == [SessionState.DISCONNECTED] * 3
+
+
 @pytest.mark.parametrize("step", ["desktop_status", "open_desktop", "log_off"])
 def test_an_unknown_desktop_is_not_found(
     client: PlaywrightHorizonClient, portal: Portal, step: str
@@ -566,6 +605,40 @@ def test_a_log_off_the_portal_never_confirms_fails_with_a_screenshot(
     assert "kill-session" in portal.state.events
     assert artifacts.asked == [RunKind.CHECKOUT]
     assert error.screenshot is not None
+    # The check-out reads the state again; it must see the broker's session, not the
+    # flag the client cleared on OK.
+    assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
+
+
+def test_a_log_off_is_confirmed_only_once_a_fresh_list_shows_the_session_gone(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    # The client hides "Log Off" the moment OK is clicked; a broker that ends the session
+    # a few lists later must be waited for, not taken at the client's word.
+    portal.state.session = "disconnected"
+    portal.state.logoff_lag_lists = 2
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    assert portal.state.session == "none", "log_off returned before the broker ended the session"
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_a_log_off_is_confirmed_through_a_fresh_login_when_a_reload_ends_the_web_session(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.login_survives_reload = False
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    assert portal.state.events.count("kill-session") == 1
+    assert portal.state.events.count("login-accepted") == 2
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
 def test_log_off_without_a_session_is_already_logged_off(

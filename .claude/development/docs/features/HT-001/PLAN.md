@@ -193,6 +193,8 @@ GET `index.html` and the bundle names without logging in. A screenshot on error 
 `http.server` in the test. The "desktop open" signal is kept in one method and marked as a hypothesis
 until the first `probe` on the VPS. `pyproject.toml`: `pytest-bdd` and `mutmut` in dev.
 
+> Superseded by HT-002, see SPEC horizon-playwright-client.
+
 **Done when:**
 - [ ] `tests/adapters/test_horizon_playwright.py` on the fixture: login, desktop selection, cancelling Fullscreen, log off through the menu, no screenshot is taken on the login page
 - [ ] not a single call to the live portal from the tests (the fixture is localhost only)

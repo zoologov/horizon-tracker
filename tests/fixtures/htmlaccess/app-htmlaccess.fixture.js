@@ -15,15 +15,33 @@
 //  - The Blast session appends div#wmksContainer<N> (display:none until connected) with
 //    canvas#mainCanvas into #canvas-container; canvas#canvas beside the container stays
 //    hidden whatever happens.
-// What is the fixture's own: the menu asks the broker for the tile's session when it
-// opens (the real client already holds it from the launch-items list).
+//  - The client holds the launch-items list as its model and derives "Log Off" from the
+//    item's logoffEnabled flag (canLogoff and a session state, set when the list arrives).
+//    On OK of the log-off confirmation it clears that flag at once and only then sends
+//    the kill-session request (launchItemsCtrlService._logoffDesktop): the tile shows
+//    "no session" before the broker has answered, whatever the broker answers.
+// What is the fixture's own:
+//  - The list is fetched when the page loads and after a login, never on a hash
+//    navigation, so the broker's state shows again only on a reload or a fresh login.
+//    Whether the real client refetches on a hash navigation is not known; the adapter
+//    must not depend on it.
+//  - A click in the document closes the open menu MENU_CLOSE_MS later, not at once, so
+//    an adapter that does not wait for the menu to go clicks "…" on a menu still open,
+//    and the client's "…" toggles: that click closes the menu instead of opening it.
+//  - The kill-session request leaves KILL_SESSION_HOP_MS after OK, standing in for the
+//    client's path through its JSCDK command controller and router. A page reloaded
+//    before then never sends it, so the adapter must let it leave before reloading.
 (function () {
   "use strict";
 
   var app = document.getElementById("app");
   var routes = { "#/home": initHome, "#/launchitems": initLaunchItems, "#/desktop": initDesktop };
   var menu = { id: null, element: null };
+  var launchItemsModel = null;
+  var loggingOff = null;
   var wmksCount = 0;
+  var KILL_SESSION_HOP_MS = 40;
+  var MENU_CLOSE_MS = 150;
 
   function byId(id) { return document.getElementById(id); }
 
@@ -64,17 +82,26 @@
     byId("loginButton").addEventListener("click", function () {
       post("/fixture/login", { username: byId("username").value, password: byId("password").value })
         .then(function (response) {
-          if (response.ok) { location.hash = "#/launchitems"; } else { byId("errorDialog").hidden = false; }
+          if (!response.ok) { byId("errorDialog").hidden = false; return; }
+          launchItemsModel = null;
+          location.hash = "#/launchitems";
         });
     });
   }
 
   // --- #/launchitems ------------------------------------------------------------------
 
+  // The client's model of the list: fetched once per page load and after a login.
   function launchItems() {
+    if (launchItemsModel !== null) { return Promise.resolve(launchItemsModel); }
     return fetch("/fixture/launch-items").then(function (response) {
       if (response.status === 401) { location.hash = "#/home"; throw new Error("not logged in"); }
       return response.json();
+    }).then(function (items) {
+      launchItemsModel = items.map(function (item) {
+        return { id: item.id, name: item.name, logoffEnabled: item.session !== "none" };
+      });
+      return launchItemsModel;
     });
   }
 
@@ -102,7 +129,7 @@
     overflow.addEventListener("click", function (event) {
       event.stopPropagation();
       event.preventDefault();
-      toggleMenu(item.id, launchButton);
+      toggleMenu(item, launchButton);
     });
     nameBox.appendChild(element("p", { "class": "ui-desktop-name", title: item.name }, item.name));
     li.appendChild(launchButton);
@@ -115,17 +142,11 @@
     menu = { id: null, element: null };
   }
 
-  function toggleMenu(id, host) {
-    if (menu.id === id) { closeMenu(); return; }
+  function toggleMenu(item, host) {
+    if (menu.id === item.id) { closeMenu(); return; }
     closeMenu();
-    var opening = { id: id, element: null };
-    menu = opening;
-    launchItems().then(function (items) {
-      if (menu !== opening) { return; }
-      var item = items.filter(function (each) { return each.id === id; })[0];
-      opening.element = contextMenu(id, Boolean(item) && item.session !== "none");
-      host.appendChild(opening.element);
-    }).catch(function () {});
+    menu = { id: item.id, element: contextMenu(item) };
+    host.appendChild(menu.element);
   }
 
   function menuEntry(id, label, shown, action) {
@@ -144,15 +165,16 @@
     return li;
   }
 
-  function contextMenu(id, hasSession) {
+  function contextMenu(item) {
+    var id = item.id;
     var host = element("share-contextmenu", { "class": "content-menu" });
     var container = element("ul", { id: "context-menu-container", "class": "context-menu-container south" });
     var entries = element("web-contextmenu");
     function nothing() {}
 
     entries.appendChild(menuEntry("menu-item-launch-btn", "Connect", true, function () { launch(id); }));
-    entries.appendChild(menuEntry("menu-item-logoff-btn", "Log Off", hasSession, function () {
-      byId("logoffDialog").dataset.desktop = id;
+    entries.appendChild(menuEntry("menu-item-logoff-btn", "Log Off", item.logoffEnabled, function () {
+      loggingOff = item;
       byId("logoffDialog").hidden = false;
     }));
     entries.appendChild(menuEntry("menu-item-reset-btn", "Reset", false, nothing));
@@ -173,7 +195,9 @@
     byId("cancelDialogBtn").addEventListener("click", function () { dialog.hidden = true; });
     byId("okDialogBtn").addEventListener("click", function () {
       dialog.hidden = true;
-      post("/fixture/kill-session", { id: dialog.dataset.desktop });
+      var item = loggingOff;
+      item.logoffEnabled = false;
+      setTimeout(function () { post("/fixture/kill-session", { id: item.id }); }, KILL_SESSION_HOP_MS);
     });
   }
 
@@ -239,7 +263,8 @@
   document.addEventListener("click", function (event) {
     var target = event.target;
     if (target && target.getAttribute && target.getAttribute("data-id") === "overflow-button") { return; }
-    closeMenu();
+    var closing = menu;
+    setTimeout(function () { if (menu === closing) { closeMenu(); } }, MENU_CLOSE_MS);
   });
   window.addEventListener("hashchange", render);
   render();

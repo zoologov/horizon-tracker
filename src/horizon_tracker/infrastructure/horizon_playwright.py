@@ -202,7 +202,13 @@ class PlaywrightHorizonClient:
         logger.info("Horizon client disconnected")
 
     def log_off(self, name: str) -> None:
-        """Log off from the tile's "…" menu, confirm the dialog, wait for the tile to agree."""
+        """Log off from the tile's "…" menu, confirm the dialog, wait for the broker to agree.
+
+        The client hides the tile's "Log Off" the moment OK is clicked, before the broker
+        has answered, so the tile on this page says nothing about the broker. Every
+        confirmation read loads the launch items afresh first; the page is left on that
+        fresh list, which is what a ``desktop_status`` after this call reads.
+        """
         with self._step(Reason.LOGOFF_NOT_CONFIRMED):
             tile = self._tile(name)
             logoff = self._open_tile_menu(tile)
@@ -210,9 +216,13 @@ class PlaywrightHorizonClient:
                 self._close_tile_menu(tile)
                 raise self._failure(Reason.ALREADY_LOGGED_OFF)
             logoff.click()
-            self._live_page().locator(DIALOG_OK).click()
+            page = self._live_page()
+            page.locator(DIALOG_OK).click()
+            # The kill-session request leaves after OK, through the client's own command
+            # path; a reload before it has left would cancel it. One poll interval first.
+            page.wait_for_timeout(self._timeouts.poll_ms)
             confirmed = self._poll(
-                lambda: self._tile_session_state(tile) is SessionState.NO_SESSION or None,
+                lambda: self._broker_session_state(name) is SessionState.NO_SESSION or None,
                 self._timeouts.logoff_confirm_ms,
             )
         if not confirmed:
@@ -301,13 +311,19 @@ class PlaywrightHorizonClient:
         The client binds ``[hidden]`` on ``#menu-item-logoff-btn`` in the tile's menu: the
         item is offered only for a desktop that holds a session (it is never disabled).
         The attribute is read rather than the item's visibility, which the client's own
-        stylesheet, not in the bundle, could override. The tile
-        cannot tell whether another client is attached, so a session reads as
-        DISCONNECTED; CONNECTED is only ever this client's own open desktop.
+        stylesheet, not in the bundle, could override. The tile cannot tell whether
+        another client is attached, so a session reads as DISCONNECTED; CONNECTED is only
+        ever this client's own open desktop. The tile shows the list the page last
+        fetched, as the client has since changed it.
         """
         offered = _offered(self._open_tile_menu(tile))
         self._close_tile_menu(tile)
         return SessionState.DISCONNECTED if offered else SessionState.NO_SESSION
+
+    def _broker_session_state(self, name: str) -> SessionState:
+        """The named tile's session state on a launch-items list fetched for this read."""
+        self._reload_launch_items()
+        return self._tile_session_state(self._tile(name))
 
     # --- steps ------------------------------------------------------------------------
 
@@ -345,6 +361,22 @@ class PlaywrightHorizonClient:
             page.goto(self._url(LAUNCH_ITEMS_ROUTE), timeout=self._timeouts.page_load_ms)
             self._opened_desktop = None
         return page
+
+    def _reload_launch_items(self) -> None:
+        """Load ``#/launchitems`` again so its tiles are built from a list the broker sent.
+
+        The client clears a tile's log-off flag on OK, before the kill-session request
+        leaves (``launchItemsCtrlService._logoffDesktop``); only a list fetched again
+        shows what the broker holds. A reload that lands on the login form logs in
+        afresh, which fetches the list as well.
+        """
+        page = self._live_page()
+        page.reload(timeout=self._timeouts.page_load_ms)
+        page.locator(f"{ANY_TILE}, {USERNAME_FIELD}").first.wait_for(
+            timeout=self._timeouts.page_load_ms
+        )
+        if page.locator(USERNAME_FIELD).count() > 0:
+            self.login()
 
     def _open_tile_menu(self, tile: Locator) -> Locator:
         """Open the tile's "…" menu, wait for the menu itself, return its log-off item."""

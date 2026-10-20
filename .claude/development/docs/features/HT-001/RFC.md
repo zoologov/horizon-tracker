@@ -137,6 +137,8 @@ deliberate skip, 1 on failure; systemd tells `failed` apart by it.
 | Log Off from the desktop (the fallback path) | `#/desktop` → `#sidebar-toggler` | `#sidebar-logout-button` (icon `icon-logoff-desktop-image`) → `#okDialogBtn` |
 | Desktop state | after login | `page.request.post("/broker/xml", <get-launch-items>)` from the authenticated context: the same endpoint the client uses (`do-submit-authentication`, `get-launch-items`, `kill-session`, `disconnect-session`, `do-logout`); used to read the state, not to log in |
 
+> Superseded by HT-002, see SPEC horizon-playwright-client.
+
 The "desktop open" signal and the shape of the `get-launch-items` answer are confirmed by the first
 `horizon probe` on the VPS; until then they are a hypothesis from the bundle and are marked so in the code.
 

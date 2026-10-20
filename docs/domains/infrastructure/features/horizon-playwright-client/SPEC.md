@@ -28,7 +28,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `desktop_status(name)` | `CONNECTED` while this client holds that desktop open; otherwise opens the named tile's "…" menu, reads whether it offers Log Off, closes the menu; logs in first when no page is live | `DESKTOP_NOT_FOUND`, `UNEXPECTED`, or the reasons of `login()` when it logs in first |
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), returns once the desktop is open; logs whether a WebSocket on a Blast path was seen | `DESKTOP_DID_NOT_OPEN` |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, polls until the tile shows no session | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND` |
+| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off") | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -84,12 +84,34 @@ code marks each as a hypothesis in the one method that holds it:
   than the item's visibility, which the client's stylesheet, not in the bundle, could
   override. The tile cannot tell whether another client is attached, so a session
   reads as `DISCONNECTED`, and `CONNECTED` is only ever this client's own open
-  desktop. The client clears the item's flag the moment a log off is confirmed,
-  before the broker answers; whether the tile then shows the broker's state again is
-  what the live `checkout --force` measures.
+  desktop. The tile shows the list the page last fetched, as the client has changed
+  it since; "Confirming a log off" below is why that matters.
 
 The probe never logs in, so it cannot confirm either reading. The first measurement is
 the manual `checkin --force` and `checkout --force` on the VPS (`deploy/RUNBOOK.md` §4).
+
+### Confirming a log off
+
+On OK of the log-off confirmation the client clears the tile's `logoffEnabled` flag
+at once and only then sends the kill-session request
+(`launchItemsCtrlService._logoffDesktop` in the bundle). The menu derives "Log Off"
+from that flag, so the tile on the same page reads "no session" before the broker has
+answered, whatever it answers. `log_off()` therefore never confirms from that page:
+
+- after OK it waits one poll interval (`HorizonTimeouts.poll_ms`), so the client's
+  kill-session request has left before the page is reloaded under it;
+- every confirmation read reloads `#/launchitems`, so the tiles are built from a list
+  the broker sent, and reads the tile from that list. A reload that lands on the login
+  form logs in again in a fresh context, which fetches the list as well;
+- the page is left on the last list fetched, so a `desktop_status()` after `log_off()`
+  (the check-out's second read) reads the broker's state too. The port contract is
+  unchanged.
+
+Not measured on the live portal: whether a reload keeps the web session (the fallback
+covers both answers) and whether one poll interval is enough for the request to leave
+the client. The live `checkout --force` sees a successful log off either way, so it
+cannot tell a broker's answer from the client's flag; a broker-side read after the
+check-out can.
 
 ### Secrets and failures
 
@@ -138,9 +160,19 @@ Chromium against a local copy of the HTML Access markup
 (`tests/fixtures/htmlaccess/`) served on localhost, never the portal; CI installs the
 browser with `playwright install --with-deps chromium`. The fixture reproduces the
 bundle's structure where the adapter reads the page: the tile, the tile menu with its
-`[hidden]` items and its document-click dismissal, and the canvas the Blast session
-appends. The tile geometry, which comes from a stylesheet not in the bundle, is the
-fixture's assumption.
+`[hidden]` items, its document-click dismissal and its "…" that toggles, and the canvas
+the Blast session appends. It reproduces the client's behaviour on a log off too: the
+tile's flag is cleared on OK, before the kill-session request leaves, and the menu reads
+that flag, not the broker.
+
+The fixture's own assumptions, each stated in its header and chosen so the adapter
+cannot lean on them: the list is fetched only when the page loads and after a login,
+never on a hash navigation; the kill-session request leaves a short hop after OK, so a
+reload at once would cancel it; the menu closes a while after the document click,
+which pins the adapter's wait for it to go; the tile geometry, which comes from a
+stylesheet not in the bundle. The fixture broker can also refuse a log off, end the
+session only a few lists later, and serve one list per login, so that a reload lands on
+the login form.
 
 No acceptance scenario reaches this adapter: the scenarios run on a fake of the port
 (`tests/support/fakes.py`). A test on the fixture proves the fixture's contract; the
