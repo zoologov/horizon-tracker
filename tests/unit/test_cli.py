@@ -69,8 +69,11 @@ def env(tmp_path: Path) -> dict[str, str | None]:
         "TELEGRAM_BOT_TOKEN": TOKEN,
         "TELEGRAM_CHAT_ID": CHAT_ID,
         "HT_TIMEZONE": "Europe/Moscow",
-        "HT_CHECKIN_WINDOW": "07:55-08:00",
-        "HT_CHECKOUT_WINDOW": "17:00-17:05",
+        "HT_CHECKIN_RANGE": "07:30-08:10",
+        "HT_CHECKOUT_RANGE": "16:30-17:10",
+        "HT_SESSION_LENGTH_MINUTES": "540",
+        "HT_SESSION_EXTRA_MAX_MINUTES": "10",
+        "HT_WINDOW_GRACE_MINUTES": "5",
         "HT_HOLD_SECONDS": "120",
         "HT_CHROME_PATH": str(chrome),
         "HT_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
@@ -421,10 +424,10 @@ def test_a_missing_variable_is_named_and_exits_one(
 def test_a_malformed_variable_is_named_and_exits_one(env: dict[str, str | None]) -> None:
     world = World(at(7, 55))
 
-    result = world.invoke(["checkin"], {**env, "HT_CHECKIN_WINDOW": "8am"})
+    result = world.invoke(["checkin"], {**env, "HT_CHECKIN_RANGE": "8am"})
 
     assert result.exit_code == 1
-    assert "configuration error: HT_CHECKIN_WINDOW" in result.stderr
+    assert "configuration error: HT_CHECKIN_RANGE" in result.stderr
 
 
 def test_a_configuration_error_names_the_variable_but_not_its_value(

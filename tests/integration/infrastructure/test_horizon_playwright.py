@@ -35,6 +35,7 @@ from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
 from horizon_tracker.domain.report import Reason
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import DesktopStatus, SessionState
+from horizon_tracker.infrastructure import horizon_playwright
 from horizon_tracker.infrastructure.horizon_playwright import (
     HorizonTimeouts,
     PlaywrightHorizonClient,
@@ -447,6 +448,69 @@ def fails_with(reason: Reason, action: Callable[[], object]) -> HorizonClientErr
 def test_the_client_satisfies_the_horizon_port(client: PlaywrightHorizonClient) -> None:
     port: HorizonClient = client
     assert callable(port.login)
+
+
+# --- the browser's lifetime ----------------------------------------------------------------
+
+
+def child_processes() -> set[int]:
+    """The ids of the processes this test process has started and not yet reaped (Linux)."""
+    return {
+        int(pid)
+        for children in Path("/proc/self/task").glob("*/children")
+        for pid in children.read_text().split()
+    }
+
+
+@dataclass
+class Starts:
+    """How many Playwright drivers and browsers the client has started."""
+
+    drivers: int = 0
+    browsers: int = 0
+
+
+@pytest.fixture
+def starts(monkeypatch: pytest.MonkeyPatch) -> Starts:
+    counted = Starts()
+    real_driver = horizon_playwright.sync_playwright
+    real_launch = PlaywrightHorizonClient._launch
+
+    def driver() -> object:
+        counted.drivers += 1
+        return real_driver()
+
+    def launch(client: PlaywrightHorizonClient) -> Browser:
+        counted.browsers += 1
+        return real_launch(client)
+
+    monkeypatch.setattr(horizon_playwright, "sync_playwright", driver)
+    monkeypatch.setattr(PlaywrightHorizonClient, "_launch", launch)
+    return counted
+
+
+@pytest.mark.parametrize(
+    ("first_step", "browsers"),
+    [("login", 1), ("browser_version", 1), ("client_bundles", 0)],
+)
+def test_entering_the_client_starts_nothing_until_a_step_needs_the_browser(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    starts: Starts,
+    first_step: str,
+    browsers: int,
+) -> None:
+    # A scheduled run waits up to 40 minutes for its drawn moment with the client
+    # already built: nothing may be running while it waits.
+    before = child_processes()
+
+    with make_client() as client:
+        assert (starts.drivers, starts.browsers) == (0, 0)
+        assert child_processes() <= before, "building or entering the client started a process"
+
+        getattr(client, first_step)()
+
+        assert (starts.drivers, starts.browsers) == (1, browsers)
+        assert child_processes() - before, "the first step started no process"
 
 
 # --- login -------------------------------------------------------------------------------

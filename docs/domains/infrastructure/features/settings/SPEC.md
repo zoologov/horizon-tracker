@@ -53,13 +53,33 @@ reported with the value it got, because none of the optional variables is a secr
 
 Module `src/horizon_tracker/infrastructure/config.py`:
 
-- `Settings` — frozen; the twelve fields of the table; classmethod
-  `from_env(environ: Mapping[str, str]) -> Settings`.
+- `Settings` — frozen; classmethod `from_env(environ: Mapping[str, str]) -> Settings`.
+  Fields: `horizon_url: str`, `username: str`, `password: str`, `desktop: str`,
+  `telegram_token: str`, `telegram_chat_id: str`, `timezone: ZoneInfo`,
+  `checkin_range: TimeRange` (`HT_CHECKIN_RANGE`, default `07:30-08:10`),
+  `checkout_range: TimeRange` (`HT_CHECKOUT_RANGE`, default `16:30-17:10`),
+  `session_length: timedelta` (`HT_SESSION_LENGTH_MINUTES`, default `540`),
+  `session_extra_max: timedelta` (`HT_SESSION_EXTRA_MAX_MINUTES`, default `10`),
+  `window_grace: timedelta` (`HT_WINDOW_GRACE_MINUTES`, default `5`),
+  `jitter_seed: bytes` (`HT_JITTER_SEED` verbatim in UTF-8; unset or blank -> the
+  username in UTF-8; masked), `hold_seconds: int`, `chrome_path: Path`,
+  `artifacts_dir: Path`, and, until the CLI builds each run's window from the drawn
+  moment (HT-003 BEAD-04), `checkin_window: Window` / `checkout_window: Window` fixed at
+  `HT001_CHECKIN_WINDOW` (`07:55-08:00`) / `HT001_CHECKOUT_WINDOW` (`17:00-17:05`), set by
+  no variable.
+- `from_env` refuses `HT_CHECKIN_WINDOW` and `HT_CHECKOUT_WINDOW` when present (even
+  blank), before any other check, with a hint naming their successors. Minutes are a
+  whole number from 0 to 1440. The ranges, the session length and the grace are checked
+  by the domain's own rules (`TimeRange`, `draw_moments`, `window_from` on the end of the
+  check-out range); a refusal names the variable it concerns.
 - `ConfigError(variable: str, problem: str)` — message `"<variable>: <problem>"`;
   attribute `variable`.
-- Defaults: `DEFAULT_DESKTOP`, `DEFAULT_TIMEZONE`, `DEFAULT_CHECKIN_WINDOW`,
-  `DEFAULT_CHECKOUT_WINDOW`, `DEFAULT_HOLD_SECONDS`, `DEFAULT_CHROME_PATH`,
-  `DEFAULT_ARTIFACTS_DIR`; `MASK` (`"***"`).
+- Variable names: `CHECKIN_RANGE`, `CHECKOUT_RANGE`, `SESSION_LENGTH`,
+  `SESSION_EXTRA_MAX`, `WINDOW_GRACE`, `JITTER_SEED`.
+- Defaults: `DEFAULT_DESKTOP`, `DEFAULT_TIMEZONE`, `DEFAULT_CHECKIN_RANGE`,
+  `DEFAULT_CHECKOUT_RANGE`, `DEFAULT_SESSION_LENGTH_MINUTES`,
+  `DEFAULT_SESSION_EXTRA_MAX_MINUTES`, `DEFAULT_WINDOW_GRACE_MINUTES`,
+  `DEFAULT_HOLD_SECONDS`, `DEFAULT_CHROME_PATH`, `DEFAULT_ARTIFACTS_DIR`; `MASK` (`"***"`).
 
 The CLI logs a `ConfigError` on stderr as `configuration error: <VAR>: <problem>` and
 exits 1 (`docs/services/cli.md`).
