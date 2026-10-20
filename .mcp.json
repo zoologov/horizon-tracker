@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "beadloom": {
+      "command": "beadloom",
+      "args": [
+        "mcp-serve"
+      ]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+tools:
+- claude
+architecture:
+- ddd
+stack:
+- python
+quality:
+- clean-code
+- tdd
+language: ru

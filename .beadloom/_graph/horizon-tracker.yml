@@ -1,0 +1,57 @@
+# Root service and the four layers of the hexagon.
+#
+# Layer tags are declared ON the node (see rules.yml `architecture-layers`).
+# Dependency direction is Clean Architecture's: the composition root (cli) may
+# reach everything; adapters (infrastructure) implement the ports the domain
+# declares; application orders domain decisions; the domain depends on nothing.
+nodes:
+  - ref_id: horizon-tracker
+    kind: service
+    summary: "Scheduled check-in (07:55 MSK) and check-out (17:00 MSK) of a VMware Horizon VDI session, run on a VPS"
+    source: src/horizon_tracker/
+    tags: [layer-service]
+    docs:
+      - docs/architecture.md
+
+  - ref_id: cli
+    kind: service
+    summary: "Command-line entry point `horizon`: the composition root that wires adapters into use cases"
+    source: src/horizon_tracker/cli.py
+    tags: [layer-service]
+    docs:
+      - docs/services/cli.md
+
+  - ref_id: application
+    kind: domain
+    summary: "Use cases: morning check-in and evening check-out ordered over the domain and the ports"
+    source: src/horizon_tracker/application/
+    tags: [layer-application]
+    docs:
+      - docs/domains/application/README.md
+
+  - ref_id: domain
+    kind: domain
+    summary: "Pure decision cores: schedule windows, working-day verdicts, session state; ports as Protocols; no I/O"
+    source: src/horizon_tracker/domain/
+    tags: [layer-domain]
+    docs:
+      - docs/domains/domain/README.md
+
+  - ref_id: infrastructure
+    kind: domain
+    summary: "Adapters behind the ports: Playwright driver for Horizon HTML Access, isdayoff.ru calendar, Telegram notifier, env config"
+    source: src/horizon_tracker/infrastructure/
+    tags: [layer-infra]
+    docs:
+      - docs/domains/infrastructure/README.md
+
+edges:
+  - { src: cli,            dst: horizon-tracker, kind: part_of }
+  - { src: application,    dst: horizon-tracker, kind: part_of }
+  - { src: domain,         dst: horizon-tracker, kind: part_of }
+  - { src: infrastructure, dst: horizon-tracker, kind: part_of }
+
+  - { src: cli,            dst: application,    kind: depends_on }
+  - { src: cli,            dst: infrastructure, kind: depends_on }
+  - { src: application,    dst: domain,         kind: depends_on }
+  - { src: infrastructure, dst: domain,         kind: depends_on }

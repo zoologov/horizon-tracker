@@ -1,0 +1,10 @@
+docs_dir: null
+languages:
+- .py
+preset: monolith
+scan_paths:
+- src
+sync:
+  hook_mode: warn
+tests:
+  flat_tests: true

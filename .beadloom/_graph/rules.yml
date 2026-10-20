@@ -1,0 +1,50 @@
+version: 3
+
+# Constraints on the graph. A node's layer is declared on the node itself
+# (`tags: [layer-...]` in horizon-tracker.yml); this file only says which
+# directions are legal.
+
+rules:
+  - name: domain-needs-parent
+    description: "Every domain must be part_of the horizon-tracker service"
+    require:
+      for: { kind: domain }
+      has_edge_to: { ref_id: horizon-tracker }
+      edge_kind: part_of
+
+  - name: feature-needs-domain
+    description: "Every feature must be part_of a domain"
+    require:
+      for: { kind: feature }
+      has_edge_to: { kind: domain }
+      edge_kind: part_of
+
+  - name: service-needs-parent
+    description: "Every service (except root) must be part_of the horizon-tracker service"
+    require:
+      for: { kind: service, exclude: [horizon-tracker] }
+      has_edge_to: { ref_id: horizon-tracker }
+      edge_kind: part_of
+
+  - name: no-dependency-cycles
+    description: "No circular depends_on chains"
+    severity: error
+    forbid_cycles:
+      edge_kind: depends_on
+
+  - name: architecture-layers
+    title: "Clean Architecture"
+    description: "cli (composition root) → adapters → application → domain — never the reverse"
+    severity: error
+    layers:
+      - name: services
+        tag: layer-service
+      - name: adapters
+        tag: layer-infra
+      - name: application
+        tag: layer-application
+      - name: domain
+        tag: layer-domain
+    enforce: top-down
+    allow_skip: true
+    edge_kind: depends_on
