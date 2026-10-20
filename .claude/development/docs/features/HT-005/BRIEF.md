@@ -100,6 +100,7 @@ created, and then the id the tracker answered.
 | BEAD-01 | ht-5ni | Workflows: CI stages, `ci-ok`, pins by SHA, Dependabot, `mutation.yml` per change + a weekly sample, preflight and summary in deploy; contract tests | P1 |
 | BEAD-02 | ht-kc1 | Review: stage order, pins, absence of `continue-on-error`, secrets | P1 |
 | BEAD-03 | ht-hdv | Owner/local agent: branch protection of `main` with required `ci-ok` (or a 403 record in the project layer) | P1 |
+| BEAD-04 | ht-s7q.1 | Fix after review: the coverage line below the threshold, lint of the mutation adapter, a test of the mutation.sh verdict, the concurrency comment | P1 |
 
 Order: BEAD-01 starts after BEAD-05 of HT-003 (`ht-978`), which changes the `.env` contract in
 `deploy.yml`, so that two work items do not edit one file in parallel.
