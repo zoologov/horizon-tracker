@@ -56,8 +56,8 @@ class FakeHorizonClient:
     ``calls`` records each port call by method name. ``fail_on(method, error)`` queues
     an exception that a later call of ``method`` raises before it has any effect.
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
-    a broker that does not do what it was asked; ``portal_version`` is what ``probe``
-    reads off the portal.
+    a broker that does not do what it was asked; ``bundles`` are the client bundles the
+    portal names and ``browser`` the version the Chrome binary reports.
     """
 
     desktop: str
@@ -65,7 +65,8 @@ class FakeHorizonClient:
     open_connects: bool = True
     disconnect_keeps_session: bool = True
     log_off_takes_effect: bool = True
-    portal_version: str = "fake-2312"
+    bundles: tuple[str, ...] = ("app-htmlaccess.fake-2312.js",)
+    browser: str = "131.0.6778.85"
     calls: list[str] = field(default_factory=list)
     _script: dict[str, list[Exception | None]] = field(default_factory=dict)
 
@@ -109,6 +110,10 @@ class FakeHorizonClient:
         if self.log_off_takes_effect:
             self.state = SessionState.NO_SESSION
 
-    def probe(self) -> str:
-        self._enter("probe")
-        return self.portal_version
+    def client_bundles(self) -> tuple[str, ...]:
+        self._enter("client_bundles")
+        return self.bundles
+
+    def browser_version(self) -> str:
+        self._enter("browser_version")
+        return self.browser

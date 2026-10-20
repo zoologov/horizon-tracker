@@ -52,8 +52,12 @@ class HorizonClient(Protocol):
         """Log the Windows session of the named desktop off and wait for the confirmation."""
         ...
 
-    def probe(self) -> str:
-        """The portal version, read without logging in."""
+    def client_bundles(self) -> tuple[str, ...]:
+        """The file names of the HTML Access client bundles the portal serves; no login."""
+        ...
+
+    def browser_version(self) -> str:
+        """The version the Chrome binary reports once started headless; it opens no page."""
         ...
 
 

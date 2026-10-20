@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import socket
 import sys
 import threading
@@ -21,8 +22,11 @@ from functools import partial
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
+from playwright.sync_api import Browser, BrowserContext
+from playwright.sync_api import Error as PlaywrightError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
 from horizon_tracker.domain.report import Reason
@@ -278,12 +282,13 @@ def make_client(
         password: str = PASSWORD,
         url: str | None = None,
         run_kind: RunKind = RunKind.CHECKIN,
+        chrome_path: Path | None = None,
     ) -> PlaywrightHorizonClient:
         client = PlaywrightHorizonClient(
             horizon_url=url or portal.url,
             username=USERNAME,
             password=password,
-            chrome_path=chrome_for_tests(),
+            chrome_path=chrome_path or chrome_for_tests(),
             artifacts=artifacts,
             run_kind=run_kind,
             timeouts=FAST,
@@ -451,6 +456,35 @@ def test_disconnect_lets_go_and_leaves_the_windows_session_running(
     assert portal.state.events.count("login-accepted") == 2
 
 
+# --- teardown ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("owner", "part"), [(Browser, "browser"), (BrowserContext, "context")])
+def test_a_teardown_error_is_logged_by_type_and_never_raised(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    owner: type[Browser] | type[BrowserContext],
+    part: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A run that already reported SUCCEEDED must not exit 1 because the browser died
+    # on the way out: close() is the last thing the composition root does.
+    client = make_client()
+    client.login()
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise PlaywrightError(f"Target closed {PASSWORD}")
+
+    monkeypatch.setattr(owner, "close", refuse)
+    client.close()
+    monkeypatch.undo()
+
+    assert f"Horizon {part} did not close: Error" in caplog.text
+    assert PASSWORD not in caplog.text
+    # The driver was still stopped: a second client can start one in this thread.
+    make_client().login()
+
+
 # --- log off -------------------------------------------------------------------------------
 
 
@@ -498,29 +532,61 @@ def test_log_off_without_a_session_is_already_logged_off(
 # --- probe ---------------------------------------------------------------------------------
 
 
-def test_probe_names_the_bundles_without_logging_in(
+def test_the_client_bundles_are_named_without_logging_in(
     client: PlaywrightHorizonClient, portal: Portal
 ) -> None:
-    answer = client.probe()
-
-    assert "app-htmlaccess.fixture.js" in answer
+    assert client.client_bundles() == ("app-htmlaccess.fixture.js",)
     assert portal.state.events == []
 
 
-def test_probe_of_an_unreachable_portal_is_named(
+def test_the_bundles_of_an_unreachable_portal_are_named_unreachable(
     make_client: Callable[..., PlaywrightHorizonClient],
 ) -> None:
     client = make_client(url=closed_port_url())
 
-    fails_with(Reason.PORTAL_UNREACHABLE, client.probe)
+    fails_with(Reason.PORTAL_UNREACHABLE, client.client_bundles)
 
 
-def test_probe_of_a_portal_without_the_client_is_unreachable(
+def test_a_portal_without_the_client_is_unreachable(
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
     client = make_client(url=portal.url + "no-client-here/")
 
-    fails_with(Reason.PORTAL_UNREACHABLE, client.probe)
+    fails_with(Reason.PORTAL_UNREACHABLE, client.client_bundles)
+
+
+def test_the_browser_version_is_read_from_a_started_chrome_that_opens_no_page(
+    client: PlaywrightHorizonClient, portal: Portal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    closed: list[str] = []
+    real_close = Browser.close
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the version probe opened a context or a page")
+
+    def record_close(browser: Browser, *args: Any, **kwargs: Any) -> None:
+        closed.append(browser.version)
+        real_close(browser, *args, **kwargs)
+
+    monkeypatch.setattr(Browser, "new_context", refuse)
+    monkeypatch.setattr(Browser, "new_page", refuse)
+    monkeypatch.setattr(Browser, "close", record_close)
+
+    version = client.browser_version()
+
+    assert re.fullmatch(r"\d+(\.\d+)+", version), version
+    assert closed == [version], "the started browser was not closed"
+    assert portal.state.user_agents == [], "the version probe reached the portal"
+
+
+def test_a_chrome_that_does_not_start_is_named(
+    make_client: Callable[..., PlaywrightHorizonClient], tmp_path: Path
+) -> None:
+    client = make_client(chrome_path=tmp_path / "no-chrome-here")
+
+    error = fails_with(Reason.UNEXPECTED, client.browser_version)
+
+    assert error.screenshot is None
 
 
 # --- secrets -------------------------------------------------------------------------------
@@ -529,6 +595,7 @@ def test_probe_of_a_portal_without_the_client_is_unreachable(
 def test_the_password_never_leaves_the_adapter(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
+    artifacts: RecordingArtifacts,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -540,10 +607,14 @@ def test_the_password_never_leaves_the_adapter(
     client.close()  # one sync Playwright driver per thread: the run's client, then the next
     rejected = fails_with(Reason.LOGIN_REJECTED, make_client(password=PASSWORD + "-x").login)
 
+    # A PNG holds pixels, not the typed text, so the files are not searched for the
+    # password. What is asserted is which failures the adapter asked the store to
+    # photograph: the desktop page's, and not the login page that holds the password.
+    assert error.screenshot is not None
+    assert rejected.screenshot is None
+    assert artifacts.asked == [RunKind.CHECKIN]
     written = [path for path in tmp_path.rglob("*") if path.is_file()]
-    assert written, "the failure should have left a screenshot to search"
-    assert not any(PASSWORD.encode() in path.read_bytes() for path in written)
-    assert not any(path.suffix == ".zip" for path in written), "a trace was recorded"
+    assert written == [error.screenshot], "the run wrote more than the desktop screenshot"
     assert PASSWORD not in caplog.text
     assert PASSWORD not in repr(client)
     assert PASSWORD not in f"{error} {error!r} {rejected} {rejected!r}"

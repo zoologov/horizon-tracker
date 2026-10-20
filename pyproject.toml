@@ -53,6 +53,9 @@ bdd_features_base_dir = "tests/acceptance/features/"
 [tool.coverage.run]
 source = ["horizon_tracker"]
 branch = true
+# Playwright's sync API runs on greenlets; tracing only threads counts the lines the
+# browser adapter executes as missed.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true

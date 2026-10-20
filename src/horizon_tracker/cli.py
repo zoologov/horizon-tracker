@@ -40,7 +40,7 @@ from horizon_tracker.domain.ports import (
     Notifier,
     WorkingDayCalendar,
 )
-from horizon_tracker.domain.report import Outcome, RunReport
+from horizon_tracker.domain.report import Outcome
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
@@ -180,19 +180,30 @@ def _guarded(command: Callable[[], int]) -> int:
 def _run(factory: AdapterFactory, kind: RunKind, *, dry_run: bool, force: bool) -> int:
     settings = Settings.from_env(os.environ)
     with factory(settings, kind) as adapters:
+        use_case = _use_case(adapters, settings, kind)
         if dry_run:
-            _echo_plan(_dry_run(adapters, settings, kind).plan(kind, force=force))
+            _echo_plan(DryRun(use_case).plan(force=force))
             return EXIT_OK
-        adapters.artifacts.prune()
-        report = _use_case(adapters, settings, kind).run(force=force)
+        _prune(adapters.artifacts)
+        report = use_case.run(force=force)
     return EXIT_FAILED if report.outcome is Outcome.FAILED else EXIT_OK
 
 
-class _UseCase(Protocol):
-    def run(self, *, force: bool = False) -> RunReport: ...
+def _prune(artifacts: PrunableArtifactStore) -> None:
+    """Clear expired artifacts, best-effort: a run that cannot prune still runs and reports.
+
+    Only the error's type is logged; its message names a path on the VPS and adds nothing
+    the type does not say about what to fix.
+    """
+    try:
+        artifacts.prune()
+    except OSError as error:
+        logger.warning("artifact prune failed, the run goes on: %s", type(error).__name__)
 
 
-def _use_case(adapters: Adapters, settings: Settings, kind: RunKind) -> _UseCase:
+def _use_case(
+    adapters: Adapters, settings: Settings, kind: RunKind
+) -> MorningCheckin | EveningCheckout:
     runner = WindowedRun(
         calendar=adapters.calendar,
         clock=adapters.clock,
@@ -205,17 +216,6 @@ def _use_case(adapters: Adapters, settings: Settings, kind: RunKind) -> _UseCase
             adapters.horizon, adapters.clock, runner, settings.desktop, _hold(settings)
         )
     return EveningCheckout(adapters.horizon, adapters.clock, runner, settings.desktop)
-
-
-def _dry_run(adapters: Adapters, settings: Settings, kind: RunKind) -> DryRun:
-    return DryRun(
-        calendar=adapters.calendar,
-        clock=adapters.clock,
-        window=_window(settings, kind),
-        policy=RETRY_POLICY,
-        desktop=settings.desktop,
-        hold=_hold(settings),
-    )
 
 
 def _probe(factory: AdapterFactory) -> int:

@@ -8,6 +8,10 @@ the run came to.
 A failed attempt is retried while the window and the policy allow; once they do not,
 the run reports the last failure rather than a skip, because the attempt was made. A
 ``--force`` run treats the day as a working day and the whole day as its window.
+
+The dry run reads the loop rather than copying it: ``first_decision`` is the decision
+``run`` would take on its first attempt now, and ``steps`` names what the loop adds
+around the attempts.
 """
 
 # beadloom:domain=application
@@ -16,13 +20,20 @@ import logging
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from horizon_tracker.domain.calendar import VerdictSource, WorkingDayVerdict, resolve
 from horizon_tracker.domain.ports import Clock, HorizonClientError, Notifier, WorkingDayCalendar
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
-from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window, decide
+from horizon_tracker.domain.schedule import (
+    FIRST_ATTEMPT,
+    Decision,
+    RetryPolicy,
+    RunKind,
+    Window,
+    decide,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +43,6 @@ _SKIP_REASON = {
     Decision.SKIP_EARLY: Reason.TOO_EARLY,
     Decision.SKIP_LATE: Reason.WINDOW_MISSED,
 }
-_FIRST_ATTEMPT = 1
 
 # A --force run: the whole day is its window and the day counts as working. The
 # verdict's source is never reported; a forced report names no source at all.
@@ -58,6 +68,18 @@ Attempt = Callable[[], AttemptResult]
 
 
 @dataclass(frozen=True)
+class FirstDecision:
+    """The decision a run's first attempt would take at ``at``, and its calendar source.
+
+    ``verdict_source`` is ``None`` for a forced run, which asks no calendar.
+    """
+
+    at: datetime
+    decision: Decision
+    verdict_source: VerdictSource | None
+
+
+@dataclass(frozen=True)
 class WindowedRun:
     """The run loop shared by both use cases, over the calendar, the clock and the notifier."""
 
@@ -69,13 +91,13 @@ class WindowedRun:
 
     def run(self, kind: RunKind, attempt: Attempt, *, force: bool = False) -> RunReport:
         """Make the run's attempts as the window allows and send its one report."""
-        verdict = None if force else self._verdict()
+        verdict = self._verdict(force)
         result = self._attempts(kind, attempt, verdict)
         report = RunReport(
             kind=kind,
             outcome=result.outcome,
             at=result.at,
-            verdict_source=None if verdict is None else verdict.source,
+            verdict_source=_source(verdict),
             reason=result.reason,
             screenshot=result.screenshot,
         )
@@ -83,7 +105,25 @@ class WindowedRun:
         self.notifier.send(report)
         return report
 
-    def _verdict(self) -> WorkingDayVerdict:
+    def first_decision(self, *, force: bool = False) -> FirstDecision:
+        """What ``run`` would decide on its first attempt now; makes no attempt, sends nothing."""
+        verdict = self._verdict(force)
+        return FirstDecision(
+            self.clock.now(), self._decide(FIRST_ATTEMPT, verdict), _source(verdict)
+        )
+
+    def steps(self) -> tuple[str, ...]:
+        """What the loop adds around the attempts, in the owner's words."""
+        return (
+            f"retry a failed attempt, up to {self.policy.max_attempts} attempts "
+            f"{in_seconds(self.policy.backoff)} s apart, while the window allows",
+            "send one report to Telegram",
+        )
+
+    def _verdict(self, force: bool) -> WorkingDayVerdict | None:
+        """Today's calendar verdict; ``None`` for a forced run, which asks no calendar."""
+        if force:
+            return None
         today = self.clock.now().date()
         return resolve(self.calendar.is_working_day(today), today)
 
@@ -95,7 +135,7 @@ class WindowedRun:
     def _attempts(
         self, kind: RunKind, attempt: Attempt, verdict: WorkingDayVerdict | None
     ) -> AttemptResult:
-        number = _FIRST_ATTEMPT
+        number = FIRST_ATTEMPT
         decision = self._decide(number, verdict)
         last_failure: AttemptResult | None = None
         while decision in _PERFORM:
@@ -133,3 +173,12 @@ class WindowedRun:
                 frames,
             )
             return AttemptResult(Outcome.FAILED, self.clock.now(), Reason.UNEXPECTED)
+
+
+def in_seconds(span: timedelta) -> str:
+    """A span as a bare number of seconds for the owner to read: ``120``, ``0.5``."""
+    return f"{span.total_seconds():g}"
+
+
+def _source(verdict: WorkingDayVerdict | None) -> VerdictSource | None:
+    return None if verdict is None else verdict.source

@@ -238,3 +238,20 @@ def test_a_password_in_an_adapter_error_reaches_neither_the_report_nor_the_log(
     assert PASSWORD not in render(report)
     assert PASSWORD not in repr(report)
     assert PASSWORD not in caplog.text
+
+
+# --- what one attempt does, in words ---------------------------------------------------
+
+
+def test_the_checkin_is_a_run_of_the_checkin_kind() -> None:
+    assert Morning().checkin.kind is RunKind.CHECKIN
+
+
+def test_the_checkin_names_the_steps_of_one_attempt_in_order() -> None:
+    text = "\n".join(Morning().checkin.steps())
+
+    assert text.index("log in") < text.index("open desktop") < text.index("hold")
+    assert text.index("hold") < text.index("disconnect") < text.index("DISCONNECTED")
+    assert repr(DESKTOP) in text
+    assert "hold the desktop open for 120 s" in text
+    assert "log off" not in text

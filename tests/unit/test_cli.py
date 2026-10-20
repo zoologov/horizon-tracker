@@ -320,6 +320,26 @@ def test_a_run_prunes_old_artifacts_once(command: str, env: dict[str, str | None
     assert world.artifacts.prunes == 1
 
 
+@pytest.mark.parametrize(
+    ("command", "state"),
+    [("checkin", SessionState.NO_SESSION), ("checkout", SessionState.DISCONNECTED)],
+)
+def test_an_artifact_directory_that_cannot_be_pruned_does_not_stop_the_run(
+    command: str, state: SessionState, env: dict[str, str | None]
+) -> None:
+    hour, minute = (7, 55) if command == "checkin" else (17, 0)
+    world = World(at(hour, minute), state=state)
+    world.artifacts.prune_error = PermissionError(13, "Permission denied", "/opt/x/artifacts")
+
+    result = world.invoke([command], env)
+
+    assert result.exit_code == 0
+    assert [report.outcome for report in world.notifier.sent] == [Outcome.SUCCEEDED]
+    assert "PermissionError" in result.stderr
+    assert "/opt/x/artifacts" not in result.output
+    assert "Traceback" not in result.output
+
+
 @pytest.mark.parametrize("args", [["checkin", "--dry-run"], ["checkout", "--dry-run"], ["probe"]])
 def test_a_dry_run_and_a_probe_delete_nothing(args: list[str], env: dict[str, str | None]) -> None:
     world = World(at(7, 55))
@@ -338,17 +358,18 @@ def test_probe_reports_every_check_and_exits_zero(env: dict[str, str | None]) ->
     result = world.invoke(["probe"], env)
 
     assert result.exit_code == 0, result.output
-    assert world.client.calls == ["probe"]
+    assert world.client.calls == ["client_bundles", "browser_version"]
     lines = result.stdout.splitlines()
     assert [line.split(":")[0] for line in lines] == ["settings", "portal", "calendar", "chrome"]
     assert lines[0].startswith("settings: ok")
-    assert "portal: ok - fake-2312" in lines[1]
+    assert lines[1] == "portal: ok - client bundles: app-htmlaccess.fake-2312.js"
+    assert lines[3] == f"chrome: ok - Chrome 131.0.6778.85 started from {env['HT_CHROME_PATH']}"
     assert world.notifier.sent == []
 
 
 def test_probe_with_an_unreachable_portal_exits_one(env: dict[str, str | None]) -> None:
     world = World(at(12, 0))
-    world.client.fail_on("probe", HorizonClientError(Reason.PORTAL_UNREACHABLE))
+    world.client.fail_on("client_bundles", HorizonClientError(Reason.PORTAL_UNREACHABLE))
 
     result = world.invoke(["probe"], env)
 
@@ -434,7 +455,7 @@ def test_no_secret_reaches_the_output_even_on_failure(
     args: list[str], env: dict[str, str | None]
 ) -> None:
     world = World(at(7, 55), state=SessionState.DISCONNECTED)
-    for method in ("login", "probe"):
+    for method in ("login", "client_bundles", "browser_version"):
         world.client.fail_on(method, HorizonClientError(Reason.LOGIN_REJECTED), times=9)
 
     result = world.invoke(args, env)

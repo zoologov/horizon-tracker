@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from horizon_tracker.application.checkin import MorningCheckin
+from horizon_tracker.application.checkout import EveningCheckout
 from horizon_tracker.application.probe import (
     Check,
     CheckStatus,
@@ -14,11 +16,12 @@ from horizon_tracker.application.probe import (
     ProbeReport,
     RunPlan,
 )
+from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Reason
 from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window
-from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient
+from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
 WEDNESDAY = date(2026, 10, 21)
@@ -76,24 +79,33 @@ def test_probe_checks_portal_calendar_and_chrome_in_that_order() -> None:
     assert report.ok
 
 
-def test_probe_reads_the_portal_without_logging_in() -> None:
+def test_probe_asks_for_the_client_bundles_and_the_browser_version_and_nothing_else() -> None:
     probing = Probing()
+
+    probing.run()
+
+    assert probing.client.calls == ["client_bundles", "browser_version"]
+
+
+def test_the_portal_check_names_the_client_bundles_it_read() -> None:
+    probing = Probing()
+    probing.client.bundles = ("app-htmlaccess.a1.js", "vendor.b2.js")
 
     report = probing.run()
 
-    assert probing.client.calls == ["probe"]
-    assert "fake-2312" in check(report, "portal").detail
+    assert check(report, "portal").detail == "client bundles: app-htmlaccess.a1.js, vendor.b2.js"
 
 
 def test_an_unreachable_portal_fails_the_probe_and_names_the_reason() -> None:
     probing = Probing()
-    probing.client.fail_on("probe", HorizonClientError(Reason.PORTAL_UNREACHABLE))
+    probing.client.fail_on("client_bundles", HorizonClientError(Reason.PORTAL_UNREACHABLE))
 
     report = probing.run()
 
     portal = check(report, "portal")
     assert portal.status is CheckStatus.FAILED
     assert Reason.PORTAL_UNREACHABLE.value in portal.detail
+    assert check(report, "chrome").status is CheckStatus.OK
     assert not report.ok
 
 
@@ -123,21 +135,39 @@ def test_an_unreachable_calendar_degrades_the_probe_without_failing_it() -> None
     assert report.ok
 
 
-def test_chrome_is_looked_for_at_the_configured_path() -> None:
+def test_chrome_is_started_from_the_configured_path_and_its_version_named() -> None:
     probing = Probing()
 
     report = probing.run()
 
     assert probing.looked_for == [CHROME]
-    assert str(CHROME) in check(report, "chrome").detail
+    chrome = check(report, "chrome")
+    assert chrome.status is CheckStatus.OK
+    assert chrome.detail == f"Chrome 131.0.6778.85 started from {CHROME}"
 
 
-def test_a_missing_chrome_fails_the_probe() -> None:
-    report = Probing(chrome_found=False).run()
+def test_a_missing_chrome_fails_the_probe_without_starting_anything() -> None:
+    probing = Probing(chrome_found=False)
+
+    report = probing.run()
 
     chrome = check(report, "chrome")
     assert chrome.status is CheckStatus.FAILED
-    assert str(CHROME) in chrome.detail
+    assert chrome.detail == f"not found at {CHROME}"
+    assert "browser_version" not in probing.client.calls
+    assert not report.ok
+
+
+def test_a_chrome_that_does_not_start_fails_the_probe_and_names_the_reason() -> None:
+    probing = Probing()
+    probing.client.fail_on("browser_version", HorizonClientError(Reason.UNEXPECTED))
+
+    report = probing.run()
+
+    chrome = check(report, "chrome")
+    assert chrome.status is CheckStatus.FAILED
+    assert chrome.detail == f"found at {CHROME} but did not start: {Reason.UNEXPECTED.value}"
+    assert check(report, "portal").status is CheckStatus.OK
     assert not report.ok
 
 
@@ -153,27 +183,50 @@ def test_a_probe_report_is_ok_unless_a_check_failed() -> None:
 # --- DryRun --------------------------------------------------------------------------
 
 
-def dry_run(
-    now: datetime,
-    window: Window = CHECKIN_WINDOW,
-    calendar_answer: bool | None = True,
-) -> tuple[DryRun, FakeCalendar]:
-    calendar = FakeCalendar(calendar_answer)
-    planner = DryRun(
-        calendar=calendar,
-        clock=FakeClock(now),
-        window=window,
-        policy=POLICY,
-        desktop=DESKTOP,
-        hold=HOLD,
-    )
-    return planner, calendar
+class Planning:
+    """A dry run over the use case a run of ``kind`` would execute, wired to fakes."""
+
+    def __init__(
+        self, now: datetime, kind: RunKind = RunKind.CHECKIN, calendar_answer: bool | None = True
+    ) -> None:
+        self.clock = FakeClock(now)
+        self.calendar = FakeCalendar(calendar_answer)
+        self.notifier = FakeNotifier()
+        self.client = FakeHorizonClient(desktop=DESKTOP)
+        window = CHECKIN_WINDOW if kind is RunKind.CHECKIN else CHECKOUT_WINDOW
+        self.runner = WindowedRun(self.calendar, self.clock, self.notifier, window, POLICY)
+        self.use_case: MorningCheckin | EveningCheckout = (
+            MorningCheckin(self.client, self.clock, self.runner, DESKTOP, HOLD)
+            if kind is RunKind.CHECKIN
+            else EveningCheckout(self.client, self.clock, self.runner, DESKTOP)
+        )
+
+    def plan(self, *, force: bool = False) -> RunPlan:
+        return DryRun(self.use_case).plan(force=force)
+
+
+@pytest.mark.parametrize("kind", list(RunKind))
+def test_a_plan_lists_the_use_cases_steps_then_the_loops(kind: RunKind) -> None:
+    planning = Planning(at(WEDNESDAY, 7, 55), kind)
+
+    plan = planning.plan()
+
+    assert plan.kind is kind
+    assert plan.steps == (*planning.use_case.steps(), *planning.runner.steps())
+
+
+@pytest.mark.parametrize("kind", list(RunKind))
+def test_a_plan_touches_neither_the_portal_nor_the_owner(kind: RunKind) -> None:
+    planning = Planning(at(WEDNESDAY, 17, 0), kind)
+
+    planning.plan()
+
+    assert planning.client.calls == []
+    assert planning.notifier.sent == []
 
 
 def test_a_checkin_plan_inside_the_window_would_run() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 7, 55))
-
-    plan = planner.plan(RunKind.CHECKIN)
+    plan = Planning(at(WEDNESDAY, 7, 55)).plan()
 
     assert plan.kind is RunKind.CHECKIN
     assert plan.decision is Decision.RUN
@@ -182,46 +235,14 @@ def test_a_checkin_plan_inside_the_window_would_run() -> None:
     assert not plan.forced
 
 
-def test_a_checkin_plan_names_its_steps_in_order() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 7, 55))
+def test_a_checkout_plan_is_decided_in_the_checkout_window() -> None:
+    plan = Planning(at(WEDNESDAY, 17, 0), RunKind.CHECKOUT).plan()
 
-    steps = planner.plan(RunKind.CHECKIN).steps
-
-    text = "\n".join(steps)
-    assert text.index("log in") < text.index("open desktop") < text.index("hold")
-    assert text.index("hold") < text.index("disconnect") < text.index("DISCONNECTED")
-    assert repr(DESKTOP) in text
-    assert "120 s" in text
-    assert "log off" not in text
-
-
-def test_a_checkout_plan_logs_off_and_never_holds() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 17, 0), window=CHECKOUT_WINDOW)
-
-    plan = planner.plan(RunKind.CHECKOUT)
-
-    text = "\n".join(plan.steps)
     assert plan.decision is Decision.RUN
-    assert text.index("log in") < text.index("log off") < text.index("NO_SESSION")
-    assert "hold" not in text
-    assert "disconnect" not in text
-
-
-@pytest.mark.parametrize("kind", list(RunKind))
-def test_every_plan_names_the_retry_policy_and_the_one_report(kind: RunKind) -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 7, 55))
-
-    text = "\n".join(planner.plan(kind).steps)
-
-    assert "3 attempts" in text
-    assert "30 s apart" in text
-    assert text.rstrip().endswith("send one report to Telegram")
 
 
 def test_a_plan_outside_the_window_would_not_run_but_still_lists_its_steps() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 12, 0))
-
-    plan = planner.plan(RunKind.CHECKIN)
+    plan = Planning(at(WEDNESDAY, 12, 0)).plan()
 
     assert plan.decision is Decision.SKIP_LATE
     assert not plan.would_run
@@ -229,39 +250,35 @@ def test_a_plan_outside_the_window_would_not_run_but_still_lists_its_steps() -> 
 
 
 def test_a_plan_before_the_window_would_not_run() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 7, 54))
-
-    plan = planner.plan(RunKind.CHECKIN)
+    plan = Planning(at(WEDNESDAY, 7, 54)).plan()
 
     assert plan.decision is Decision.SKIP_EARLY
     assert not plan.would_run
 
 
 def test_a_plan_on_a_day_off_would_not_run() -> None:
-    planner, calendar = dry_run(at(SATURDAY, 7, 55), calendar_answer=False)
+    planning = Planning(at(SATURDAY, 7, 55), calendar_answer=False)
 
-    plan = planner.plan(RunKind.CHECKIN)
+    plan = planning.plan()
 
-    assert calendar.asked == [SATURDAY]
+    assert planning.calendar.asked == [SATURDAY]
     assert plan.decision is Decision.SKIP_NON_WORKING_DAY
     assert not plan.would_run
 
 
 def test_a_plan_with_an_unreachable_calendar_names_the_fallback() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 7, 55), calendar_answer=None)
-
-    plan = planner.plan(RunKind.CHECKIN)
+    plan = Planning(at(WEDNESDAY, 7, 55), calendar_answer=None).plan()
 
     assert plan.verdict_source is VerdictSource.WEEKDAY_FALLBACK
     assert plan.would_run
 
 
 def test_a_forced_plan_runs_outside_the_window_and_asks_no_calendar() -> None:
-    planner, calendar = dry_run(at(SATURDAY, 12, 0), calendar_answer=False)
+    planning = Planning(at(SATURDAY, 12, 0), calendar_answer=False)
 
-    plan = planner.plan(RunKind.CHECKIN, force=True)
+    plan = planning.plan(force=True)
 
-    assert calendar.asked == []
+    assert planning.calendar.asked == []
     assert plan.forced
     assert plan.decision is Decision.RUN
     assert plan.verdict_source is None
@@ -269,9 +286,7 @@ def test_a_forced_plan_runs_outside_the_window_and_asks_no_calendar() -> None:
 
 
 def test_a_plan_records_when_it_was_made() -> None:
-    planner, _ = dry_run(at(WEDNESDAY, 7, 56))
-
-    assert planner.plan(RunKind.CHECKIN).at == at(WEDNESDAY, 7, 56)
+    assert Planning(at(WEDNESDAY, 7, 56)).plan().at == at(WEDNESDAY, 7, 56)
 
 
 def test_a_run_plan_would_run_only_on_run_or_retry() -> None:

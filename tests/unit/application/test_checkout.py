@@ -205,3 +205,19 @@ def test_force_checks_out_outside_the_window_without_the_calendar() -> None:
     assert evening.calendar.asked == []
     assert evening.client.calls == ONE_CHECKOUT
     assert report.verdict_source is None
+
+
+# --- what one attempt does, in words ---------------------------------------------------
+
+
+def test_the_checkout_is_a_run_of_the_checkout_kind() -> None:
+    assert Evening().checkout.kind is RunKind.CHECKOUT
+
+
+def test_the_checkout_names_the_steps_of_one_attempt_and_never_holds() -> None:
+    text = "\n".join(Evening().checkout.steps())
+
+    assert text.index("log in") < text.index("log off") < text.index("NO_SESSION")
+    assert repr(DESKTOP) in text
+    assert "hold" not in text
+    assert "disconnect" not in text

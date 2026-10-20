@@ -185,11 +185,7 @@ class PlaywrightHorizonClient:
 
     def disconnect(self) -> None:
         """Close the browser context: the client lets go, the Windows session keeps running."""
-        context = self._context
-        self._context = None
-        self._page = None
-        self._websockets = []
-        self._opened_desktop = None
+        context = self._release_context()
         if context is None:
             return
         with self._step(Reason.UNEXPECTED):
@@ -214,7 +210,7 @@ class PlaywrightHorizonClient:
             raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
         logger.info("Horizon desktop logged off")
 
-    def probe(self) -> str:
+    def client_bundles(self) -> tuple[str, ...]:
         """The client bundles the portal serves in ``index.html``, read without logging in."""
         with self._step(Reason.PORTAL_UNREACHABLE, screenshot=False):
             request = self._driver().request.new_context()
@@ -227,20 +223,39 @@ class PlaywrightHorizonClient:
                 request.dispose()
         if status != 200:
             raise HorizonClientError(Reason.PORTAL_UNREACHABLE)
-        bundles = [Path(urlsplit(src).path).name for src in _BUNDLE_SCRIPT.findall(html)]
+        bundles = tuple(Path(urlsplit(src).path).name for src in _BUNDLE_SCRIPT.findall(html))
         if not bundles:
             raise HorizonClientError(Reason.UNEXPECTED)
-        return "HTML Access bundles: " + ", ".join(bundles)
+        return bundles
+
+    def browser_version(self) -> str:
+        """Start headless Chrome at ``chrome_path``, read its version, close it; no page opens.
+
+        A browser of its own, so the deploy smoke finds a Chrome that Playwright can no
+        longer drive without touching the portal or the run's browser.
+        """
+        with self._step(Reason.UNEXPECTED, screenshot=False):
+            browser = self._launch()
+            try:
+                return browser.version
+            finally:
+                browser.close()
 
     def close(self) -> None:
-        """Stop the browser and the Playwright driver; safe to call more than once."""
-        self.disconnect()
-        browser, driver = self._browser, self._playwright
+        """Stop the context, the browser and the driver; safe to call more than once.
+
+        Best-effort: by now the run has reported, so a context or browser that fails to
+        close is logged by its error's type and never raised -- a run that SUCCEEDED
+        must not exit 1 on the way out. The driver is stopped whatever happened before.
+        """
+        context, browser, driver = self._release_context(), self._browser, self._playwright
         self._browser = None
         self._playwright = None
         try:
+            if context is not None:
+                _close_quietly("context", context.close)
             if browser is not None:
-                browser.close()
+                _close_quietly("browser", browser.close)
         finally:
             if driver is not None:
                 driver.stop()
@@ -328,14 +343,16 @@ class PlaywrightHorizonClient:
             self._playwright = sync_playwright().start()
         return self._playwright
 
+    def _launch(self) -> Browser:
+        """Start headless Chrome at ``chrome_path`` (Playwright's own Chromium when unset)."""
+        executable = str(self._chrome_path) if self._chrome_path is not None else None
+        return self._driver().chromium.launch(executable_path=executable, headless=True)
+
     def _new_page(self) -> Page:
         """A fresh context and page on the shared browser, with WebSockets recorded."""
         self.disconnect()
         if self._browser is None:
-            executable = str(self._chrome_path) if self._chrome_path is not None else None
-            self._browser = self._driver().chromium.launch(
-                executable_path=executable, headless=True
-            )
+            self._browser = self._launch()
         major = self._browser.version.split(".", 1)[0]
         self._context = self._browser.new_context(user_agent=_USER_AGENT.format(major=major))
         self._context.set_default_timeout(self._timeouts.action_ms)
@@ -343,6 +360,15 @@ class PlaywrightHorizonClient:
         page.on("websocket", self._record_websocket)
         self._page = page
         return page
+
+    def _release_context(self) -> BrowserContext | None:
+        """Forget the context, its page and what was seen on it; return it to be closed."""
+        context = self._context
+        self._context = None
+        self._page = None
+        self._websockets = []
+        self._opened_desktop = None
+        return context
 
     def _record_websocket(self, socket: WebSocket) -> None:
         self._websockets.append(socket)
@@ -395,6 +421,14 @@ class PlaywrightHorizonClient:
             logger.warning("Horizon screenshot failed: %s", type(error).__name__)
             return None
         return path
+
+
+def _close_quietly(part: str, close: Callable[[], None]) -> None:
+    """Close one part of the browser; a Playwright error is logged by its type only."""
+    try:
+        close()
+    except PlaywrightError as error:
+        logger.warning("Horizon %s did not close: %s", part, type(error).__name__)
 
 
 def _route(url: str) -> str:

@@ -30,10 +30,24 @@ class EveningCheckout:
     runner: WindowedRun
     desktop: str
 
+    @property
+    def kind(self) -> RunKind:
+        """The check-out run."""
+        return RunKind.CHECKOUT
+
     def run(self, *, force: bool = False) -> RunReport:
         """Check out as the window allows and send the run's one report."""
         attempt = _CheckoutAttempt(self.client, self.clock, self.desktop)
-        return self.runner.run(RunKind.CHECKOUT, attempt, force=force)
+        return self.runner.run(self.kind, attempt, force=force)
+
+    def steps(self) -> tuple[str, ...]:
+        """What one ``_CheckoutAttempt`` does, in the owner's words; the dry run prints them."""
+        return (
+            "log in to the Horizon portal",
+            f"read the session state of desktop {self.desktop!r}; stop if there is no session",
+            "log off from the tile menu and confirm the dialog",
+            "confirm the session is gone (NO_SESSION)",
+        )
 
 
 class _CheckoutAttempt:

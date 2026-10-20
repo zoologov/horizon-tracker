@@ -27,15 +27,22 @@ PACKAGE_LOGGER = "horizon_tracker"
 
 @dataclass
 class FakeArtifacts:
-    """An artifact store that counts its prunes and writes nothing."""
+    """An artifact store that counts its prunes and writes nothing.
+
+    ``prune_error`` scripts a store whose directory cannot be cleared: every prune
+    raises it after being counted.
+    """
 
     prunes: int = 0
+    prune_error: OSError | None = None
 
     def screenshot_path(self, kind: RunKind) -> Path:
         return Path("/nonexistent") / f"{kind.value}.png"
 
     def prune(self) -> list[Path]:
         self.prunes += 1
+        if self.prune_error is not None:
+            raise self.prune_error
         return []
 
 

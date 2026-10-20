@@ -8,14 +8,22 @@ from tests.support.cli_world import World
 scenarios("checks_without_login.feature")
 
 
-@given(parsers.parse('the portal serves the client version "{version}"'))
-def portal_version(scene: Scene, version: str) -> None:
+@given(parsers.parse('the portal serves the client bundle "{bundle}"'))
+def client_bundle(scene: Scene, bundle: str) -> None:
     def serve(world: World) -> None:
-        world.client.portal_version = version
+        world.client.bundles = (bundle,)
 
     scene.scripts.append(serve)
 
 
-@then("the portal was asked for its version and nothing else")
-def only_the_version_asked(scene: Scene) -> None:
-    assert scene.ran.client.calls == ["probe"]
+@given(parsers.parse('the installed Chrome reports the version "{version}"'))
+def chrome_version(scene: Scene, version: str) -> None:
+    def install(world: World) -> None:
+        world.client.browser = version
+
+    scene.scripts.append(install)
+
+
+@then("the portal was asked for its client bundles, Chrome for its version, and nothing else")
+def only_bundles_and_version_asked(scene: Scene) -> None:
+    assert scene.ran.client.calls == ["client_bundles", "browser_version"]

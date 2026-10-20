@@ -6,8 +6,12 @@ tests, pytest, then the Beadloom Gate on an index rebuilt from nothing.
 """
 
 import re
+import tomllib
 
+from tests.support.repository_root import repository_root
 from tests.support.workflows import Mapping, all_strings, load_workflow, run_scripts, steps
+
+COVERAGE_FLOOR = 80
 
 ORDERED_COMMANDS = [
     "uv sync --extra dev",
@@ -77,3 +81,36 @@ def test_no_check_is_excused_from_failing_the_run() -> None:
         assert "continue-on-error" not in all_strings(workflow), name
         for script in run_scripts(workflow):
             assert not re.search(r"\|\|\s*(true|:)", script), f"{name}: a failure is swallowed"
+
+
+def pytest_command() -> list[str]:
+    """The one pytest line of ci.yml, split into words."""
+    found = [line for line in command_lines(ci()) if line.startswith("uv run pytest")]
+    assert len(found) == 1, f"ci.yml runs pytest {len(found)} times: {found}"
+    return found[0].split()
+
+
+def coverage_settings() -> Mapping:
+    manifest = (repository_root() / "pyproject.toml").read_text(encoding="utf-8")
+    coverage = tomllib.loads(manifest)["tool"]["coverage"]
+    assert isinstance(coverage, dict)
+    return coverage
+
+
+def test_ci_measures_coverage_so_the_floor_can_fail_the_run() -> None:
+    # fail_under is read only by a pytest run that measures coverage: without --cov the
+    # floor is declared and nothing ever evaluates it.
+    words = pytest_command()
+    assert "--cov" in words
+    assert "--cov-report=term-missing" in words
+    assert not [w for w in words if w.startswith(("--no-cov", "--cov-fail-under"))], words
+
+
+def test_the_floor_ci_enforces_is_the_one_the_plan_names() -> None:
+    assert coverage_settings()["report"]["fail_under"] == COVERAGE_FLOOR
+
+
+def test_coverage_follows_the_greenlets_the_browser_adapter_runs_on() -> None:
+    # Playwright's sync API runs on greenlets; without this, the lines it executes are
+    # counted as missed and the figure the floor is held against is wrong.
+    assert set(coverage_settings()["run"].get("concurrency", [])) == {"greenlet", "thread"}

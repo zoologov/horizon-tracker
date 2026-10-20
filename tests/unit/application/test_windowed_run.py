@@ -8,11 +8,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from horizon_tracker.application.windowed_run import AttemptResult, WindowedRun
+from horizon_tracker.application.windowed_run import AttemptResult, FirstDecision, WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
-from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
+from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window
 from tests.support.fakes import FakeCalendar, FakeClock, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
@@ -338,3 +338,70 @@ def test_force_still_gives_up_when_the_attempts_are_spent() -> None:
     assert attempt.made == POLICY.max_attempts
     assert report.outcome is Outcome.FAILED
     assert report.verdict_source is None
+
+
+# --- the first decision, as the dry run reads it --------------------------------------
+
+
+def test_the_first_decision_names_the_moment_the_decision_and_the_calendars_word() -> None:
+    world = World(at(WEDNESDAY, 7, 56))
+
+    first = world.runner.first_decision()
+
+    assert first == FirstDecision(at(WEDNESDAY, 7, 56), Decision.RUN, VerdictSource.CALENDAR)
+    assert world.calendar.asked == [WEDNESDAY]
+    assert world.notifier.sent == []
+
+
+@pytest.mark.parametrize(
+    ("start", "calendar_answer", "decision", "source", "outcome"),
+    [
+        (at(WEDNESDAY, 7, 55), True, Decision.RUN, VerdictSource.CALENDAR, Outcome.SUCCEEDED),
+        (at(WEDNESDAY, 7, 54), True, Decision.SKIP_EARLY, VerdictSource.CALENDAR, Outcome.SKIPPED),
+        (at(WEDNESDAY, 8, 1), True, Decision.SKIP_LATE, VerdictSource.CALENDAR, Outcome.SKIPPED),
+        (
+            at(SATURDAY, 7, 55),
+            False,
+            Decision.SKIP_NON_WORKING_DAY,
+            VerdictSource.CALENDAR,
+            Outcome.SKIPPED,
+        ),
+        (
+            at(WEDNESDAY, 7, 55),
+            None,
+            Decision.RUN,
+            VerdictSource.WEEKDAY_FALLBACK,
+            Outcome.SUCCEEDED,
+        ),
+    ],
+)
+def test_the_first_decision_is_the_one_the_run_then_takes(
+    start: datetime,
+    calendar_answer: bool | None,
+    decision: Decision,
+    source: VerdictSource,
+    outcome: Outcome,
+) -> None:
+    world = World(start, calendar_answer)
+
+    first = world.runner.first_decision()
+    report = world.run(world.attempt(Outcome.SUCCEEDED))
+
+    assert (first.decision, first.verdict_source) == (decision, source)
+    assert (report.outcome, report.verdict_source) == (outcome, source)
+
+
+def test_a_forced_first_decision_runs_and_asks_no_calendar() -> None:
+    world = World(at(SATURDAY, 12, 0), calendar_answer=False)
+
+    first = world.runner.first_decision(force=True)
+
+    assert first == FirstDecision(at(SATURDAY, 12, 0), Decision.RUN, None)
+    assert world.calendar.asked == []
+
+
+def test_the_loop_names_its_retries_and_its_one_report() -> None:
+    assert World(at(WEDNESDAY, 7, 55)).runner.steps() == (
+        "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
+        "send one report to Telegram",
+    )

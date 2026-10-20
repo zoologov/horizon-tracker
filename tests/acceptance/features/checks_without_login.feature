@@ -9,10 +9,12 @@ Feature: Checks without logging in
     And the desktop has a session no client is attached to
 
   Scenario: Probe reports the portal version without logging in
-    Given the portal serves the client version "fake-2312"
+    Given the portal serves the client bundle "app-htmlaccess.fake-2312.js"
+    And the installed Chrome reports the version "131.0.6778.85"
     When the owner runs "horizon probe" at 12:00:00 on Wednesday 2026-10-21
-    Then the output reads "portal: ok - fake-2312"
-    And the portal was asked for its version and nothing else
+    Then the output reads "portal: ok - client bundles: app-htmlaccess.fake-2312.js"
+    And the output reads "chrome: ok - Chrome 131.0.6778.85 started from"
+    And the portal was asked for its client bundles, Chrome for its version, and nothing else
     And no message reaches the owner
     And the command exits with 0
 

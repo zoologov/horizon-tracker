@@ -2,33 +2,39 @@
 
 ``Probe`` asks each dependency the one question it can answer without credentials: the
 portal names the client bundles it serves, the calendar answers for today, the Chrome
-binary is where the settings say. An unreachable calendar degrades the probe rather than
-failing it, because a run falls back to the Mon-Fri rule.
+binary is where the settings say, starts headless and names its version. What is
+measured is the client bundles and the browser version; no portal version is read. An
+unreachable calendar degrades the probe rather than failing it, because a run falls back
+to the Mon-Fri rule.
 
-``DryRun`` names what a run of one kind would do now -- the domain's decision for this
-moment and the steps of an attempt -- and calls nothing on the Horizon client at all,
-so it cannot log in. The settings themselves are validated before either is built: a
-probe exists only for a configuration the composition root could read.
+``DryRun`` names what a run would do now and calls nothing on the Horizon client at
+all, so it cannot log in. It plans the very use case a run would execute: the decision
+is ``WindowedRun.first_decision``, the steps are the use case's own list followed by the
+loop's. Neither is restated here, so the plan cannot describe a run that no longer exists.
+
+The settings themselves are validated before either is built: a probe exists only for a
+configuration the composition root could read.
 """
 
 # beadloom:domain=application
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 
-from horizon_tracker.domain.calendar import VerdictSource, resolve
+from horizon_tracker.application.windowed_run import WindowedRun
+from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import (
     Clock,
     HorizonClient,
     HorizonClientError,
     WorkingDayCalendar,
 )
-from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window, decide
+from horizon_tracker.domain.schedule import Decision, RunKind
 
-_FIRST_ATTEMPT = 1
 _WOULD_RUN = frozenset({Decision.RUN, Decision.RETRY})
 
 
@@ -63,7 +69,7 @@ class ProbeReport:
 
 @dataclass(frozen=True)
 class Probe:
-    """Asks the portal, the calendar and the Chrome binary whether a run could go ahead."""
+    """Asks the portal, the calendar and Chrome whether a run could go ahead."""
 
     client: HorizonClient
     calendar: WorkingDayCalendar
@@ -77,10 +83,10 @@ class Probe:
 
     def _portal(self) -> Check:
         try:
-            answer = self.client.probe()
+            bundles = self.client.client_bundles()
         except HorizonClientError as error:
             return Check("portal", CheckStatus.FAILED, f"no answer: {error.reason.value}")
-        return Check("portal", CheckStatus.OK, answer)
+        return Check("portal", CheckStatus.OK, "client bundles: " + ", ".join(bundles))
 
     def _calendar(self) -> Check:
         today = self.clock.now().date()
@@ -92,9 +98,16 @@ class Probe:
         return Check("calendar", CheckStatus.OK, f"isdayoff.ru: {today} is {day}")
 
     def _chrome(self) -> Check:
-        if self.file_exists(self.chrome_path):
-            return Check("chrome", CheckStatus.OK, f"found at {self.chrome_path}")
-        return Check("chrome", CheckStatus.FAILED, f"not found at {self.chrome_path}")
+        """Chrome is found at its path, then started to name its version: the deploy smoke."""
+        where = self.chrome_path
+        if not self.file_exists(where):
+            return Check("chrome", CheckStatus.FAILED, f"not found at {where}")
+        try:
+            version = self.client.browser_version()
+        except HorizonClientError as error:
+            detail = f"found at {where} but did not start: {error.reason.value}"
+            return Check("chrome", CheckStatus.FAILED, detail)
+        return Check("chrome", CheckStatus.OK, f"Chrome {version} started from {where}")
 
 
 @dataclass(frozen=True)
@@ -117,56 +130,39 @@ class RunPlan:
         return self.decision in _WOULD_RUN
 
 
+class PlannedRun(Protocol):
+    """A use case the dry run can plan: its kind, its run loop, the steps of one attempt."""
+
+    @property
+    def kind(self) -> RunKind:
+        """Which daily run this is."""
+        ...
+
+    @property
+    def runner(self) -> WindowedRun:
+        """The loop that decides, retries and reports."""
+        ...
+
+    def steps(self) -> tuple[str, ...]:
+        """What one attempt does, in the owner's words."""
+        ...
+
+
 @dataclass(frozen=True)
 class DryRun:
-    """Plans a run in one window without touching the portal; ``hold`` is the check-in's."""
+    """Plans the use case a run would execute, without touching the portal or the owner."""
 
-    calendar: WorkingDayCalendar
-    clock: Clock
-    window: Window
-    policy: RetryPolicy
-    desktop: str
-    hold: timedelta
+    use_case: PlannedRun
 
-    def plan(self, kind: RunKind, *, force: bool = False) -> RunPlan:
-        """Decide as a run would now, and name the steps of its attempt; logs nothing in."""
-        now = self.clock.now()
-        if force:
-            decision, source = Decision.RUN, None
-        else:
-            verdict = resolve(self.calendar.is_working_day(now.date()), now.date())
-            decision = decide(now, self.window, verdict, _FIRST_ATTEMPT, self.policy)
-            source = verdict.source
-        return RunPlan(kind, now, force, decision, source, self._steps(kind))
-
-    def _steps(self, kind: RunKind) -> tuple[str, ...]:
-        attempt = _checkin_steps(self) if kind is RunKind.CHECKIN else _checkout_steps(self)
-        return (
-            *attempt,
-            f"retry a failed attempt, up to {self.policy.max_attempts} attempts "
-            f"{_seconds(self.policy.backoff)} s apart, while the window allows",
-            "send one report to Telegram",
+    def plan(self, *, force: bool = False) -> RunPlan:
+        """Decide as the run's first attempt would now, and name its steps; logs nothing in."""
+        runner = self.use_case.runner
+        first = runner.first_decision(force=force)
+        return RunPlan(
+            kind=self.use_case.kind,
+            at=first.at,
+            forced=force,
+            decision=first.decision,
+            verdict_source=first.verdict_source,
+            steps=(*self.use_case.steps(), *runner.steps()),
         )
-
-
-def _checkin_steps(plan: DryRun) -> tuple[str, ...]:
-    return (
-        "log in to the Horizon portal",
-        f"open desktop {plan.desktop!r} and wait for the Blast connection and a drawn desktop",
-        f"hold the desktop open for {_seconds(plan.hold)} s so the Windows logon completes",
-        "read the session state, then disconnect (the Windows session keeps running)",
-        "log in again and confirm the session is DISCONNECTED",
-    )
-
-
-def _checkout_steps(plan: DryRun) -> tuple[str, ...]:
-    return (
-        "log in to the Horizon portal",
-        f"read the session state of desktop {plan.desktop!r}; stop if there is no session",
-        "log off from the tile menu and confirm the dialog",
-        "confirm the session is gone (NO_SESSION)",
-    )
-
-
-def _seconds(span: timedelta) -> str:
-    return f"{span.total_seconds():g}"

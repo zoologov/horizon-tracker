@@ -56,8 +56,11 @@ class _FakeClient:
 
     def log_off(self, name: str) -> None: ...
 
-    def probe(self) -> str:
-        return "2312"
+    def client_bundles(self) -> tuple[str, ...]:
+        return ("app-htmlaccess.2312.js",)
+
+    def browser_version(self) -> str:
+        return "131.0.6778.85"
 
 
 class _FakeCalendar:

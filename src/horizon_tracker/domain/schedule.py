@@ -16,7 +16,8 @@ from enum import StrEnum
 
 from horizon_tracker.domain.calendar import WorkingDayVerdict
 
-_FIRST_ATTEMPT = 1
+# Attempts are counted from one. Public, so the run loop counts from this value, not a copy.
+FIRST_ATTEMPT = 1
 
 
 class RunKind(StrEnum):
@@ -62,8 +63,8 @@ class RetryPolicy:
     backoff: timedelta
 
     def __post_init__(self) -> None:
-        if self.max_attempts < _FIRST_ATTEMPT:
-            msg = f"max_attempts must be at least {_FIRST_ATTEMPT}, got {self.max_attempts}"
+        if self.max_attempts < FIRST_ATTEMPT:
+            msg = f"max_attempts must be at least {FIRST_ATTEMPT}, got {self.max_attempts}"
             raise ValueError(msg)
         if self.backoff < timedelta(0):
             msg = f"backoff must not be negative, got {self.backoff}"
@@ -82,8 +83,8 @@ def decide(
     Precedence: a non-working day skips; spent attempts give up; outside the window
     skips as early or late; otherwise the first attempt runs and later ones retry.
     """
-    if attempt < _FIRST_ATTEMPT:
-        msg = f"attempt is counted from {_FIRST_ATTEMPT}, got {attempt}"
+    if attempt < FIRST_ATTEMPT:
+        msg = f"attempt is counted from {FIRST_ATTEMPT}, got {attempt}"
         raise ValueError(msg)
     if not verdict.is_working:
         return Decision.SKIP_NON_WORKING_DAY
@@ -94,6 +95,6 @@ def decide(
         return Decision.SKIP_EARLY
     if not window.contains(wall_time):
         return Decision.SKIP_LATE
-    if attempt == _FIRST_ATTEMPT:
+    if attempt == FIRST_ATTEMPT:
         return Decision.RUN
     return Decision.RETRY

@@ -53,13 +53,15 @@ jobs:
         run: uv run mypy src/
 
       - name: Chromium for the adapter tests
-        # tests/adapters drive Playwright against the local HTML Access fixture, never the
-        # portal. The browser comes from the locked Playwright version.
+        # tests/integration/infrastructure drives Playwright against the local HTML Access
+        # fixture, never the portal. The browser comes from the locked Playwright version.
         run: uv run playwright install --with-deps chromium
 
       - name: Pytest
         # -rs prints the reason of every skip, so a skipped check is read as skipped.
-        run: uv run pytest -q -rs
+        # --cov makes pytest-cov evaluate [tool.coverage.report] fail_under: coverage below
+        # the floor fails this step. Without it the floor is declared and never checked.
+        run: uv run pytest -q -rs --cov --cov-report=term-missing
 
       - name: Install beadloom
         # 9.0.0 pins tree-sitter itself; no workaround is needed.
