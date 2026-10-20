@@ -1,6 +1,6 @@
 # CONTEXT: HT-003 — Random check-in and check-out moments inside ranges
 
-> **Status:** Draft
+> **Status:** Approved
 > **Created:** 2026-10-20
 > **Last updated:** 2026-10-20
 

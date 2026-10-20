@@ -1,9 +1,11 @@
 # PLAN: HT-003 — Random check-in and check-out moments inside ranges
 
-> **Status:** Draft
+> **Status:** Approved
 > **Created:** 2026-10-20
 
 ---
+
+**Parent bead:** ht-1vd
 
 ## Epic Description
 
@@ -44,15 +46,15 @@ created, and then the id the tracker answered.
 
 | ID | Tracker | Name | Priority | Depends On |
 |----|---------|------|----------|------------|
-| BEAD-01 | - | Domain: `TimeRange`, `DailyMoments`, `draw_moments`, `window_from`; `planned_at` in the report | P0 | - |
-| BEAD-02 | - | Application: the wait for the moment in `WindowedRun`; the moments of the day in `DryRun` | P0 | 01 |
-| BEAD-03 | - | Infrastructure: the ranges and the seed in `Settings`, rejection of the old windows; a test of the lazy browser start | P0 | 01 |
-| BEAD-04 | - | CLI: wiring of the draw, `--force` without the wait, the `schedule:` line in `probe` | P0 | 02, 03 |
-| BEAD-05 | - | Deploy: the timers 07:30/16:30, `TimeoutStartSec=60min`, the `.env` contract in deploy.yml, RUNBOOK | P1 | 04 |
-| BEAD-06 | - | Test: the 7 PRD scenarios as BDD, coverage, mutations of the core | P0 | 05 |
-| BEAD-07 | - | Review | P0 | 06 |
-| BEAD-08 | - | Tech-writer: SPEC `schedule`, `windowed-run`, `probe`, `settings`; cli.md; architecture.md | P1 | 07 |
-| BEAD-09 | - | Live check on the VPS: deploy, `probe` with the `schedule:` line, the first scheduled runs (the local agent / the owner) | P1 | 08 |
+| BEAD-01 | ht-ust | Domain: `TimeRange`, `DailyMoments`, `draw_moments`, `window_from`; `planned_at` in the report | P0 | - |
+| BEAD-02 | ht-su5 | Application: the wait for the moment in `WindowedRun`; the moments of the day in `DryRun` | P0 | 01 |
+| BEAD-03 | ht-4vm | Infrastructure: the ranges and the seed in `Settings`, rejection of the old windows; a test of the lazy browser start | P0 | 01 |
+| BEAD-04 | ht-rat | CLI: wiring of the draw, `--force` without the wait, the `schedule:` line in `probe` | P0 | 02, 03 |
+| BEAD-05 | ht-978 | Deploy: the timers 07:30/16:30, `TimeoutStartSec=60min`, the `.env` contract in deploy.yml, RUNBOOK | P1 | 04 |
+| BEAD-06 | ht-slm | Test: the 7 PRD scenarios as BDD, coverage, mutations of the core | P0 | 05 |
+| BEAD-07 | ht-evj | Review | P0 | 06 |
+| BEAD-08 | ht-6l0 | Tech-writer: SPEC `schedule`, `windowed-run`, `probe`, `settings`; cli.md; architecture.md | P1 | 07 |
+| BEAD-09 | ht-02r | Live check on the VPS: deploy, `probe` with the `schedule:` line, the first scheduled runs (the local agent / the owner) | P1 | 08 |
 
 ## Bead Details
 
