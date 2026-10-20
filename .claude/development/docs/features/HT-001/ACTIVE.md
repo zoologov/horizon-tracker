@@ -1,15 +1,15 @@
 # ACTIVE: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Last updated:** 2026-10-20 (BEAD-10 landed)
+> **Last updated:** 2026-10-20 (wave 5 landed, the Gate is green)
 > **Phase:** Development
 
 ---
 
 ## Current Bead
 
-**Bead:** wave 5 — BEAD-10 (ht-1ex) test; then BEAD-11 review → BEAD-12 tech-writer; BEAD-13 (ht-bl6) with the owner
-**Goal:** the BDD suite over the 12 PRD scenarios, coverage ≥ 80 %, the core's mutation gate; then the review and the AS-IS documentation
-**Done when:** `beadloom lint` finds no PRD scenario without its text in the suite, coverage and the mutation score are measured and named
+**Bead:** BEAD-13 (ht-bl6) — the live run on the VPS by the owner's hand; the PR to `main` is opened by the coordinator
+**Goal:** the secrets in the environment `horizon-vps`, the PR merge, the deploy, `horizon probe`, `checkin --force` and `checkout --force`, a check against the Horizon journal, enabling the timers
+**Done when:** the check-in and the check-out are confirmed outside our system, the timers are enabled, the first scheduled run reported to Telegram
 
 ## Progress
 
@@ -19,7 +19,7 @@
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
 - [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
 - [x] Wave 4: BEAD-08, BEAD-09 (landed 2026-10-20: a784433, 7d68763; 416 tests on the tree)
-- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 ✓ → BEAD-16 ✓ OK → BEAD-12 tech-writer (in progress); BEAD-13 the owner
+- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 ✓ → BEAD-16 ✓ OK → BEAD-12 ✓; BEAD-13 the owner (after the PR merge)
 
 ## Results
 
@@ -36,7 +36,7 @@
 | BEAD-09 | Done | ht-spa, 7d68763: ci.yml, deploy.yml; actionlint rc 0; 27 tests, the .env assembly checked against the systemd parser; the real Actions run and the deploy wait for BEAD-13 |
 | BEAD-10 | Done | ht-1ex, 5aff543: the 12 PRD scenarios in 6 feature files (20 cases), 442/442, coverage 96.38 %, domain mutants 111/111; the rule `scenario-coverage` in the graph; the Playwright test moved to `tests/integration/infrastructure/` |
 | BEAD-11 | Done | ht-9uk: ISSUES — 0 critical, 1 major (the coverage threshold is not checked in CI), 6 minor; 11 sabotages, each went red by name; fix → ht-jz5.2, re-review → ht-jz5.3 |
-| BEAD-12 | Open | — |
+| BEAD-12 | Done | ht-6rw, 3af981c: 15 feature nodes with SPEC.md, the layer READMEs, cli.md, architecture.md, the RUNBOOK; all 12 scenarios bound; gate rc 0 on a clean index |
 | BEAD-13 | Open | — |
 | BEAD-15 | Done | ht-jz5.2, 8fd731f: CI with `--cov`, concurrency greenlet, probe → `client_bundles()` + `browser_version()` (a real Chrome start), DryRun over WindowedRun, prune/close best-effort; 466 tests, coverage 98.47 %, mutants 111/111; 8 document pairs went stale → BEAD-12 |
 | BEAD-16 | Done | ht-jz5.3: OK — six findings closed, no regressions; 2 minor + 2 nits for BEAD-12; withholding did not hold (UX #6), `--release` exit 1 (UX #7) |
@@ -61,3 +61,5 @@
 - Wave 4: the deploy runs only for `main` (a guard in the job), the gate before the deploy is the full `ci.yml` (on a push to main CI runs twice, deliberately); the smoke test `horizon probe` through `systemd-run --uid=horizon -p EnvironmentFile=...`, because `sudo -u` does not provide the variables from `.env`; the timers `try-restart`, so as not to enable a disabled timer before the owner's first manual run.
 - For BEAD-12: the RFC said `systemctl restart` (corrected in the RFC with a note), RUNBOOK §2.2 names five secret values instead of four. For BEAD-10: `pyyaml` is needed as a direct dev dependency (it currently arrives transitively through mutmut).
 - BEAD-13 is unblocked for the owner: the secrets in the environment `horizon-vps` can be created right now; the deploy itself fires after the PR merge into `main`.
+- Wave 5 landed; the Gate loop on the final tree: `beadloom ci` rc 0 on the first attempt, ruff/mypy clean, 466 tests, coverage 98 %, 32 pairs fresh, `docs spaces --strict` clean. The PR to `main` is open; next is the owner (BEAD-13).
+- For the owner (from the adapter's SPEC and RUNBOOK §3): a scheduled run that could not start Chrome reports "the Horizon portal is unreachable", because the browser starts inside the login step; only `horizon probe` can tell the two apart. A separate reason would need a code change — a candidate for the next work item.
