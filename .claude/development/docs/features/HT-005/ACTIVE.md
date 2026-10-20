@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-**Bead:** PR → main (the owner merges); then BEAD-03 (ht-hdv) branch protection
+**Bead:** PR #3 → main (the owner merges); then BEAD-03 (ht-hdv) branch protection
 **Goal:** CI green on the PR, `ci-ok` as the required check
 **Done when:** the PR is merged, the protection of main is measured (or the 403 recorded)
 
@@ -30,5 +30,5 @@
 
 ## Notes
 
-- Gates on HEAD b2b3c23 in a clean room: ruff/format/mypy clean, , coverage 99 %, `beadloom ci` rc 0.
+- Gates on HEAD b2b3c23 in a clean room: ruff/format/mypy clean, 758 passed, 7 skipped, coverage 99 %, `beadloom ci` rc 0.
 - The coordinator closed one mypy error in the adapter tests that the new job `types` found (c418c42).

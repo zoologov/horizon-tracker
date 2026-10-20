@@ -32,5 +32,5 @@
 
 - BEAD-01 waited for ht-slm and ht-5ni so as not to share the adapter and test files with their waves.
 - A gap in BEAD-01: no test that the log off photo is taken after the confirmation, not before — only the code holds the order; BEAD-03 (ht-bm9) must close it.
-- BEAD-01 went into the PR together with HT-003/HT-005 (one branch): the adapter hands out the path, the use cases do not read it yet — the behaviour does not change.
+- BEAD-01 went into PR #3 together with HT-003/HT-005 (one branch): the adapter hands out the path, the use cases do not read it yet — the behaviour does not change.
 - The three PRD scenarios lie in the suite as explicit SKIPs with a reason (`screenshot_preview.feature`); BEAD-03 (ht-bm9) replaces the stubs.

@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-**Bead:** BEAD-09 (ht-02r) live check — after the owner merges the PR
+**Bead:** BEAD-09 (ht-02r) live check — after the owner merges PR #3
 **Goal:** deploy to the VPS, `horizon probe` prints `schedule: today HH:MM / HH:MM`, the timers 07:30/16:30
 **Done when:** the first scheduled runs (check-in and check-out) happened at random moments and the notifications arrived
 
