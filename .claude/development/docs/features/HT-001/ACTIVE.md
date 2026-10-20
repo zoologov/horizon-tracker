@@ -32,7 +32,7 @@
 | BEAD-05 | Done | ht-axc, a7695cd: isdayoff.py, telegram.py; 45 tests, 162/162 in a clean room over 4 files |
 | BEAD-06 | Done | ht-xlh, b7bbddc: horizon_playwright.py, the htmlaccess fixture, pytest-bdd+mutmut in dev; 21 adapter tests, 287/287 in a clean room over 10 files |
 | BEAD-07 | Done | ht-oqx, f0f958c: cli.py, application/probe.py; 65 tests, 359/359 in a clean room over 4 files |
-| BEAD-08 | Open | — |
+| BEAD-08 | Done | ht-2h2, a784433: 4 systemd units, bootstrap.sh, RUNBOOK.md (ru); 31 tests, 389 on the tree; the bootstrap does not enable the timers — the owner enables them after BEAD-13 |
 | BEAD-09 | Open | — |
 | BEAD-10 | Open | — |
 | BEAD-11 | Open | — |
