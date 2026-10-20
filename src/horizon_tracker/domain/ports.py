@@ -40,16 +40,24 @@ class HorizonClient(Protocol):
         """The session state of the named desktop, read after login."""
         ...
 
-    def open_desktop(self, name: str) -> None:
-        """Open the named desktop; returns once Blast is connected and the desktop drawn."""
+    def open_desktop(self, name: str) -> Path | None:
+        """Open the named desktop; returns once Blast is connected and the desktop drawn.
+
+        Answers with the path of the success screenshot of the open desktop, ``None``
+        when none could be taken; a missing screenshot never fails the step.
+        """
         ...
 
     def disconnect(self) -> None:
         """Let the client go and leave the Windows session running."""
         ...
 
-    def log_off(self, name: str) -> None:
-        """Log the Windows session of the named desktop off and wait for the confirmation."""
+    def log_off(self, name: str) -> Path | None:
+        """Log the Windows session of the named desktop off and wait for the confirmation.
+
+        Answers with the path of the success screenshot of the desktop list without the
+        session, ``None`` when none could be taken; a missing screenshot never fails the step.
+        """
         ...
 
     def client_bundles(self) -> tuple[str, ...]:

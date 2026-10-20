@@ -51,6 +51,9 @@
 //    (kill_session_sync): the click handler returns only once the broker has answered,
 //    so the answer is in before the adapter's click does. The real client sends it
 //    asynchronously after its hop; this extreme only pins a wait armed before the click.
+//  - The page can be told to fall back to #/home a while after the desktop drew
+//    (drop_to_login_after_ms): a session lost right after it opened, so the adapter's
+//    success screenshot, taken after a settle, meets the login page and must not take it.
 (function () {
   "use strict";
 
@@ -290,6 +293,9 @@
         canvas.width = 1280;
         canvas.height = 720;
         wmks.style.display = "block";
+        if (portal.drop_to_login_after_ms > 0) {
+          setTimeout(function () { location.hash = "#/home"; }, portal.drop_to_login_after_ms);
+        }
       });
     }
 

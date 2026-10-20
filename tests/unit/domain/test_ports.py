@@ -50,11 +50,13 @@ class _FakeClient:
     def desktop_status(self, name: str) -> DesktopStatus:
         return DesktopStatus(name=name, state=SessionState.DISCONNECTED)
 
-    def open_desktop(self, name: str) -> None: ...
+    def open_desktop(self, name: str) -> Path | None:
+        return None
 
     def disconnect(self) -> None: ...
 
-    def log_off(self, name: str) -> None: ...
+    def log_off(self, name: str) -> Path | None:
+        return None
 
     def client_bundles(self) -> tuple[str, ...]:
         return ("app-htmlaccess.2312.js",)
@@ -111,6 +113,13 @@ def test_the_horizon_client_port_never_takes_credentials() -> None:
     # The adapter is built with the credentials; they never cross the port.
     login = HorizonClient.login
     assert list(login.__annotations__) == ["return"]
+
+
+def test_opening_and_logging_off_answer_with_the_success_screenshot_or_none() -> None:
+    # The adapter photographs the open desktop and the list after a log off; the use
+    # case puts the path into the report. None when no screenshot could be taken.
+    for step in (HorizonClient.open_desktop, HorizonClient.log_off):
+        assert step.__annotations__["return"] == Path | None, step.__name__
 
 
 # --- the boundary: importing the ports pulls in no adapter --------------------------

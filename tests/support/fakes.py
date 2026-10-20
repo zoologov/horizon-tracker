@@ -7,6 +7,7 @@ would move it; a scripted failure is queued per method and raised on its next ca
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from horizon_tracker.domain.report import RunReport
 from horizon_tracker.domain.session import DesktopStatus, SessionState
@@ -96,10 +97,11 @@ class FakeHorizonClient:
         self._enter("desktop_status", name)
         return DesktopStatus(name=name, state=self.state)
 
-    def open_desktop(self, name: str) -> None:
+    def open_desktop(self, name: str) -> Path | None:
         self._enter("open_desktop", name)
         if self.open_connects:
             self.state = SessionState.CONNECTED
+        return None
 
     def disconnect(self) -> None:
         self._enter("disconnect")
@@ -110,10 +112,11 @@ class FakeHorizonClient:
                 else SessionState.NO_SESSION
             )
 
-    def log_off(self, name: str) -> None:
+    def log_off(self, name: str) -> Path | None:
         self._enter("log_off", name)
         if self.log_off_takes_effect:
             self.state = SessionState.NO_SESSION
+        return None
 
     def client_bundles(self) -> tuple[str, ...]:
         self._enter("client_bundles")

@@ -1,8 +1,8 @@
 # Horizon Playwright client
 
 The `HorizonClient` port over Playwright and the system Chrome: drives the VMware
-Horizon HTML Access web client headless and takes screenshots only after the login
-page.
+Horizon HTML Access web client headless and takes screenshots, of a success and of a
+failure, only after the login page.
 
 ## Source
 
@@ -26,9 +26,9 @@ needs it, and each `login` opens a fresh browser context on it.
 |--------|--------------|-------------------|
 | `login()` | opens `#/home`, fills `#username` and `#password`, clicks `#loginButton`, then polls: `#/launchitems` means accepted, a visible `#okDialogBtn` means rejected | `PORTAL_UNREACHABLE` (the page does not load), `LOGIN_REJECTED`, `UNEXPECTED` (no verdict in time) |
 | `desktop_status(name)` | `CONNECTED` while this client holds that desktop open; otherwise opens the named tile's "…" menu, reads whether it offers Log Off, closes the menu; logs in first when no page is live | `DESKTOP_NOT_FOUND`, `UNEXPECTED`, or the reasons of `login()` when it logs in first |
-| `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), returns once the desktop is open; logs whether a WebSocket on a Blast path was seen | `DESKTOP_DID_NOT_OPEN` |
+| `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; answers with the success screenshot of the open desktop, taken after a settle (see "Success screenshots"), or `None` | `DESKTOP_DID_NOT_OPEN` |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, waits (bounded) for the broker's kill-session answer, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off") | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, waits (bounded) for the broker's kill-session answer, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"); answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -136,12 +136,34 @@ covers both answers; the bundle ties it to the broker's
 live `checkout --force` sees a successful log off either way, so it cannot tell a
 broker's answer from the client's flag; a broker-side read after the check-out can.
 
+### Success screenshots
+
+`open_desktop()` and `log_off()` answer with the path of a screenshot that shows the
+step succeeded, for the use case to put into the run report; the step's verdict is
+reached first and a screenshot never changes it.
+
+- `open_desktop()`: once the desktop is open, the page is held still for
+  `HorizonTimeouts.success_settle_ms` (2 s by default, through the same
+  `page.wait_for_timeout` the polls use), so the photograph shows the drawn desktop
+  rather than its first frame; then the page is photographed as `RunKind.CHECKIN`.
+- `log_off()`: after the fresh launch-items list has confirmed the session gone, that
+  list is photographed as `RunKind.CHECKOUT`; no settle, the list is already loaded.
+
+Both go through the one screenshot method failures use, with its allowlist of routes.
+The route is read after the settle, so a page that fell back to `#/home` meanwhile is
+not photographed and the answer is `None`. A Playwright error or a disk error (an
+`OSError`, for instance from writing the file) while taking the screenshot is logged as
+`Horizon screenshot failed: <Type>` and answers `None`; the step still succeeds. A
+failure screenshot is named by the run's kind, as before, and since the shared method
+catches disk errors too, a failure screenshot the disk refuses now leaves the
+`HorizonClientError` without a screenshot instead of escaping as an `OSError`.
+
 ### Secrets and failures
 
-The password is typed into `#password` and goes nowhere else. A failure screenshot is
-taken only on an allowlist of routes after the login page (`#/launchitems`,
-`#/desktop`); a page on any other route is never photographed. Playwright tracing is
-never started. A Playwright error inside a step is re-raised as `HorizonClientError`
+The password is typed into `#password` and goes nowhere else. A screenshot, of a
+failure or of a success, is taken only on an allowlist of routes after the login page
+(`#/launchitems`, `#/desktop`); a page on any other route is never photographed.
+Playwright tracing is never started. A Playwright error inside a step is re-raised as `HorizonClientError`
 without its cause (`from None`) and logged by its type only, so no message text the
 library composed can carry a value.
 
@@ -152,7 +174,10 @@ succeeded therefore does not exit 1 on the way out.
 
 ## Invariants
 
-- The login page is never photographed: screenshots use an allowlist of routes.
+- The login page is never photographed: screenshots, of a failure or of a success,
+  use an allowlist of routes, read after any settle.
+- A success screenshot never changes a step's verdict: when it cannot be taken, the
+  step answers `None`.
 - No Playwright error message reaches a log or a `HorizonClientError`.
 - `client_bundles()` and `browser_version()` never log in and never open a page.
 - `disconnect()` never logs off.
@@ -171,7 +196,9 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
   the portal URL and the run kind only.
 - `HorizonTimeouts(page_load_ms=30_000, action_ms=15_000, login_ms=30_000,
   desktop_open_ms=90_000, logoff_confirm_ms=60_000, poll_ms=1_000,
-  kill_session_answer_ms=30_000)` — frozen.
+  kill_session_answer_ms=30_000, success_settle_ms=2_000)` — frozen.
+- `open_desktop(name) -> Path | None`, `log_off(name) -> Path | None` — the path of
+  the success screenshot, `None` when none could be taken.
 - Route and selector constants: `LOGIN_ROUTE`, `LAUNCH_ITEMS_ROUTE`, `DESKTOP_ROUTE`,
   `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON`, `DIALOG_OK`, `DIALOG_CANCEL`,
   `ANY_TILE`, `LAUNCH_BUTTON`, `TILE_MENU_BUTTON`, `TILE_MENU`, `LOGOFF_MENU_ITEM`,
@@ -204,7 +231,10 @@ stylesheet not in the bundle. The fixture broker can also refuse a log off, end 
 session only a few lists later, serve one list per login, so that a reload lands on
 the login form, answer kill-session late (1.5 s, beyond the 1 s the adapter once waited
 after OK) with credential cleanup on, answer it with an error status, never answer it,
-and never show the log-off confirmation. The page can also post a non-UTF-8 body
+and never show the log-off confirmation. The page can fall back to `#/home` a while
+after the desktop drew, inside the success screenshot's settle, so the allowlist's
+refusal of the login page is pinned and so is the settle before the route is read. The
+page can also post a non-UTF-8 body
 beside the log off, answered while the adapter waits, and send kill-session as a
 synchronous XHR inside OK's click handler, so that the answer is in before the click
 returns. The real client sends it asynchronously after a hop; that extreme exists only

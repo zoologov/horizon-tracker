@@ -20,15 +20,16 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
@@ -64,7 +65,12 @@ FAST = HorizonTimeouts(
     logoff_confirm_ms=3_000,
     poll_ms=100,
     kill_session_answer_ms=3_000,
+    success_settle_ms=100,
 )
+# A settle long enough to outlast the fixture page's fall back to the login page, which
+# comes DROP_TO_LOGIN_AFTER_MS after the desktop drew: the success screenshot meets it.
+DROP_TO_LOGIN_AFTER_MS = 300
+SETTLE_PAST_THE_DROP = replace(FAST, success_settle_ms=1_500)
 # Longer than the live poll interval (1 s) the adapter once waited after OK, and well
 # inside FAST.kill_session_answer_ms.
 SLOW_KILL_SESSION_ANSWER_S = 1.5
@@ -113,6 +119,8 @@ class PortalState:
     binary_post: bool = False
     # The page sends kill-session as a synchronous XHR on OK: answered before the click returns.
     kill_session_sync: bool = False
+    # The page falls back to #/home this many ms after the desktop drew; 0 never.
+    drop_to_login_after_ms: int = 0
     released: threading.Event = field(default_factory=threading.Event)
     logins: dict[str, int] = field(default_factory=dict)
     logged_out: set[str] = field(default_factory=set)
@@ -150,6 +158,7 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "logoff_dialog": self.state.logoff_dialog,
                     "binary_post": self.state.binary_post,
                     "kill_session_sync": self.state.kill_session_sync,
+                    "drop_to_login_after_ms": self.state.drop_to_login_after_ms,
                 },
             )
         else:
@@ -402,6 +411,7 @@ def make_client(
         url: str | None = None,
         run_kind: RunKind = RunKind.CHECKIN,
         chrome_path: Path | None = None,
+        timeouts: HorizonTimeouts = FAST,
     ) -> PlaywrightHorizonClient:
         client = PlaywrightHorizonClient(
             horizon_url=url or portal.url,
@@ -410,7 +420,7 @@ def make_client(
             chrome_path=chrome_path or chrome_for_tests(),
             artifacts=artifacts,
             run_kind=run_kind,
-            timeouts=FAST,
+            timeouts=timeouts,
         )
         built.append(client)
         return client
@@ -440,6 +450,20 @@ def fails_with(reason: Reason, action: Callable[[], object]) -> HorizonClientErr
         action()
     assert caught.value.reason is reason
     return caught.value
+
+
+@pytest.fixture
+def photographed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The hash route of the page at each screenshot the adapter takes, in order."""
+    routes: list[str] = []
+    real_screenshot = Page.screenshot
+
+    def spy(page: Page, *args: Any, **kwargs: Any) -> bytes:
+        routes.append("#" + urlsplit(page.url).fragment)
+        return real_screenshot(page, *args, **kwargs)
+
+    monkeypatch.setattr(Page, "screenshot", spy)
+    return routes
 
 
 # --- the port --------------------------------------------------------------------------
@@ -970,6 +994,120 @@ def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logge
 
     assert "kill-session" not in portal.state.events
     assert "blast-open" not in portal.state.events
+
+
+# --- the success screenshot ------------------------------------------------------------
+
+
+def test_an_open_desktop_answers_with_a_screenshot_of_the_drawn_desktop(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+) -> None:
+    client.login()
+
+    shot = client.open_desktop(DESKTOP)
+
+    assert shot is not None
+    assert shot.read_bytes().startswith(b"\x89PNG")
+    assert artifacts.asked == [RunKind.CHECKIN]
+    assert photographed == ["#/desktop"]
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+) -> None:
+    portal.state.session = "disconnected"
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    shot = client.log_off(DESKTOP)
+
+    assert shot is not None
+    assert shot.read_bytes().startswith(b"\x89PNG")
+    assert artifacts.asked == [RunKind.CHECKOUT]
+    # Taken on the fresh list that confirmed the log off, after the confirmation.
+    assert photographed == ["#/launchitems"]
+    assert portal.state.session == "none"
+
+
+def test_no_success_screenshot_is_taken_once_the_page_fell_back_to_the_login_page(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+) -> None:
+    # The page drops to #/home after the desktop drew, inside the settle the adapter
+    # holds before its photograph: the allowlist refuses the login page, the verdict
+    # stands. Without the settle the photograph would have been taken on #/desktop.
+    portal.state.drop_to_login_after_ms = DROP_TO_LOGIN_AFTER_MS
+    client = make_client(timeouts=SETTLE_PAST_THE_DROP)
+    client.login()
+
+    shot = client.open_desktop(DESKTOP)
+
+    assert shot is None
+    assert photographed == []
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+
+
+def refuse_the_screenshot(monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifacts) -> None:
+    """Playwright fails the screenshot, with the password in its message."""
+
+    def refuse(*_args: object, **_kwargs: object) -> bytes:
+        raise PlaywrightError(f"Target crashed {PASSWORD}")
+
+    monkeypatch.setattr(Page, "screenshot", refuse)
+
+
+def refuse_the_disk(monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifacts) -> None:
+    """The store hands out paths under a file, so writing the screenshot fails (an OSError)."""
+    blocked = artifacts.root / "not-a-directory"
+    blocked.write_bytes(b"")
+    monkeypatch.setattr(artifacts, "root", blocked)
+
+
+@pytest.mark.parametrize(
+    ("fault", "error_type"),
+    [(refuse_the_screenshot, "Error"), (refuse_the_disk, "FileExistsError")],
+)
+@pytest.mark.parametrize(
+    ("step", "run_kind", "session"),
+    [
+        ("open_desktop", RunKind.CHECKIN, "none"),
+        ("log_off", RunKind.CHECKOUT, "disconnected"),
+    ],
+)
+def test_a_success_screenshot_that_fails_is_logged_by_type_and_the_step_still_succeeds(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    fault: Callable[[pytest.MonkeyPatch, RecordingArtifacts], None],
+    error_type: str,
+    step: str,
+    run_kind: RunKind,
+    session: str,
+) -> None:
+    portal.state.session = session
+    client = make_client(run_kind=run_kind)
+    client.login()
+    fault(monkeypatch, artifacts)
+
+    shot = getattr(client, step)(DESKTOP)
+
+    assert shot is None
+    assert artifacts.asked == [run_kind], "the screenshot was never attempted"
+    assert f"Horizon screenshot failed: {error_type}" in caplog.text
+    assert PASSWORD not in caplog.text
+    expected = SessionState.CONNECTED if step == "open_desktop" else SessionState.NO_SESSION
+    assert client.desktop_status(DESKTOP).state is expected
 
 
 # --- probe ---------------------------------------------------------------------------------

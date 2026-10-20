@@ -113,6 +113,9 @@ class HorizonTimeouts:
     # measured; it answers once it has handed the log off on, so this is generous. Past
     # it the fresh-list confirmation decides, and it fails closed.
     kill_session_answer_ms: int = 30_000
+    # How long the open desktop is held still before its success screenshot, so the
+    # photograph shows the drawn desktop rather than its first frame.
+    success_settle_ms: int = 2_000
 
 
 class PlaywrightHorizonClient:
@@ -193,8 +196,12 @@ class PlaywrightHorizonClient:
             tile = self._tile(name)
             return DesktopStatus(name, self._tile_session_state(tile))
 
-    def open_desktop(self, name: str) -> None:
-        """Launch the tile, cancel the Fullscreen offer, return once the desktop is open."""
+    def open_desktop(self, name: str) -> Path | None:
+        """Launch the tile, cancel the Fullscreen offer, return once the desktop is open.
+
+        Answers with a screenshot of the open desktop taken after a settle of
+        ``success_settle_ms``, or ``None`` when it could not be taken.
+        """
         with self._step(Reason.DESKTOP_DID_NOT_OPEN):
             self._tile(name).locator(LAUNCH_BUTTON).first.click()
             self._opened_desktop = name
@@ -203,6 +210,7 @@ class PlaywrightHorizonClient:
             raise self._failure(Reason.DESKTOP_DID_NOT_OPEN)
         blast = "seen" if self._blast_socket_open() else "no WebSocket on a Blast path seen"
         logger.info("Horizon desktop open (%s)", blast)
+        return self._screenshot(RunKind.CHECKIN, settle_ms=self._timeouts.success_settle_ms)
 
     def disconnect(self) -> None:
         """Close the browser context: the client lets go, the Windows session keeps running."""
@@ -213,13 +221,14 @@ class PlaywrightHorizonClient:
             context.close()
         logger.info("Horizon client disconnected")
 
-    def log_off(self, name: str) -> None:
+    def log_off(self, name: str) -> Path | None:
         """Log off from the tile's "…" menu, confirm the dialog, wait for the broker to agree.
 
         The client hides the tile's "Log Off" the moment OK is clicked, before the broker
         has answered, so the tile on this page says nothing about the broker. Every
         confirmation read loads the launch items afresh first; the page is left on that
-        fresh list, which is what a ``desktop_status`` after this call reads.
+        fresh list, which is what a ``desktop_status`` after this call reads. Answers with a
+        screenshot of that list, or ``None`` when it could not be taken.
         """
         with self._step(Reason.LOGOFF_NOT_CONFIRMED):
             tile = self._tile(name)
@@ -236,6 +245,7 @@ class PlaywrightHorizonClient:
         if not confirmed:
             raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
         logger.info("Horizon desktop logged off")
+        return self._screenshot(RunKind.CHECKOUT)
 
     def client_bundles(self) -> tuple[str, ...]:
         """The client bundles the portal serves in ``index.html``, read without logging in."""
@@ -500,17 +510,27 @@ class PlaywrightHorizonClient:
             raise failure from None
 
     def _failure(self, reason: Reason) -> HorizonClientError:
-        return HorizonClientError(reason, self._screenshot())
+        return HorizonClientError(reason, self._screenshot(self._run_kind))
 
-    def _screenshot(self) -> Path | None:
-        """A screenshot of the current page, unless it is (or may be) the login page."""
+    def _screenshot(self, kind: RunKind, *, settle_ms: int = 0) -> Path | None:
+        """A screenshot of the page after ``settle_ms``, unless it is (or may be) the login page.
+
+        The route is read after the settle, so a page that left for the login page in the
+        meantime is not photographed. Never raises: the screenshot is evidence, not a
+        condition of the step, so a Playwright or disk error is logged by its type only
+        and answers ``None``.
+        """
         page = self._page
-        if page is None or page.is_closed() or _route(page.url) not in _SCREENSHOT_ROUTES:
+        if page is None or page.is_closed():
             return None
-        path = self._artifacts.screenshot_path(self._run_kind)
         try:
+            if settle_ms > 0:
+                page.wait_for_timeout(settle_ms)
+            if _route(page.url) not in _SCREENSHOT_ROUTES:
+                return None
+            path = self._artifacts.screenshot_path(kind)
             page.screenshot(path=path)
-        except PlaywrightError as error:
+        except (PlaywrightError, OSError) as error:
             logger.warning("Horizon screenshot failed: %s", type(error).__name__)
             return None
         return path
