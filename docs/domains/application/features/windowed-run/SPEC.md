@@ -74,16 +74,31 @@ Module `src/horizon_tracker/application/windowed_run.py`:
   screenshot: Path | None = None)` — frozen; what one attempt observed.
 - `Attempt` — `Callable[[], AttemptResult]`.
 - `FirstDecision(at: datetime, decision: Decision, verdict_source: VerdictSource |
-  None)` — frozen.
-- `WindowedRun(calendar, clock, notifier, window, policy)` — frozen:
-  - `run(kind: RunKind, attempt: Attempt, *, force: bool = False) -> RunReport`;
-  - `first_decision(*, force: bool = False) -> FirstDecision`;
-  - `steps() -> tuple[str, ...]`.
+  None, waits_until: datetime | None = None)` — frozen. `waits_until` is the drawn
+  moment a run started at `at` would sleep until first, and `decision` is the one taken
+  then; `None` when the run would not wait.
+- `WindowedRun(calendar, clock, notifier, window, policy, moment: time | None = None,
+  range_start: time | None = None)` — frozen. `moment` and `range_start` come together
+  or not at all; given, `window` must open at `moment` (build it with
+  `domain.schedule.window_from(moment, grace)`) and `range_start` must not be after
+  `moment`, otherwise `ValueError`. Without them the run keeps its fixed window and
+  never waits.
+  - `run(kind: RunKind, attempt: Attempt, *, force: bool = False) -> RunReport` — on a
+    working day, a scheduled run started at `range_start <= now < moment` first calls
+    `Clock.sleep((moment - now).total_seconds())` once; before `range_start` it waits
+    for nothing and `decide()` skips it as `SKIP_EARLY`; at or after `moment` it does not
+    wait. A non-working day and a forced run never wait. The report's `planned_at` is
+    `moment` for every non-forced run, `None` for a forced one or a run without a moment;
+  - `first_decision(*, force: bool = False) -> FirstDecision` — never sleeps;
+  - `steps() -> tuple[str, ...]` — a scheduled loop names its wait first:
+    `wait until the drawn moment HH:MM if started from HH:MM; earlier is skipped as too
+    early`.
 - `in_seconds(span: timedelta) -> str` — a span as a bare number of seconds (`120`,
   `0.5`); `checkin.py` uses it in its step list as well.
 
 The CLI builds one `WindowedRun` per command with `RETRY_POLICY` (3 attempts, 30 s
-apart) and the window of the run kind.
+apart) and the window of the run kind; it passes no moment yet (HT-003 BEAD-04 wires the
+drawn moment, `window_from` and the range start).
 
 ## Testing
 

@@ -12,7 +12,7 @@ from horizon_tracker.application.windowed_run import AttemptResult, FirstDecisio
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
-from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window
+from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window, window_from
 from tests.support.fakes import FakeCalendar, FakeClock, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
@@ -23,6 +23,11 @@ BACKOFF = timedelta(seconds=30)
 POLICY = RetryPolicy(max_attempts=3, backoff=BACKOFF)
 SHOT = Path("/var/lib/horizon-tracker/shots/checkin.png")
 PASSWORD = "Pa$$w0rd-never-shown"
+# A scheduled run: the timer fires at the start of the range, the run waits for the moment.
+RANGE_START = time(7, 30)
+MOMENT = time(7, 43)
+GRACE = timedelta(minutes=5)
+DRAWN_WINDOW = window_from(MOMENT, GRACE)
 
 
 def at(day: date, hour: int, minute: int, second: int = 0) -> datetime:
@@ -64,6 +69,27 @@ class World:
             window=WINDOW,
             policy=POLICY,
         )
+
+    @classmethod
+    def drawn(
+        cls,
+        start: datetime,
+        calendar_answer: bool | None = True,
+        moment: time = MOMENT,
+        range_start: time = RANGE_START,
+    ) -> "World":
+        """A run due at today's drawn ``moment``, whose timer fires from ``range_start``."""
+        world = cls(start, calendar_answer)
+        world.runner = WindowedRun(
+            calendar=world.calendar,
+            clock=world.clock,
+            notifier=world.notifier,
+            window=window_from(moment, GRACE),
+            policy=POLICY,
+            moment=moment,
+            range_start=range_start,
+        )
+        return world
 
     def attempt(self, *outcomes: Outcome | Exception) -> ScriptedAttempt:
         return ScriptedAttempt(self.clock, *outcomes)
@@ -405,3 +431,224 @@ def test_the_loop_names_its_retries_and_its_one_report() -> None:
         "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
         "send one report to Telegram",
     )
+
+
+# --- the drawn moment: wait for it inside the process -----------------------------------
+
+
+def seconds(hours: int = 0, minutes: int = 0, secs: int = 0) -> float:
+    return timedelta(hours=hours, minutes=minutes, seconds=secs).total_seconds()
+
+
+@pytest.mark.parametrize(
+    ("start", "wait"),
+    [
+        (at(WEDNESDAY, 7, 30), seconds(minutes=13)),
+        (at(WEDNESDAY, 7, 35, 20), seconds(minutes=7, secs=40)),
+        (at(WEDNESDAY, 7, 42, 59), seconds(secs=1)),
+    ],
+    ids=["from the range start", "mid-range with seconds", "a second before"],
+)
+def test_a_run_started_before_its_moment_waits_exactly_until_it_in_one_sleep(
+    start: datetime, wait: float
+) -> None:
+    world = World.drawn(start)
+    attempt = world.attempt(Outcome.SUCCEEDED)
+
+    report = world.run(attempt)
+
+    assert world.clock.sleeps == [wait]
+    assert attempt.made == 1
+    assert report.at == at(WEDNESDAY, 7, 43)
+    assert world.only_report == report
+    assert report.outcome is Outcome.SUCCEEDED
+
+
+@pytest.mark.parametrize(
+    ("start", "outcome", "reason"),
+    [
+        (at(WEDNESDAY, 7, 43), Outcome.SUCCEEDED, None),
+        (at(WEDNESDAY, 7, 46, 30), Outcome.SUCCEEDED, None),
+        (at(WEDNESDAY, 7, 48), Outcome.SUCCEEDED, None),
+        (at(WEDNESDAY, 7, 48, 1), Outcome.SKIPPED, Reason.WINDOW_MISSED),
+    ],
+    ids=["at the moment", "inside the window", "the window's last second", "after the window"],
+)
+def test_a_run_started_at_or_after_its_moment_does_not_wait(
+    start: datetime, outcome: Outcome, reason: Reason | None
+) -> None:
+    world = World.drawn(start)
+
+    report = world.run(world.attempt(Outcome.SUCCEEDED))
+
+    assert world.clock.sleeps == []
+    assert (report.outcome, report.reason) == (outcome, reason)
+
+
+@pytest.mark.parametrize(
+    "start",
+    [at(WEDNESDAY, 7, 29, 59), at(WEDNESDAY, 3, 0)],
+    ids=["a second before the range", "hours before the range"],
+)
+def test_a_run_started_before_the_range_is_skipped_as_too_early_without_waiting(
+    start: datetime,
+) -> None:
+    world = World.drawn(start)
+    attempt = world.attempt(Outcome.SUCCEEDED)
+
+    report = world.run(attempt)
+
+    assert world.clock.sleeps == []
+    assert attempt.made == 0
+    assert world.only_report == report
+    assert report.outcome is Outcome.SKIPPED
+    assert report.reason is Reason.TOO_EARLY
+    assert report.at == start
+
+
+def test_a_non_working_day_is_skipped_at_once_without_waiting_for_the_moment() -> None:
+    world = World.drawn(at(SATURDAY, 7, 30), calendar_answer=False)
+
+    report = world.run(world.attempt(Outcome.SUCCEEDED))
+
+    assert world.clock.sleeps == []
+    assert report.reason is Reason.NON_WORKING_DAY
+    assert report.at == at(SATURDAY, 7, 30)
+
+
+def test_a_forced_run_does_not_wait_for_the_drawn_moment() -> None:
+    world = World.drawn(at(WEDNESDAY, 7, 30))
+    attempt = world.attempt(Outcome.SUCCEEDED)
+
+    report = world.run(attempt, force=True)
+
+    assert world.clock.sleeps == []
+    assert attempt.made == 1
+    assert report.at == at(WEDNESDAY, 7, 30)
+    assert report.planned_at is None
+
+
+def test_a_moment_of_now_runs_at_once_even_before_the_range() -> None:
+    # --force may be composed as moment = now: no wait, whatever the range says.
+    now = at(SATURDAY, 6, 0, 17)
+    world = World.drawn(now, calendar_answer=False, moment=now.time(), range_start=now.time())
+
+    report = world.run(world.attempt(Outcome.SUCCEEDED), force=True)
+
+    assert world.clock.sleeps == []
+    assert report.outcome is Outcome.SUCCEEDED
+
+
+def test_a_retry_after_the_wait_still_waits_its_backoff() -> None:
+    world = World.drawn(at(WEDNESDAY, 7, 30))
+
+    report = world.run(world.attempt(Outcome.FAILED, Outcome.SUCCEEDED))
+
+    assert world.clock.sleeps == [seconds(minutes=13), BACKOFF.total_seconds()]
+    assert world.only_report == report
+    assert report.outcome is Outcome.SUCCEEDED
+
+
+@pytest.mark.parametrize(
+    ("start", "calendar_answer", "attempts"),
+    [
+        (at(WEDNESDAY, 7, 30), True, (Outcome.SUCCEEDED,)),
+        (at(WEDNESDAY, 7, 30), True, (Outcome.FAILED,) * POLICY.max_attempts),
+        (at(WEDNESDAY, 7, 0), True, ()),
+        (at(WEDNESDAY, 9, 0), True, ()),
+        (at(SATURDAY, 7, 30), False, ()),
+    ],
+    ids=["success", "failure", "too early", "too late", "day off"],
+)
+def test_a_scheduled_report_names_the_drawn_moment_whatever_the_outcome(
+    start: datetime, calendar_answer: bool, attempts: tuple[Outcome, ...]
+) -> None:
+    world = World.drawn(start, calendar_answer)
+
+    report = world.run(world.attempt(*attempts))
+
+    assert report.planned_at == MOMENT
+    assert "назначено на 07:43" in render(world.only_report)
+
+
+def test_a_run_without_a_drawn_moment_names_no_planned_time() -> None:
+    world = World(at(WEDNESDAY, 7, 55))
+
+    assert world.run(world.attempt(Outcome.SUCCEEDED)).planned_at is None
+
+
+def test_the_first_decision_while_waiting_is_the_decision_at_the_moment() -> None:
+    world = World.drawn(at(WEDNESDAY, 7, 30))
+
+    first = world.runner.first_decision()
+
+    assert first == FirstDecision(
+        at(WEDNESDAY, 7, 30), Decision.RUN, VerdictSource.CALENDAR, at(WEDNESDAY, 7, 43)
+    )
+    assert world.clock.sleeps == []
+    assert world.notifier.sent == []
+
+
+@pytest.mark.parametrize(
+    ("start", "decision"),
+    [
+        (at(WEDNESDAY, 7, 29), Decision.SKIP_EARLY),
+        (at(WEDNESDAY, 7, 44), Decision.RUN),
+        (at(WEDNESDAY, 8, 0), Decision.SKIP_LATE),
+    ],
+)
+def test_the_first_decision_names_no_wait_outside_the_waiting_span(
+    start: datetime, decision: Decision
+) -> None:
+    first = World.drawn(start).runner.first_decision()
+
+    assert (first.decision, first.waits_until) == (decision, None)
+
+
+def test_a_forced_first_decision_does_not_wait() -> None:
+    first = World.drawn(at(WEDNESDAY, 7, 30)).runner.first_decision(force=True)
+
+    assert (first.decision, first.waits_until) == (Decision.RUN, None)
+
+
+def test_a_scheduled_loop_names_its_wait_before_its_retries() -> None:
+    assert World.drawn(at(WEDNESDAY, 7, 30)).runner.steps() == (
+        "wait until the drawn moment 07:43 if started from 07:30; earlier is skipped as too early",
+        "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
+        "send one report to Telegram",
+    )
+
+
+def make_runner(window: Window, moment: time | None, range_start: time | None) -> WindowedRun:
+    return WindowedRun(
+        calendar=FakeCalendar(True),
+        clock=FakeClock(at(WEDNESDAY, 7, 30)),
+        notifier=FakeNotifier(),
+        window=window,
+        policy=POLICY,
+        moment=moment,
+        range_start=range_start,
+    )
+
+
+@pytest.mark.parametrize(
+    ("window", "moment", "range_start", "message"),
+    [
+        (DRAWN_WINDOW, MOMENT, None, "moment and range_start come together"),
+        (DRAWN_WINDOW, None, RANGE_START, "moment and range_start come together"),
+        (WINDOW, MOMENT, RANGE_START, "the window must open at the moment"),
+        (DRAWN_WINDOW, MOMENT, time(7, 44), "range_start 07:44:00 is after the moment"),
+    ],
+    ids=["no range start", "no moment", "window elsewhere", "range after the moment"],
+)
+def test_a_scheduled_run_refuses_a_moment_its_window_or_range_does_not_fit(
+    window: Window, moment: time | None, range_start: time | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        make_runner(window, moment, range_start)
+
+
+def test_a_range_starting_at_the_moment_itself_is_accepted() -> None:
+    runner = make_runner(DRAWN_WINDOW, MOMENT, MOMENT)
+
+    assert runner.moment == runner.range_start == MOMENT

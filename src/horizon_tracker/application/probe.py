@@ -5,12 +5,15 @@ portal names the client bundles it serves, the calendar answers for today, the C
 binary is where the settings say, starts headless and names its version. What is
 measured is the client bundles and the browser version; no portal version is read. An
 unreachable calendar degrades the probe rather than failing it, because a run falls back
-to the Mon-Fri rule.
+to the Mon-Fri rule. Given the day's drawn moments, the probe names them last, as the
+``schedule`` check; it does not draw them, the composition root does.
 
 ``DryRun`` names what a run would do now and calls nothing on the Horizon client at
 all, so it cannot log in. It plans the very use case a run would execute: the decision
 is ``WindowedRun.first_decision``, the steps are the use case's own list followed by the
 loop's. Neither is restated here, so the plan cannot describe a run that no longer exists.
+The plan carries the day's drawn moments it is given and, from the loop, the moment a
+run started now would wait for.
 
 The settings themselves are validated before either is built: a probe exists only for a
 configuration the composition root could read.
@@ -33,7 +36,7 @@ from horizon_tracker.domain.ports import (
     HorizonClientError,
     WorkingDayCalendar,
 )
-from horizon_tracker.domain.schedule import Decision, RunKind
+from horizon_tracker.domain.schedule import DailyMoments, Decision, RunKind
 
 _WOULD_RUN = frozenset({Decision.RUN, Decision.RETRY})
 
@@ -69,17 +72,25 @@ class ProbeReport:
 
 @dataclass(frozen=True)
 class Probe:
-    """Asks the portal, the calendar and Chrome whether a run could go ahead."""
+    """Asks the portal, the calendar and Chrome whether a run could go ahead.
+
+    ``moments`` are today's drawn moments; given, they are named as the last check.
+    """
 
     client: HorizonClient
     calendar: WorkingDayCalendar
     clock: Clock
     chrome_path: Path
     file_exists: Callable[[Path], bool]
+    moments: DailyMoments | None = None
 
     def run(self) -> ProbeReport:
         """Probe every dependency once, whatever the others answered."""
-        return ProbeReport((self._portal(), self._calendar(), self._chrome()))
+        checks = (self._portal(), self._calendar(), self._chrome())
+        if self.moments is None:
+            return ProbeReport(checks)
+        schedule = Check("schedule", CheckStatus.OK, schedule_detail(self.moments))
+        return ProbeReport((*checks, schedule))
 
     def _portal(self) -> Check:
         try:
@@ -114,7 +125,9 @@ class Probe:
 class RunPlan:
     """What a run of ``kind`` would do at ``at``: the decision, its calendar source, the steps.
 
-    ``verdict_source`` is ``None`` for a forced plan, which asks no calendar.
+    ``verdict_source`` is ``None`` for a forced plan, which asks no calendar. ``waits_until``
+    is the drawn moment the run would sleep until first, ``None`` when it would not wait;
+    ``moments`` are the day's drawn pair, ``None`` when the plan was given none.
     """
 
     kind: RunKind
@@ -123,6 +136,8 @@ class RunPlan:
     decision: Decision
     verdict_source: VerdictSource | None
     steps: tuple[str, ...]
+    waits_until: datetime | None = None
+    moments: DailyMoments | None = None
 
     @property
     def would_run(self) -> bool:
@@ -150,9 +165,13 @@ class PlannedRun(Protocol):
 
 @dataclass(frozen=True)
 class DryRun:
-    """Plans the use case a run would execute, without touching the portal or the owner."""
+    """Plans the use case a run would execute, without touching the portal or the owner.
+
+    ``moments`` are today's drawn moments, named in the plan as given; never drawn here.
+    """
 
     use_case: PlannedRun
+    moments: DailyMoments | None = None
 
     def plan(self, *, force: bool = False) -> RunPlan:
         """Decide as the run's first attempt would now, and name its steps; logs nothing in."""
@@ -165,4 +184,11 @@ class DryRun:
             decision=first.decision,
             verdict_source=first.verdict_source,
             steps=(*self.use_case.steps(), *runner.steps()),
+            waits_until=first.waits_until,
+            moments=self.moments,
         )
+
+
+def schedule_detail(moments: DailyMoments) -> str:
+    """Today's drawn check-in and check-out as the owner reads them: ``today 07:43 / 16:52``."""
+    return f"today {moments.check_in:%H:%M} / {moments.check_out:%H:%M}"

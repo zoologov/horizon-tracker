@@ -5,9 +5,16 @@ the calendar once, lets the domain's ``decide`` rule on every attempt, waits the
 policy's backoff through the ``Clock`` port, and sends exactly one report whatever
 the run came to.
 
+A scheduled run is due at the day's drawn ``moment`` and its window opens there. Its
+timer fires at ``range_start``, so a run started between the two waits for the moment
+in one ``Clock.sleep`` before its first attempt; a run started before ``range_start``
+is skipped as too early and waits for nothing. Its report names the moment as
+``planned_at``. A run built without a moment keeps its fixed window and never waits.
+
 A failed attempt is retried while the window and the policy allow; once they do not,
 the run reports the last failure rather than a skip, because the attempt was made. A
-``--force`` run treats the day as a working day and the whole day as its window.
+``--force`` run treats the day as a working day and the whole day as its window, and
+waits for no moment.
 
 The dry run reads the loop rather than copying it: ``first_decision`` is the decision
 ``run`` would take on its first attempt now, and ``steps`` names what the loop adds
@@ -69,29 +76,58 @@ Attempt = Callable[[], AttemptResult]
 
 @dataclass(frozen=True)
 class FirstDecision:
-    """The decision a run's first attempt would take at ``at``, and its calendar source.
+    """The decision a run's first attempt would take, asked at ``at``, and its calendar source.
 
-    ``verdict_source`` is ``None`` for a forced run, which asks no calendar.
+    ``verdict_source`` is ``None`` for a forced run, which asks no calendar. ``waits_until``
+    is the drawn moment a run started at ``at`` would sleep until first, and the decision
+    is the one taken then; ``None`` when the run would not wait.
     """
 
     at: datetime
     decision: Decision
     verdict_source: VerdictSource | None
+    waits_until: datetime | None = None
 
 
 @dataclass(frozen=True)
 class WindowedRun:
-    """The run loop shared by both use cases, over the calendar, the clock and the notifier."""
+    """The run loop shared by both use cases, over the calendar, the clock and the notifier.
+
+    ``moment`` and ``range_start`` come together: a scheduled run waits from
+    ``range_start`` until ``moment``, where ``window`` opens (build it with
+    ``window_from``). Without them the run keeps its fixed ``window`` and never waits.
+    """
 
     calendar: WorkingDayCalendar
     clock: Clock
     notifier: Notifier
     window: Window
     policy: RetryPolicy
+    moment: time | None = None
+    range_start: time | None = None
+
+    def __post_init__(self) -> None:
+        if (self.moment is None) != (self.range_start is None):
+            raise ValueError("moment and range_start come together, or neither is given")
+        if self.moment is None or self.range_start is None:
+            return
+        if self.window.start != self.moment:
+            msg = (
+                f"the window must open at the moment {self.moment}, "
+                f"not at {self.window.start}: build it with window_from"
+            )
+            raise ValueError(msg)
+        if self.range_start > self.moment:
+            msg = f"range_start {self.range_start} is after the moment {self.moment}"
+            raise ValueError(msg)
 
     def run(self, kind: RunKind, attempt: Attempt, *, force: bool = False) -> RunReport:
-        """Make the run's attempts as the window allows and send its one report."""
+        """Wait for the drawn moment, make the attempts the window allows, send one report."""
         verdict = self._verdict(force)
+        now = self.clock.now()
+        waits_until = self._waits_until(now, verdict)
+        if waits_until is not None:
+            self.clock.sleep((waits_until - now).total_seconds())
         result = self._attempts(kind, attempt, verdict)
         report = RunReport(
             kind=kind,
@@ -100,25 +136,35 @@ class WindowedRun:
             verdict_source=_source(verdict),
             reason=result.reason,
             screenshot=result.screenshot,
+            planned_at=None if force else self.moment,
         )
         logger.info("%s run %s (%s)", kind, report.outcome, report.reason)
         self.notifier.send(report)
         return report
 
     def first_decision(self, *, force: bool = False) -> FirstDecision:
-        """What ``run`` would decide on its first attempt now; makes no attempt, sends nothing."""
+        """What ``run`` would decide on its first attempt; waits for nothing, sends nothing."""
         verdict = self._verdict(force)
-        return FirstDecision(
-            self.clock.now(), self._decide(FIRST_ATTEMPT, verdict), _source(verdict)
-        )
+        now = self.clock.now()
+        waits_until = self._waits_until(now, verdict)
+        decided_at = now if waits_until is None else waits_until
+        decision = self._decide_at(decided_at, FIRST_ATTEMPT, verdict)
+        return FirstDecision(now, decision, _source(verdict), waits_until)
 
     def steps(self) -> tuple[str, ...]:
         """What the loop adds around the attempts, in the owner's words."""
-        return (
+        retries = (
             f"retry a failed attempt, up to {self.policy.max_attempts} attempts "
             f"{in_seconds(self.policy.backoff)} s apart, while the window allows",
             "send one report to Telegram",
         )
+        if self.moment is None or self.range_start is None:
+            return retries
+        wait = (
+            f"wait until the drawn moment {self.moment:%H:%M} if started from "
+            f"{self.range_start:%H:%M}; earlier is skipped as too early"
+        )
+        return (wait, *retries)
 
     def _verdict(self, force: bool) -> WorkingDayVerdict | None:
         """Today's calendar verdict; ``None`` for a forced run, which asks no calendar."""
@@ -127,10 +173,29 @@ class WindowedRun:
         today = self.clock.now().date()
         return resolve(self.calendar.is_working_day(today), today)
 
+    def _waits_until(self, now: datetime, verdict: WorkingDayVerdict | None) -> datetime | None:
+        """The drawn moment a run started at ``now`` sleeps until first, or ``None``.
+
+        Only a scheduled run on a working day, started from ``range_start`` and before
+        the moment, waits; a forced run (no verdict) never does.
+        """
+        if verdict is None or not verdict.is_working:
+            return None
+        if self.moment is None or self.range_start is None:
+            return None
+        if not self.range_start <= now.time() < self.moment:
+            return None
+        return datetime.combine(now.date(), self.moment, tzinfo=now.tzinfo)
+
     def _decide(self, attempt: int, verdict: WorkingDayVerdict | None) -> Decision:
+        return self._decide_at(self.clock.now(), attempt, verdict)
+
+    def _decide_at(
+        self, now: datetime, attempt: int, verdict: WorkingDayVerdict | None
+    ) -> Decision:
         if verdict is None:
-            return decide(self.clock.now(), _WHOLE_DAY, _FORCED_WORKING_DAY, attempt, self.policy)
-        return decide(self.clock.now(), self.window, verdict, attempt, self.policy)
+            return decide(now, _WHOLE_DAY, _FORCED_WORKING_DAY, attempt, self.policy)
+        return decide(now, self.window, verdict, attempt, self.policy)
 
     def _attempts(
         self, kind: RunKind, attempt: Attempt, verdict: WorkingDayVerdict | None

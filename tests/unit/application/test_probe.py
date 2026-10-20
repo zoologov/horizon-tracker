@@ -15,12 +15,20 @@ from horizon_tracker.application.probe import (
     Probe,
     ProbeReport,
     RunPlan,
+    schedule_detail,
 )
 from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Reason
-from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window
+from horizon_tracker.domain.schedule import (
+    DailyMoments,
+    Decision,
+    RetryPolicy,
+    RunKind,
+    Window,
+    window_from,
+)
 from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
@@ -32,6 +40,9 @@ CHECKIN_WINDOW = Window(start=time(7, 55), end=time(8, 0))
 CHECKOUT_WINDOW = Window(start=time(17, 0), end=time(17, 5))
 POLICY = RetryPolicy(max_attempts=3, backoff=timedelta(seconds=30))
 HOLD = timedelta(seconds=120)
+MOMENTS = DailyMoments(check_in=time(7, 43), check_out=time(16, 52))
+RANGE_STARTS = {RunKind.CHECKIN: time(7, 30), RunKind.CHECKOUT: time(16, 30)}
+GRACE = timedelta(minutes=5)
 
 
 def at(day: date, hour: int, minute: int) -> datetime:
@@ -44,7 +55,13 @@ def at(day: date, hour: int, minute: int) -> datetime:
 class Probing:
     """A probe over fakes: a reachable portal and calendar, Chrome installed."""
 
-    def __init__(self, calendar_answer: bool | None = True, chrome_found: bool = True) -> None:
+    def __init__(
+        self,
+        calendar_answer: bool | None = True,
+        chrome_found: bool = True,
+        moments: DailyMoments | None = None,
+    ) -> None:
+        self.moments = moments
         self.client = FakeHorizonClient(desktop=DESKTOP)
         self.calendar = FakeCalendar(calendar_answer)
         self.clock = FakeClock(at(WEDNESDAY, 12, 0))
@@ -62,6 +79,7 @@ class Probing:
             clock=self.clock,
             chrome_path=CHROME,
             file_exists=self.file_exists,
+            moments=self.moments,
         )
         return probe.run()
 
@@ -184,17 +202,37 @@ def test_a_probe_report_is_ok_unless_a_check_failed() -> None:
 
 
 class Planning:
-    """A dry run over the use case a run of ``kind`` would execute, wired to fakes."""
+    """A dry run over the use case a run of ``kind`` would execute, wired to fakes.
+
+    Given ``moments``, the run is scheduled: due at the kind's drawn moment, from its range.
+    """
 
     def __init__(
-        self, now: datetime, kind: RunKind = RunKind.CHECKIN, calendar_answer: bool | None = True
+        self,
+        now: datetime,
+        kind: RunKind = RunKind.CHECKIN,
+        calendar_answer: bool | None = True,
+        moments: DailyMoments | None = None,
     ) -> None:
+        self.moments = moments
         self.clock = FakeClock(now)
         self.calendar = FakeCalendar(calendar_answer)
         self.notifier = FakeNotifier()
         self.client = FakeHorizonClient(desktop=DESKTOP)
-        window = CHECKIN_WINDOW if kind is RunKind.CHECKIN else CHECKOUT_WINDOW
-        self.runner = WindowedRun(self.calendar, self.clock, self.notifier, window, POLICY)
+        if moments is None:
+            window = CHECKIN_WINDOW if kind is RunKind.CHECKIN else CHECKOUT_WINDOW
+            self.runner = WindowedRun(self.calendar, self.clock, self.notifier, window, POLICY)
+        else:
+            moment = moments.check_in if kind is RunKind.CHECKIN else moments.check_out
+            self.runner = WindowedRun(
+                self.calendar,
+                self.clock,
+                self.notifier,
+                window_from(moment, GRACE),
+                POLICY,
+                moment=moment,
+                range_start=RANGE_STARTS[kind],
+            )
         self.use_case: MorningCheckin | EveningCheckout = (
             MorningCheckin(self.client, self.clock, self.runner, DESKTOP, HOLD)
             if kind is RunKind.CHECKIN
@@ -202,7 +240,7 @@ class Planning:
         )
 
     def plan(self, *, force: bool = False) -> RunPlan:
-        return DryRun(self.use_case).plan(force=force)
+        return DryRun(self.use_case, self.moments).plan(force=force)
 
 
 @pytest.mark.parametrize("kind", list(RunKind))
@@ -301,3 +339,71 @@ def test_a_run_plan_would_run_only_on_run_or_retry() -> None:
         )
 
     assert [d for d in Decision if plan(d).would_run] == [Decision.RUN, Decision.RETRY]
+
+
+# --- the day's drawn moments -----------------------------------------------------------
+
+
+def test_the_schedule_detail_names_both_moments_of_today() -> None:
+    assert schedule_detail(MOMENTS) == "today 07:43 / 16:52"
+    assert schedule_detail(DailyMoments(time(8, 5), time(17, 10))) == "today 08:05 / 17:10"
+
+
+def test_a_probe_given_the_days_moments_names_them_last() -> None:
+    probing = Probing(moments=MOMENTS)
+
+    report = probing.run()
+
+    assert [item.name for item in report.checks] == ["portal", "calendar", "chrome", "schedule"]
+    schedule = check(report, "schedule")
+    assert schedule.status is CheckStatus.OK
+    assert schedule.detail == "today 07:43 / 16:52"
+    assert probing.client.calls == ["client_bundles", "browser_version"]
+    assert report.ok
+
+
+def test_a_probe_without_moments_checks_no_schedule() -> None:
+    report = Probing().run()
+
+    assert "schedule" not in [item.name for item in report.checks]
+
+
+@pytest.mark.parametrize("kind", list(RunKind))
+def test_a_plan_names_both_of_the_days_drawn_moments(kind: RunKind) -> None:
+    plan = Planning(at(WEDNESDAY, 7, 30), kind, moments=MOMENTS).plan()
+
+    assert plan.moments == MOMENTS
+
+
+def test_a_plan_without_drawn_moments_names_none() -> None:
+    assert Planning(at(WEDNESDAY, 7, 55)).plan().moments is None
+
+
+def test_a_checkin_plan_from_the_range_start_waits_for_its_moment_then_runs() -> None:
+    planning = Planning(at(WEDNESDAY, 7, 30), moments=MOMENTS)
+
+    plan = planning.plan()
+
+    assert plan.at == at(WEDNESDAY, 7, 30)
+    assert plan.waits_until == at(WEDNESDAY, 7, 43)
+    assert plan.decision is Decision.RUN
+    assert plan.would_run
+    assert planning.clock.sleeps == []
+    assert plan.steps[len(planning.use_case.steps())] == (
+        "wait until the drawn moment 07:43 if started from 07:30; earlier is skipped as too early"
+    )
+
+
+def test_a_checkout_plan_waits_for_the_check_out_moment() -> None:
+    plan = Planning(at(WEDNESDAY, 16, 30), RunKind.CHECKOUT, moments=MOMENTS).plan()
+
+    assert plan.waits_until == at(WEDNESDAY, 16, 52)
+    assert plan.decision is Decision.RUN
+
+
+def test_a_forced_plan_waits_for_no_moment_but_still_names_the_days_moments() -> None:
+    plan = Planning(at(WEDNESDAY, 7, 30), moments=MOMENTS).plan(force=True)
+
+    assert plan.waits_until is None
+    assert plan.moments == MOMENTS
+    assert plan.decision is Decision.RUN

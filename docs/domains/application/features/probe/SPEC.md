@@ -74,13 +74,21 @@ Module `src/horizon_tracker/application/probe.py`:
 - `Check(name: str, status: CheckStatus, detail: str)` — frozen.
 - `ProbeReport(checks: tuple[Check, ...])` — frozen; `ok -> bool` property.
 - `Probe(client: HorizonClient, calendar: WorkingDayCalendar, clock: Clock, chrome_path:
-  Path, file_exists: Callable[[Path], bool])` — frozen; `run() -> ProbeReport` with the
-  checks `portal`, `calendar`, `chrome` in that order.
-- `RunPlan(kind, at, forced, decision, verdict_source, steps)` — frozen;
-  `would_run -> bool` is true for `RUN` and `RETRY`.
+  Path, file_exists: Callable[[Path], bool], moments: DailyMoments | None = None)` —
+  frozen; `run() -> ProbeReport` with the checks `portal`, `calendar`, `chrome` in that
+  order, then, when `moments` is given, `schedule` (`ok`, detail
+  `schedule_detail(moments)`). The probe never draws the moments; the composition root
+  does.
+- `schedule_detail(moments: DailyMoments) -> str` — today's drawn pair as the owner reads
+  it: `today 07:43 / 16:52`.
+- `RunPlan(kind, at, forced, decision, verdict_source, steps, waits_until: datetime |
+  None = None, moments: DailyMoments | None = None)` — frozen; `would_run -> bool` is
+  true for `RUN` and `RETRY`. `waits_until` comes from the loop's `first_decision`;
+  `moments` is the day's drawn pair as the dry run was given it, forced or not.
 - `PlannedRun` — `Protocol`: `kind` and `runner` properties, `steps()`.
   `MorningCheckin` and `EveningCheckout` satisfy it.
-- `DryRun(use_case: PlannedRun)` — frozen; `plan(*, force: bool = False) -> RunPlan`.
+- `DryRun(use_case: PlannedRun, moments: DailyMoments | None = None)` — frozen;
+  `plan(*, force: bool = False) -> RunPlan`.
 
 The CLI builds `Probe` with `chrome_path=settings.chrome_path` and
 `file_exists=Path.is_file`; the Horizon client takes its Chrome path from the same
