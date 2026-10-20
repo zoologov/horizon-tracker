@@ -155,7 +155,10 @@ The "desktop open" signal and the shape of the `get-launch-items` answer are con
 - `.github/workflows/deploy.yml`: `on: push: branches [main]` + `workflow_dispatch`,
   environment `horizon-vps`: gate → ssh → `git fetch && checkout` → `uv sync` →
   writing `.env` from the secrets (0600, `horizon:horizon`) → installing the units →
-  `systemctl restart` of the timers → `horizon probe` as the user `horizon` as a smoke test.
+  `systemctl try-restart` of the timers → `horizon probe` as the user `horizon` as a smoke test
+  *(refined 2026-10-20 by BEAD-08/09: `try-restart`, so that a deploy does not enable a disabled
+  timer; the smoke test through `systemd-run --uid=horizon -p EnvironmentFile=/opt/horizon-tracker/.env`,
+  because `sudo -u` does not provide `.env`)*.
 
 ### Changes
 

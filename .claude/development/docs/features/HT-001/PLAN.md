@@ -245,7 +245,7 @@ mypy, pytest with the Playwright Chromium installed for the adapter test, `beadl
 clean index through `uv tool install beadloom==9.0.0`. `.github/workflows/deploy.yml`
 (push to `main`, `workflow_dispatch`, environment `horizon-vps`): gate → ssh as the neighbouring service's deploy does →
 `git fetch/checkout`, `uv sync`, writing `.env` from the secrets (`install -m 600 -o horizon`),
-installing the units, `daemon-reload`, `systemctl restart` of the timers, the smoke test `horizon probe`
+installing the units, `daemon-reload`, `systemctl try-restart` of the timers (refined by BEAD-09), the smoke test `horizon probe`
 as `horizon`.
 
 **Done when:**
