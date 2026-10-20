@@ -1,6 +1,6 @@
 # ACTIVE: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Last updated:** 2026-10-20 (wave 4 landed)
+> **Last updated:** 2026-10-20 (BEAD-10 landed)
 > **Phase:** Development
 
 ---
@@ -19,7 +19,7 @@
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
 - [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
 - [x] Wave 4: BEAD-08, BEAD-09 (landed 2026-10-20: a784433, 7d68763; 416 tests on the tree)
-- [ ] Wave 5: BEAD-10 → BEAD-11 → BEAD-12; BEAD-13 the owner
+- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 (review, in progress) → BEAD-12; BEAD-13 the owner
 
 ## Results
 
@@ -34,7 +34,7 @@
 | BEAD-07 | Done | ht-oqx, f0f958c: cli.py, application/probe.py; 65 tests, 359/359 in a clean room over 4 files |
 | BEAD-08 | Done | ht-2h2, a784433: 4 systemd units, bootstrap.sh, RUNBOOK.md (ru); 31 tests, 389 on the tree; the bootstrap does not enable the timers — the owner enables them after BEAD-13 |
 | BEAD-09 | Done | ht-spa, 7d68763: ci.yml, deploy.yml; actionlint rc 0; 27 tests, the .env assembly checked against the systemd parser; the real Actions run and the deploy wait for BEAD-13 |
-| BEAD-10 | Open | — |
+| BEAD-10 | Done | ht-1ex, 5aff543: the 12 PRD scenarios in 6 feature files (20 cases), 442/442, coverage 96.38 %, domain mutants 111/111; the rule `scenario-coverage` in the graph; the Playwright test moved to `tests/integration/infrastructure/` |
 | BEAD-11 | Open | — |
 | BEAD-12 | Open | — |
 | BEAD-13 | Open | — |
@@ -52,7 +52,7 @@
 - Wave 2: the owner's gate on the tree — the application and infrastructure READMEs extended with module tables, the surface rewritten, the inert wave-1 override removed from flow.yml.
 - Deviations from the PLAN in wave 2 (API CHANGE on the beads): a third module `application/windowed_run.py`; the constructors `MorningCheckin(client, clock, runner, desktop, hold)` and `EveningCheckout(client, clock, runner, desktop)` without `ArtifactStore`; `PlaywrightHorizonClient` with keyword arguments and `run_kind`; `TelegramNotifier(token, chat_id, client)`; `Settings` requires `HORIZON_URL` and also masks the username and the chat id; `prune()` of the artifacts is called by the CLI.
 - A defect found: a start before the window (`SKIP_EARLY`) is reported as "after the window", the domain has no reason for an early start → BEAD-14.
-- `tests/adapters/test_horizon_playwright.py` is "unplaced" for beadloom (not bound to a node); the other adapter tests lie in `tests/unit/infrastructure/`. The decision on a single place is BEAD-10's.
+- The Playwright test lay in `tests/adapters/` and was "unplaced"; BEAD-10 moved it to `tests/integration/infrastructure/` (a real browser against a local server), beadloom bound it to `infrastructure`. A stale comment about `tests/adapters` remains in `ci.yml` — for BEAD-12.
 - The scratchpad is shared between parallel agents: one agent overwrote another's file. Agents need per-bead subdirectories; recorded in UX-Issues.
 - Wave 3: the owner's gate on the tree — the application README extended with `probe.py`, `docs/services/cli.md` rewritten by the API CHANGE of ht-oqx (commands, exit codes, output, variables), the surface rebased, the inert overrides removed.
 - CLI: the retry policy is a CLI constant (3 attempts 30 s apart, within the window), not in Settings; the log only to stderr under journald, there is no log file (a deviation from the PLAN, the reason — journald holds the rotation).

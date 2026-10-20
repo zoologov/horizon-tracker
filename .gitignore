@@ -55,3 +55,6 @@ artifacts/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# mutmut working copies
+mutants/
