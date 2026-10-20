@@ -105,6 +105,7 @@ Log Off, and reports every run to Telegram.
 | 2026-10-20 | The deploy job runs only for `main`; the gate before it is the full `ci.yml` (BEAD-09) | a manual run from another branch must not reach the VPS; one CI file instead of two copies |
 | 2026-10-20 | The port `probe()` split into `client_bundles()` and `browser_version()`; `browser_version()` really starts headless Chrome (BEAD-15 from the review) | one method mixed "the portal is unreachable" and "Chrome does not start"; the deploy smoke test must catch the second |
 | 2026-10-20 | Feature nodes of the graph: one per module, `ports`, `settings`, `system-clock`, `artifact-store` separately (BEAD-12) | three different responsibilities — three nodes; the wave override is no longer needed |
+| 2026-10-20 | The clone on the VPS over SSH with a read-only deploy key of the user `horizon`, origin `git@github.com:…` (BEAD-13, the local agent) | the repository is private; no GitHub account is kept on the server; the deploy does only a `fetch` |
 | 2026-10-20 | The run window limits the START of an attempt, not the moment of the logon; the PRD's "5 minutes" tolerance reads that way (review ht-9uk, minor 6) | a retry started at 07:59:50 can open the desktop by 08:01:30; narrowing the window for the worst case of an attempt loses attempts for the sake of seconds |
 
 ## Related Files

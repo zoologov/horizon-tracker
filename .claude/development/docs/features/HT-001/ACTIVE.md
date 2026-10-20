@@ -37,7 +37,7 @@
 | BEAD-10 | Done | ht-1ex, 5aff543: the 12 PRD scenarios in 6 feature files (20 cases), 442/442, coverage 96.38 %, domain mutants 111/111; the rule `scenario-coverage` in the graph; the Playwright test moved to `tests/integration/infrastructure/` |
 | BEAD-11 | Done | ht-9uk: ISSUES — 0 critical, 1 major (the coverage threshold is not checked in CI), 6 minor; 11 sabotages, each went red by name; fix → ht-jz5.2, re-review → ht-jz5.3 |
 | BEAD-12 | Done | ht-6rw, 3af981c: 15 feature nodes with SPEC.md, the layer READMEs, cli.md, architecture.md, the RUNBOOK; all 12 scenarios bound; gate rc 0 on a clean index |
-| BEAD-13 | Open | — |
+| BEAD-13 | In Progress | the VPS prepared by the local agent (horizon, /opt/horizon-tracker at 8db4966, 4 units disabled, no .env); the environment `horizon-vps` with 8 secrets; a read-only deploy key for horizon, origin over SSH; waiting for: the PR merge → the deploy → probe/--force → the timers |
 | BEAD-15 | Done | ht-jz5.2, 8fd731f: CI with `--cov`, concurrency greenlet, probe → `client_bundles()` + `browser_version()` (a real Chrome start), DryRun over WindowedRun, prune/close best-effort; 466 tests, coverage 98.47 %, mutants 111/111; 8 document pairs went stale → BEAD-12 |
 | BEAD-16 | Done | ht-jz5.3: OK — six findings closed, no regressions; 2 minor + 2 nits for BEAD-12; withholding did not hold (UX #6), `--release` exit 1 (UX #7) |
 | BEAD-14 | Done | ht-jz5.1, aaac43d: `Reason.TOO_EARLY`; 5 tests, 293/293 in a clean room over 4 files |
@@ -63,3 +63,4 @@
 - BEAD-13 is unblocked for the owner: the secrets in the environment `horizon-vps` can be created right now; the deploy itself fires after the PR merge into `main`.
 - Wave 5 landed; the Gate loop on the final tree: `beadloom ci` rc 0 on the first attempt, ruff/mypy clean, 466 tests, coverage 98 %, 32 pairs fresh, `docs spaces --strict` clean. The PR to `main` is open; next is the owner (BEAD-13).
 - For the owner (from the adapter's SPEC and RUNBOOK §3): a scheduled run that could not start Chrome reports "the Horizon portal is unreachable", because the browser starts inside the login step; only `horizon probe` can tell the two apart. A separate reason would need a code change — a candidate for the next work item.
+- BEAD-13, the local agent's report of 2026-10-20: the repository is private, so the clone on the VPS is over SSH with a read-only deploy key for `horizon` (RUNBOOK §1.1); `owner-setup.sh` is not applicable with password SSH disabled, the steps were done by hand. Before the merge the owner presses /start on the notification bot, otherwise the first notification will not arrive.
