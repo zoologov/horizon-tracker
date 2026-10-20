@@ -1,6 +1,7 @@
 """Tests for the settings read from the environment: required secrets, defaults, masking."""
 
 from collections.abc import Callable
+from dataclasses import fields
 from datetime import time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -120,18 +121,6 @@ def test_an_explicit_seed_is_taken_verbatim_in_utf8() -> None:
     assert settings.jitter_seed == " зерно 7 ".encode()
 
 
-# --- the HT-001 windows ---------------------------------------------------------
-
-
-def test_the_cli_keeps_the_fixed_ht001_windows_until_it_draws_its_moments() -> None:
-    # Interim (HT-003 BEAD-03 -> BEAD-04): no variable sets these any more; the CLI
-    # reads them until it builds each run's window from the drawn moment.
-    settings = Settings.from_env(FULL)
-
-    assert settings.checkin_window == Window(time(7, 55), time(8, 0))
-    assert settings.checkout_window == Window(time(17, 0), time(17, 5))
-
-
 @pytest.mark.parametrize("value", ["07:55-08:00", ""])
 @pytest.mark.parametrize(("retired", "successor"), sorted(RETIRED.items()))
 def test_a_retired_window_variable_is_refused_with_its_successors_named(
@@ -153,6 +142,16 @@ def test_a_retired_variable_is_named_before_any_other_problem() -> None:
         Settings.from_env(stale)
 
     assert caught.value.variable == "HT_CHECKIN_WINDOW"
+
+
+def test_no_window_is_a_setting_each_is_drawn_from_its_range() -> None:
+    # One source for one fact: a run's window opens at the day's drawn moment and lasts
+    # HT_WINDOW_GRACE_MINUTES, so no field carries a fixed window beside the ranges.
+    settings = Settings.from_env(FULL)
+
+    windows = [f.name for f in fields(settings) if isinstance(getattr(settings, f.name), Window)]
+
+    assert windows == []
 
 
 def test_an_empty_optional_variable_falls_back_to_its_default() -> None:

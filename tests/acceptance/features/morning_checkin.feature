@@ -21,5 +21,5 @@ Feature: Morning check-in
     When the check-in runs at 07:55:00 on Wednesday 2026-10-21
     Then exactly one message reaches the owner
     And the message reads "Вход выполнен"
-    And the message reads "Время: 21.10.2026 07:55:00 MSK"
+    And the message reads "Время: 21.10.2026 07:55:00 MSK, назначено на 07:55"
     And the message reads "Календарь: производственный календарь isdayoff.ru"

@@ -19,8 +19,9 @@ command before anything is built, and a credential must never appear in an error
 
 ### How it works
 
-`Settings.from_env(environ)` reads the variables below and raises `ConfigError` on the
-first bad one, in the order of the table:
+`Settings.from_env(environ)` first refuses the retired `HT_CHECKIN_WINDOW` and
+`HT_CHECKOUT_WINDOW`, then reads the variables below and raises `ConfigError` on the
+first bad one:
 
 | Variable | Field | Default | Check |
 |----------|-------|---------|-------|
@@ -31,22 +32,29 @@ first bad one, in the order of the table:
 | `TELEGRAM_BOT_TOKEN` | `telegram_token` | required, secret | not blank |
 | `TELEGRAM_CHAT_ID` | `telegram_chat_id` | required, secret | not blank |
 | `HT_TIMEZONE` | `timezone` | `Europe/Moscow` | a known IANA zone |
-| `HT_CHECKIN_WINDOW` | `checkin_window` | `07:55-08:00` | `HH:MM-HH:MM`, start before end |
-| `HT_CHECKOUT_WINDOW` | `checkout_window` | `17:00-17:05` | `HH:MM-HH:MM`, start before end |
+| `HT_CHECKIN_RANGE` | `checkin_range` | `07:30-08:10` | `HH:MM-HH:MM`, start before end |
+| `HT_CHECKOUT_RANGE` | `checkout_range` | `16:30-17:10` | `HH:MM-HH:MM`, start before end, starts after the check-in range ends |
+| `HT_SESSION_LENGTH_MINUTES` | `session_length` | `540` | whole minutes 0..1440, not 0 |
+| `HT_SESSION_EXTRA_MAX_MINUTES` | `session_extra_max` | `10` | whole minutes 0..1440 |
+| `HT_WINDOW_GRACE_MINUTES` | `window_grace` | `5` | whole minutes 0..1440, not 0, the last window ends before midnight |
+| `HT_JITTER_SEED` | `jitter_seed` | `HORIZON_USERNAME`, secret | taken verbatim in UTF-8 |
 | `HT_HOLD_SECONDS` | `hold_seconds` | `120` | a whole number of seconds |
 | `HT_CHROME_PATH` | `chrome_path` | `/usr/bin/google-chrome` | — |
 | `HT_ARTIFACTS_DIR` | `artifacts_dir` | `/opt/horizon-tracker/artifacts` | — |
 
 A blank optional variable takes its default. A required variable that is missing or
 blank is reported as `<VAR>: is required and not set`. A malformed optional value is
-reported with the value it got, because none of the optional variables is a secret.
+reported with the value it got; the seed, the one optional secret, is taken as it is and
+never refused, so it is never reported.
 
 ## Invariants
 
 - No credential has a default.
 - `ConfigError` names the variable and the problem, never a credential's value.
 - `repr` and `str` of `Settings` show `***` for `username`, `password`,
-  `telegram_token` and `telegram_chat_id`.
+  `telegram_token`, `telegram_chat_id` and `jitter_seed`.
+- One source for one fact: no field holds a window. A run's window is built by the CLI
+  from the day's drawn moment and `window_grace`.
 - A `Settings` exists only for a complete, well-formed set of variables.
 
 ## API
@@ -63,10 +71,8 @@ Module `src/horizon_tracker/infrastructure/config.py`:
   `window_grace: timedelta` (`HT_WINDOW_GRACE_MINUTES`, default `5`),
   `jitter_seed: bytes` (`HT_JITTER_SEED` verbatim in UTF-8; unset or blank -> the
   username in UTF-8; masked), `hold_seconds: int`, `chrome_path: Path`,
-  `artifacts_dir: Path`, and, until the CLI builds each run's window from the drawn
-  moment (HT-003 BEAD-04), `checkin_window: Window` / `checkout_window: Window` fixed at
-  `HT001_CHECKIN_WINDOW` (`07:55-08:00`) / `HT001_CHECKOUT_WINDOW` (`17:00-17:05`), set by
-  no variable.
+  `artifacts_dir: Path`. No field holds a window: the CLI draws the day's moments from
+  these fields and builds each run's window with `window_from`.
 - `from_env` refuses `HT_CHECKIN_WINDOW` and `HT_CHECKOUT_WINDOW` when present (even
   blank), before any other check, with a hint naming their successors. Minutes are a
   whole number from 0 to 1440. The ranges, the session length and the grace are checked

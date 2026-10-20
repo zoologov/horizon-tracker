@@ -31,6 +31,21 @@ CHAT_ID = "424242"
 
 COMMANDS = {"check-in": "checkin", "check-out": "checkout"}
 
+# The HT-001 features speak of fixed windows, 07:55-08:00 and 17:00-17:05. Until BEAD-06
+# rewrites them for the daily draw, the scene pins the draw onto those windows: a one-minute
+# check-in range 07:55-07:56 under a seed that draws 07:55 on every date the features name
+# (2026-10-21, 2026-10-24, 2026-11-04; found by an oracle of the RFC formula, independent
+# of the code), and a one-minute session with no extra, which lifts every check-out to the
+# start of its range, 17:00. Each window then opens at its HT-001 start and lasts 5 minutes.
+HT001_PINNED_DRAW = {
+    "HT_CHECKIN_RANGE": "07:55-07:56",
+    "HT_CHECKOUT_RANGE": "17:00-17:01",
+    "HT_SESSION_LENGTH_MINUTES": "1",
+    "HT_SESSION_EXTRA_MAX_MINUTES": "0",
+    "HT_WINDOW_GRACE_MINUTES": "5",
+    "HT_JITTER_SEED": "ht001-fixed-moments-8",
+}
+
 Script = Callable[[World], None]
 
 
@@ -59,11 +74,7 @@ class Scene:
             "TELEGRAM_BOT_TOKEN": TOKEN,
             "TELEGRAM_CHAT_ID": CHAT_ID,
             "HT_TIMEZONE": "Europe/Moscow",
-            "HT_CHECKIN_RANGE": "07:30-08:10",
-            "HT_CHECKOUT_RANGE": "16:30-17:10",
-            "HT_SESSION_LENGTH_MINUTES": "540",
-            "HT_SESSION_EXTRA_MAX_MINUTES": "10",
-            "HT_WINDOW_GRACE_MINUTES": "5",
+            **HT001_PINNED_DRAW,
             "HT_HOLD_SECONDS": "120",
             "HT_CHROME_PATH": str(chrome),
             "HT_ARTIFACTS_DIR": str(self.root / "artifacts"),

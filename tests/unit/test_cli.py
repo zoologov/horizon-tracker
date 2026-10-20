@@ -7,7 +7,7 @@ real factory exercise only the paths that open no connection.
 
 import logging
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, time
 from functools import partial
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -38,6 +38,14 @@ CHAT_ID = "987654321"
 
 ONE_CHECKIN = ["login", "open_desktop", "desktop_status", "disconnect", "login", "desktop_status"]
 ONE_CHECKOUT = ["login", "desktop_status", "log_off", "desktop_status"]
+
+# The day's draw, computed by an oracle independent of the code (the RFC's formula over
+# hmac-sha256): under SEED, Wednesday 2026-10-21 draws 07:41 / 16:43 and Thursday
+# 2026-10-22 draws 07:59 / 17:03; seeded by USERNAME, 2026-10-21 draws 08:03 / 17:10.
+SEED = "horizon-test-seed"
+CHECK_IN = (7, 41)
+CHECK_OUT = (16, 43)
+HOLD_SECONDS = 120.0
 
 
 def at(hour: int, minute: int, day: int = 21) -> datetime:
@@ -74,6 +82,7 @@ def env(tmp_path: Path) -> dict[str, str | None]:
         "HT_SESSION_LENGTH_MINUTES": "540",
         "HT_SESSION_EXTRA_MAX_MINUTES": "10",
         "HT_WINDOW_GRACE_MINUTES": "5",
+        "HT_JITTER_SEED": SEED,
         "HT_HOLD_SECONDS": "120",
         "HT_CHROME_PATH": str(chrome),
         "HT_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
@@ -114,8 +123,10 @@ def test_run_commands_offer_both_flags(command: str) -> None:
 # --- checkin ----------------------------------------------------------------------------
 
 
-def test_checkin_in_its_window_checks_in_and_exits_zero(env: dict[str, str | None]) -> None:
-    world = World(at(7, 55))
+def test_checkin_at_its_drawn_moment_checks_in_and_exits_zero(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(*CHECK_IN))
 
     result = world.invoke(["checkin"], env)
 
@@ -130,7 +141,7 @@ def test_checkin_in_its_window_checks_in_and_exits_zero(env: dict[str, str | Non
 def test_checkin_holds_the_desktop_for_the_configured_seconds(
     env: dict[str, str | None],
 ) -> None:
-    world = World(at(7, 55))
+    world = World(at(*CHECK_IN))
 
     world.invoke(["checkin"], {**env, "HT_HOLD_SECONDS": "7"})
 
@@ -138,7 +149,7 @@ def test_checkin_holds_the_desktop_for_the_configured_seconds(
 
 
 def test_a_failed_checkin_exits_one(env: dict[str, str | None]) -> None:
-    world = World(at(7, 55))
+    world = World(at(*CHECK_IN))
     world.client.fail_on("open_desktop", HorizonClientError(Reason.DESKTOP_DID_NOT_OPEN), times=9)
 
     result = world.invoke(["checkin"], env)
@@ -150,7 +161,7 @@ def test_a_failed_checkin_exits_one(env: dict[str, str | None]) -> None:
 
 
 def test_checkin_retries_inside_its_window(env: dict[str, str | None]) -> None:
-    world = World(at(7, 55))
+    world = World(at(*CHECK_IN))
     world.client.fail_on("open_desktop", HorizonClientError(Reason.DESKTOP_DID_NOT_OPEN))
 
     result = world.invoke(["checkin"], env)
@@ -198,7 +209,7 @@ def test_forced_checkin_ignores_window_and_calendar(env: dict[str, str | None]) 
 
 
 def test_checkin_dry_run_lists_the_plan_and_never_logs_in(env: dict[str, str | None]) -> None:
-    world = World(at(7, 55))
+    world = World(at(*CHECK_IN))
 
     result = world.invoke(["checkin", "--dry-run"], env)
 
@@ -242,8 +253,10 @@ def test_forced_dry_run_names_the_force_and_asks_no_calendar(
 # --- checkout ---------------------------------------------------------------------------
 
 
-def test_checkout_in_its_window_logs_off_and_exits_zero(env: dict[str, str | None]) -> None:
-    world = World(at(17, 0), state=SessionState.DISCONNECTED)
+def test_checkout_at_its_drawn_moment_logs_off_and_exits_zero(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(*CHECK_OUT), state=SessionState.DISCONNECTED)
 
     result = world.invoke(["checkout"], env)
 
@@ -256,7 +269,7 @@ def test_checkout_in_its_window_logs_off_and_exits_zero(env: dict[str, str | Non
 
 
 def test_an_unconfirmed_checkout_exits_one(env: dict[str, str | None]) -> None:
-    world = World(at(17, 0), state=SessionState.DISCONNECTED)
+    world = World(at(*CHECK_OUT), state=SessionState.DISCONNECTED)
     world.client.log_off_takes_effect = False
 
     result = world.invoke(["checkout"], env)
@@ -268,7 +281,7 @@ def test_an_unconfirmed_checkout_exits_one(env: dict[str, str | None]) -> None:
 def test_checkout_with_no_session_reports_the_skip_and_exits_zero(
     env: dict[str, str | None],
 ) -> None:
-    world = World(at(17, 0), state=SessionState.NO_SESSION)
+    world = World(at(*CHECK_OUT), state=SessionState.NO_SESSION)
 
     result = world.invoke(["checkout"], env)
 
@@ -276,10 +289,10 @@ def test_checkout_with_no_session_reports_the_skip_and_exits_zero(
     assert world.notifier.sent[0].reason is Reason.ALREADY_LOGGED_OFF
 
 
-def test_checkout_uses_the_checkout_window_not_the_checkin_one(
+def test_checkout_uses_the_check_out_moment_not_the_check_in_one(
     env: dict[str, str | None],
 ) -> None:
-    world = World(at(7, 55), state=SessionState.DISCONNECTED)
+    world = World(at(*CHECK_IN), state=SessionState.DISCONNECTED)
 
     result = world.invoke(["checkout"], env)
 
@@ -299,7 +312,7 @@ def test_forced_checkout_ignores_window_and_calendar(env: dict[str, str | None])
 
 
 def test_checkout_dry_run_lists_the_plan_and_never_logs_in(env: dict[str, str | None]) -> None:
-    world = World(at(17, 0), state=SessionState.DISCONNECTED)
+    world = World(at(*CHECK_OUT), state=SessionState.DISCONNECTED)
 
     result = world.invoke(["checkout", "--dry-run"], env)
 
@@ -309,6 +322,131 @@ def test_checkout_dry_run_lists_the_plan_and_never_logs_in(env: dict[str, str | 
     assert "dry run: checkout" in result.stdout
     assert "log off from the tile menu" in result.stdout
     assert "hold" not in result.stdout
+
+
+# --- the day's drawn moments -----------------------------------------------------------
+
+
+def test_a_checkin_started_at_its_range_start_waits_for_the_drawn_moment(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(7, 30))
+
+    result = world.invoke(["checkin"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.clock.sleeps == [11 * 60.0, HOLD_SECONDS]
+    assert world.client.calls == ONE_CHECKIN
+    (report,) = world.notifier.sent
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.planned_at == time(*CHECK_IN)
+
+
+def test_a_checkout_started_at_its_range_start_waits_for_the_drawn_moment(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(16, 30), state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.clock.sleeps == [13 * 60.0]
+    assert world.client.calls == ONE_CHECKOUT
+    (report,) = world.notifier.sent
+    assert report.planned_at == time(*CHECK_OUT)
+
+
+@pytest.mark.parametrize(("command", "start"), [("checkin", at(7, 29)), ("checkout", at(16, 29))])
+def test_a_run_started_before_its_own_range_is_skipped_without_waiting(
+    command: str, start: datetime, env: dict[str, str | None]
+) -> None:
+    world = World(start, state=SessionState.DISCONNECTED)
+
+    result = world.invoke([command], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.clock.sleeps == []
+    assert world.client.calls == []
+    (report,) = world.notifier.sent
+    assert report.outcome is Outcome.SKIPPED
+    assert report.reason is Reason.TOO_EARLY
+
+
+@pytest.mark.parametrize(("grace", "succeeded"), [("5", False), ("10", True)])
+def test_the_window_lasts_the_configured_grace_from_the_moment(
+    grace: str, succeeded: bool, env: dict[str, str | None]
+) -> None:
+    world = World(at(7, 47))
+
+    world.invoke(["checkin"], {**env, "HT_WINDOW_GRACE_MINUTES": grace})
+
+    (report,) = world.notifier.sent
+    assert (report.outcome is Outcome.SUCCEEDED) is succeeded
+
+
+def test_each_day_draws_its_own_moments(env: dict[str, str | None]) -> None:
+    world = World(at(7, 30, day=22))
+
+    world.invoke(["checkin"], env)
+
+    assert world.clock.sleeps[0] == 29 * 60.0
+    assert world.notifier.sent[0].planned_at == time(7, 59)
+
+
+@pytest.mark.parametrize("command", ["checkin", "checkout"])
+def test_a_forced_run_does_not_wait_for_the_drawn_moment(
+    command: str, env: dict[str, str | None]
+) -> None:
+    world = World(at(7, 30), state=SessionState.DISCONNECTED)
+
+    result = world.invoke([command, "--force"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.clock.sleeps == ([HOLD_SECONDS] if command == "checkin" else [])
+    (report,) = world.notifier.sent
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.planned_at is None
+
+
+def test_a_forced_run_just_before_midnight_still_runs(env: dict[str, str | None]) -> None:
+    world = World(datetime(2026, 10, 21, 23, 58, 30, tzinfo=MSK))
+
+    result = world.invoke(["checkin", "--force"], env)
+
+    assert result.exit_code == 0, result.output
+    assert [report.outcome for report in world.notifier.sent] == [Outcome.SUCCEEDED]
+
+
+@pytest.mark.parametrize("args", [["checkin", "--dry-run"], ["checkout", "--dry-run", "--force"]])
+def test_a_dry_run_names_both_of_the_days_moments(
+    args: list[str], env: dict[str, str | None]
+) -> None:
+    world = World(at(12, 0))
+
+    result = world.invoke(args, env)
+
+    assert result.exit_code == 0, result.output
+    assert "schedule: today 07:41 / 16:43" in result.stdout.splitlines()
+
+
+def test_a_dry_run_before_the_moment_names_the_wait(env: dict[str, str | None]) -> None:
+    world = World(at(7, 30))
+
+    result = world.invoke(["checkin", "--dry-run"], env)
+
+    assert result.exit_code == 0, result.output
+    assert "would wait until: 07:41" in result.stdout.splitlines()
+    assert "would run now: yes (run)" in result.stdout
+    assert world.clock.sleeps == []
+
+
+@pytest.mark.parametrize("now", [at(7, 41), at(12, 0)])
+def test_a_dry_run_that_would_not_wait_names_no_wait(
+    now: datetime, env: dict[str, str | None]
+) -> None:
+    result = World(now).invoke(["checkin", "--dry-run"], env)
+
+    assert "would wait" not in result.stdout
 
 
 # --- artifacts --------------------------------------------------------------------------
@@ -330,8 +468,7 @@ def test_a_run_prunes_old_artifacts_once(command: str, env: dict[str, str | None
 def test_an_artifact_directory_that_cannot_be_pruned_does_not_stop_the_run(
     command: str, state: SessionState, env: dict[str, str | None]
 ) -> None:
-    hour, minute = (7, 55) if command == "checkin" else (17, 0)
-    world = World(at(hour, minute), state=state)
+    world = World(at(*(CHECK_IN if command == "checkin" else CHECK_OUT)), state=state)
     world.artifacts.prune_error = PermissionError(13, "Permission denied", "/opt/x/artifacts")
 
     result = world.invoke([command], env)
@@ -363,11 +500,51 @@ def test_probe_reports_every_check_and_exits_zero(env: dict[str, str | None]) ->
     assert result.exit_code == 0, result.output
     assert world.client.calls == ["client_bundles", "browser_version"]
     lines = result.stdout.splitlines()
-    assert [line.split(":")[0] for line in lines] == ["settings", "portal", "calendar", "chrome"]
+    assert [line.split(":")[0] for line in lines] == [
+        "settings",
+        "portal",
+        "calendar",
+        "chrome",
+        "schedule",
+    ]
     assert lines[0].startswith("settings: ok")
     assert lines[1] == "portal: ok - client bundles: app-htmlaccess.fake-2312.js"
     assert lines[3] == f"chrome: ok - Chrome 131.0.6778.85 started from {env['HT_CHROME_PATH']}"
+    assert lines[4] == "schedule: today 07:41 / 16:43"
     assert world.notifier.sent == []
+
+
+def test_probe_names_the_ranges_of_the_draw_among_the_settings(
+    env: dict[str, str | None],
+) -> None:
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    settings_line = result.stdout.splitlines()[0]
+    assert "check-in 07:30-08:10, check-out 16:30-17:10, Europe/Moscow" in settings_line
+
+
+@pytest.mark.parametrize(
+    ("seed", "day", "line"),
+    [
+        (SEED, 22, "schedule: today 07:59 / 17:03"),
+        (None, 21, "schedule: today 08:03 / 17:10"),
+        ("", 21, "schedule: today 08:03 / 17:10"),
+    ],
+    ids=["another-day", "seed-unset-username", "seed-blank-username"],
+)
+def test_probe_names_the_moments_drawn_for_today_from_the_configured_seed(
+    seed: str | None, day: int, line: str, env: dict[str, str | None]
+) -> None:
+    result = World(at(12, 0, day=day)).invoke(["probe"], {**env, "HT_JITTER_SEED": seed})
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[4] == line
+
+
+def test_the_probe_never_shows_the_seed_of_the_draw(env: dict[str, str | None]) -> None:
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    assert SEED not in result.output
 
 
 def test_probe_with_an_unreachable_portal_exits_one(env: dict[str, str | None]) -> None:
@@ -445,7 +622,7 @@ def test_a_configuration_error_names_the_variable_but_not_its_value(
 
 
 def test_a_run_logs_to_stderr_and_prints_nothing(env: dict[str, str | None]) -> None:
-    world = World(at(7, 55))
+    world = World(at(*CHECK_IN))
 
     result = world.invoke(["checkin"], env)
 
@@ -468,8 +645,8 @@ def test_no_secret_reaches_the_output_even_on_failure(
 
 
 def test_repeated_invocations_keep_one_cli_handler(env: dict[str, str | None]) -> None:
-    World(at(7, 55)).invoke(["checkin"], env)
-    result = World(at(7, 55)).invoke(["checkin"], env)
+    World(at(*CHECK_IN)).invoke(["checkin"], env)
+    result = World(at(*CHECK_IN)).invoke(["checkin"], env)
 
     assert result.stderr.count("checkin run succeeded") == 1
     assert len(package_logger().handlers) == 1

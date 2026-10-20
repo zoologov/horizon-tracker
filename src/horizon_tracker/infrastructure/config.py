@@ -18,7 +18,7 @@ from datetime import date, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from horizon_tracker.domain.schedule import TimeRange, Window, draw_moments, window_from
+from horizon_tracker.domain.schedule import TimeRange, draw_moments, window_from
 
 MASK = "***"
 
@@ -39,11 +39,6 @@ DEFAULT_WINDOW_GRACE_MINUTES = "5"
 DEFAULT_HOLD_SECONDS = "120"
 DEFAULT_CHROME_PATH = "/usr/bin/google-chrome"
 DEFAULT_ARTIFACTS_DIR = "/opt/horizon-tracker/artifacts"
-
-# Interim (HT-003 BEAD-03 -> BEAD-04): the HT-001 windows the CLI still reads until it
-# builds each run's window from the day's drawn moment. No variable sets them any more.
-HT001_CHECKIN_WINDOW = Window(time(7, 55), time(8, 0))
-HT001_CHECKOUT_WINDOW = Window(time(17, 0), time(17, 5))
 
 # Variables an older release read, and the hint that replaces each.
 _RETIRED = {
@@ -100,8 +95,6 @@ class Settings:
     hold_seconds: int
     chrome_path: Path
     artifacts_dir: Path
-    checkin_window: Window = HT001_CHECKIN_WINDOW
-    checkout_window: Window = HT001_CHECKOUT_WINDOW
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "Settings":

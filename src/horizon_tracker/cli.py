@@ -1,8 +1,11 @@
 """Wires the adapters into the use cases behind the ``horizon`` commands: the composition root.
 
-``horizon checkin`` and ``horizon checkout`` run one daily run each; ``--force`` ignores
-the window and the calendar (a manual run from the VPS), ``--dry-run`` names the plan and
-never logs in. ``horizon probe`` asks every dependency whether a run could go ahead.
+``horizon checkin`` and ``horizon checkout`` run one daily run each: every run draws
+today's check-in and check-out moments from the settings, waits for its own moment if its
+timer fired earlier in the range, and may run in the window that opens there. ``--force``
+ignores the window, the wait and the calendar (a manual run from the VPS), ``--dry-run``
+names the plan and the day's moments and never logs in. ``horizon probe`` asks every
+dependency whether a run could go ahead and names the day's moments last.
 
 Settings come from the environment; a missing or malformed variable is named on stderr
 and the command exits 1 before anything is built. A run exits 1 only when it failed: a
@@ -31,7 +34,14 @@ import httpx
 
 from horizon_tracker import __version__
 from horizon_tracker.application import EveningCheckout, MorningCheckin, WindowedRun
-from horizon_tracker.application.probe import DryRun, Probe, ProbeReport, RunPlan
+from horizon_tracker.application.probe import (
+    Check,
+    DryRun,
+    Probe,
+    ProbeReport,
+    RunPlan,
+    schedule_detail,
+)
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.ports import (
     ArtifactStore,
@@ -41,7 +51,14 @@ from horizon_tracker.domain.ports import (
     WorkingDayCalendar,
 )
 from horizon_tracker.domain.report import Outcome
-from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
+from horizon_tracker.domain.schedule import (
+    DailyMoments,
+    RetryPolicy,
+    RunKind,
+    TimeRange,
+    draw_moments,
+    window_from,
+)
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
 from horizon_tracker.infrastructure.config import ConfigError, Settings
@@ -54,9 +71,9 @@ logger = logging.getLogger(__name__)
 EXIT_OK = 0
 EXIT_FAILED = 1
 
-# Not configurable: three attempts half a minute apart fit a five-minute window, and the
-# window, not the count, is what ends a scheduled run. A --force run has the whole day as
-# its window, so there the count is the bound.
+# Not configurable: three attempts half a minute apart fit the default five-minute window,
+# and the window, not the count, is what ends a scheduled run. A --force run has the whole
+# day as its window, so there the count is the bound.
 RETRY_POLICY = RetryPolicy(max_attempts=3, backoff=timedelta(seconds=30))
 
 # The probe never screenshots, but the Horizon adapter is built for one kind of run.
@@ -64,6 +81,9 @@ _PROBE_RUN_KIND = RunKind.CHECKIN
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _PACKAGE_LOGGER = "horizon_tracker"
+
+# The probe's check that names the day's drawn moments; the dry run prints the same line.
+_SCHEDULE = "schedule"
 
 _SOURCE_TEXT = {
     VerdictSource.CALENDAR: "isdayoff.ru",
@@ -139,7 +159,9 @@ def main(ctx: click.Context) -> None:
 
 _DRY_RUN = click.option("--dry-run", is_flag=True, help="Name the plan's steps; never log in.")
 _FORCE = click.option(
-    "--force", is_flag=True, help="Ignore the window and the calendar (a manual run)."
+    "--force",
+    is_flag=True,
+    help="Run now: no wait for the drawn moment, no window, no calendar (a manual run).",
 )
 
 
@@ -180,9 +202,10 @@ def _guarded(command: Callable[[], int]) -> int:
 def _run(factory: AdapterFactory, kind: RunKind, *, dry_run: bool, force: bool) -> int:
     settings = Settings.from_env(os.environ)
     with factory(settings, kind) as adapters:
-        use_case = _use_case(adapters, settings, kind)
+        moments = _todays_moments(settings, adapters.clock)
+        use_case = _use_case(adapters, settings, kind, moments)
         if dry_run:
-            _echo_plan(DryRun(use_case).plan(force=force))
+            _echo_plan(DryRun(use_case, moments).plan(force=force))
             return EXIT_OK
         _prune(adapters.artifacts)
         report = use_case.run(force=force)
@@ -201,15 +224,34 @@ def _prune(artifacts: PrunableArtifactStore) -> None:
         logger.warning("artifact prune failed, the run goes on: %s", type(error).__name__)
 
 
+def _todays_moments(settings: Settings, clock: Clock) -> DailyMoments:
+    """Draw today's check-in and check-out moments; ``Settings`` validated these arguments."""
+    return draw_moments(
+        clock.now().date(),
+        settings.jitter_seed,
+        settings.checkin_range,
+        settings.session_length,
+        settings.session_extra_max,
+        settings.checkout_range,
+    )
+
+
 def _use_case(
-    adapters: Adapters, settings: Settings, kind: RunKind
+    adapters: Adapters, settings: Settings, kind: RunKind, moments: DailyMoments
 ) -> MorningCheckin | EveningCheckout:
+    # A --force run is told so by run(force=True): it then waits for nothing, ignores the
+    # window and names no planned moment, so the drawn moment can stay. Passing the moment
+    # "now" instead would gain nothing and break a manual run in the last minutes before
+    # midnight, where a window from "now" cannot be built.
+    moment = moments.check_in if kind is RunKind.CHECKIN else moments.check_out
     runner = WindowedRun(
         calendar=adapters.calendar,
         clock=adapters.clock,
         notifier=adapters.notifier,
-        window=_window(settings, kind),
+        window=window_from(moment, settings.window_grace),
         policy=RETRY_POLICY,
+        moment=moment,
+        range_start=_draw_range(settings, kind).start,
     )
     if kind is RunKind.CHECKIN:
         return MorningCheckin(
@@ -227,21 +269,23 @@ def _probe(factory: AdapterFactory) -> int:
             clock=adapters.clock,
             chrome_path=settings.chrome_path,
             file_exists=Path.is_file,
+            moments=_todays_moments(settings, adapters.clock),
         ).run()
     _echo_probe(settings, report)
     return EXIT_OK if report.ok else EXIT_FAILED
 
 
-def _window(settings: Settings, kind: RunKind) -> Window:
-    return settings.checkin_window if kind is RunKind.CHECKIN else settings.checkout_window
+def _draw_range(settings: Settings, kind: RunKind) -> TimeRange:
+    """The range ``kind``'s moment is drawn from; its timer fires at the range's start."""
+    return settings.checkin_range if kind is RunKind.CHECKIN else settings.checkout_range
 
 
 def _hold(settings: Settings) -> timedelta:
     return timedelta(seconds=settings.hold_seconds)
 
 
-def _span(window: Window) -> str:
-    return f"{window.start:%H:%M}-{window.end:%H:%M}"
+def _span(span: TimeRange) -> str:
+    return f"{span.start:%H:%M}-{span.end:%H:%M}"
 
 
 def _echo_plan(plan: RunPlan) -> None:
@@ -249,7 +293,11 @@ def _echo_plan(plan: RunPlan) -> None:
     forced = ", forced: window and calendar ignored" if plan.forced else ""
     click.echo(f"dry run: {plan.kind} at {plan.at:%Y-%m-%d %H:%M:%S %Z}")
     click.echo(f"would run now: {verdict} ({plan.decision}{forced})")
+    if plan.waits_until is not None:
+        click.echo(f"would wait until: {plan.waits_until:%H:%M}")
     click.echo(f"calendar: {_SOURCE_TEXT[plan.verdict_source]}")
+    if plan.moments is not None:
+        click.echo(f"{_SCHEDULE}: {schedule_detail(plan.moments)}")
     click.echo("steps of one attempt:")
     for number, step in enumerate(plan.steps, start=1):
         click.echo(f"  {number}. {step}")
@@ -260,11 +308,18 @@ def _echo_probe(settings: Settings, report: ProbeReport) -> None:
     # that are not credentials are named.
     click.echo(
         f"settings: ok - portal {settings.horizon_url}, desktop {settings.desktop!r}, "
-        f"check-in {_span(settings.checkin_window)}, "
-        f"check-out {_span(settings.checkout_window)}, {settings.timezone.key}"
+        f"check-in {_span(settings.checkin_range)}, "
+        f"check-out {_span(settings.checkout_range)}, {settings.timezone.key}"
     )
     for item in report.checks:
-        click.echo(f"{item.name}: {item.status} - {item.detail}")
+        click.echo(_probe_line(item))
+
+
+def _probe_line(item: Check) -> str:
+    # The day's moments are a fact to read, not a dependency's health: no status.
+    if item.name == _SCHEDULE:
+        return f"{item.name}: {item.detail}"
+    return f"{item.name}: {item.status} - {item.detail}"
 
 
 def _configure_logging() -> None:
