@@ -18,7 +18,8 @@ A breakdown of the HTML Access 2312.1 bundle (client 8.12.1, the same version as
 three discrepancies between the adapter and the real markup:
 
 1. **The tile.** The `li` carries no `title`; it is on the button inside:
-   `<li id="{item.id}" tabindex="-1"><button id="launch-{item.id}" title="{name}" class="ui-btn ui-btn-a ui-desktop-corner">…</button><button class="overflow-button app-item-action" aria-haspopup="true">…</button><p class="ui-desktop-name" title="{name}">{name}</p></li>`.
+   `<li id="{item.id}" tabindex="-1"><button id="launch-{item.id}" title="{name}" class="ui-btn ui-btn-a ui-desktop-corner">… <button class="overflow-button app-item-action" aria-haspopup="true">…</button> …</button><p class="ui-desktop-name" title="{name}">{name}</p></li>`
+   (the "…" button is nested inside the launch button, not placed beside it — refined by review ht-75w).
    So `ANY_TILE = "li[title]"` and `li[title="DEV desktop"]` match nothing.
    `LAUNCH_BUTTON = "[id^='launch-']"` is correct; `TILE_MENU_BUTTON` will work through
    `button[aria-haspopup]`.
@@ -142,6 +143,8 @@ created, and then the id the tracker answered.
 | BEAD-01 | ht-m7u | Adapter: tile, canvas and menu selectors from the 2312.1 bundle; fixture and tests | P0 |
 | BEAD-02 | ht-75w | Review: the adapter against the bundle, whether the new tests bite | P0 |
 | BEAD-03 | ht-28a | Live check from the VPS: checkin --force, session disconnected, checkout --force (the local agent) | P0 |
+| BEAD-04 | ht-tvn.1 | Fix after review: Log Off confirmation by the broker's state; the fixture models the optimistic flag | P0 |
+| BEAD-05 | ht-tvn.2 | Re-review | P0 |
 
 ## Acceptance Criteria
 

@@ -49,3 +49,9 @@ Entry template: `## #N — short name` · **Tool** · **What happened** · **Wha
 - **What happened:** after the ht-jz5.2 fix (the port API changed) the agent's `beadloom ci` showed 8 stale pairs; a few minutes later on the same tree `sync-check` returns 17/17 ok, although the application README still describes `client.probe()`. The freshness database in the gitignored index was rewritten (reindex/record-surface in a clean room or on the tree) after the last commit.
 - **What was expected:** the freshness database is bound to the commit (document hash + code hash in git), not to the state of the local index; `--record-surface` is unavailable from a clean room or requires explicit confirmation.
 - **Where:** between BEAD-15 and BEAD-12, 2026-10-20; the tech-writer checks by content, not by `sync-check`. **Class:** false signal.
+
+## #9 — ACTIVE.md carries the author's narrative and defeats the review's withholding
+- **Tool:** process (`review-brief`, ACTIVE.md)
+- **What happened:** the HT-002 reviewer read the work item's ACTIVE.md before the bundle; the Results row carried the author's report, including the risk the reviewer then found alone. The withholding of `review-brief` is partly defeated by a document the reviewer is supposed to read.
+- **What was expected:** either `review-brief` warns that ACTIVE holds the author's words, or the coordinator does not put the author's narrative into ACTIVE before the review verdict (only the id, the commit, the numbers).
+- **Where:** BEAD-02 of HT-002, 2026-10-20. **Class:** process.
