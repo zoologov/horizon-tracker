@@ -44,6 +44,13 @@
 //  - OK also sends set-last-user-activity to /broker/xml at once, answered at once: a
 //    broker command beside the kill-session, so only the kill-session's answer is it.
 //  - The broker can be told the log-off confirmation never shows (logoff_dialog).
+//  - The page can be told to post a binary body (bytes 0xff 0xfe 0x00, not UTF-8) to
+//    /fixture/telemetry on OK (binary_post): an unrelated request in the window the
+//    adapter waits for the kill-session answer, standing in for telemetry or an upload.
+//  - The page can be told to send kill-session at once on OK as a synchronous XHR
+//    (kill_session_sync): the click handler returns only once the broker has answered,
+//    so the answer is in before the adapter's click does. The real client sends it
+//    asynchronously after its hop; this extreme only pins a wait armed before the click.
 (function () {
   "use strict";
 
@@ -54,6 +61,8 @@
   var loggingOff = null;
   var credentialCleanup = false;
   var logoffDialog = true;
+  var binaryPost = false;
+  var killSessionSync = false;
   var wmksCount = 0;
   var KILL_SESSION_HOP_MS = 40;
   var MENU_CLOSE_MS = 150;
@@ -77,17 +86,33 @@
 
   function record(name) { return post("/fixture/event", { name: name }); }
 
+  function brokerDocument(message) {
+    return "<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>" + message + "</broker>";
+  }
+
   function broker(message, keepalive) {
     return fetch("/broker/xml", {
       method: "POST",
       headers: { "Content-Type": "text/xml" },
-      body: "<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>" + message + "</broker>",
+      body: brokerDocument(message),
       keepalive: keepalive === true
     });
   }
 
+  function killSessionMessage(id) {
+    return "<kill-session><session-id>" + id + "</session-id></kill-session>";
+  }
+
   function killSession(id) {
-    return broker("<kill-session><session-id>" + id + "</session-id></kill-session>");
+    return broker(killSessionMessage(id));
+  }
+
+  // Blocks the click handler until the broker answers (kill_session_sync).
+  function killSessionAtOnce(id) {
+    var request = new XMLHttpRequest();
+    request.open("POST", "/broker/xml", false);
+    request.setRequestHeader("Content-Type", "text/xml");
+    request.send(brokerDocument(killSessionMessage(id)));
   }
 
   function behaviour() {
@@ -226,6 +251,14 @@
       var item = loggingOff;
       item.logoffEnabled = false;
       broker("<set-last-user-activity/>");
+      if (binaryPost) {
+        fetch("/fixture/telemetry", {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: new Uint8Array([0xff, 0xfe, 0x00])
+        });
+      }
+      if (killSessionSync) { killSessionAtOnce(item.id); return; }
       setTimeout(function () { killSession(item.id); }, KILL_SESSION_HOP_MS);
     });
   }
@@ -302,6 +335,8 @@
   behaviour().then(function (portal) {
     credentialCleanup = portal.credential_cleanup;
     logoffDialog = portal.logoff_dialog;
+    binaryPost = portal.binary_post;
+    killSessionSync = portal.kill_session_sync;
   });
   render();
 }());

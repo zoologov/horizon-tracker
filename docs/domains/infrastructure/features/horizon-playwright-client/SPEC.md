@@ -101,7 +101,11 @@ answered, whatever it answers. `log_off()` therefore never confirms from that pa
 - it waits for the broker's answer to the kill-session request before it reloads
   anything. The wait is armed before the OK click and matches a response from
   `…/broker/xml` whose request body carries `<kill-session>` (the bundle posts each
-  broker command as one XML document there; `Kw.setRequestXML`, `Oi.createXML`). A
+  broker command as one XML document there; `Kw.setRequestXML`, `Oi.createXML`). The
+  path is checked before the body is read: every page response passes the match while
+  the wait is armed, and Playwright decodes a request body as strict UTF-8, so an
+  unrelated binary POST in that window (telemetry, an upload) must not reach the
+  decode. A
   reload before the answer can cancel the request, and when the broker sets
   `enableCredentialCleanupForHTMLAccess` the client logs out of the broker on
   `beforeunload`, so a reload can end the web session under an unanswered
@@ -115,6 +119,15 @@ answered, whatever it answers. `log_off()` therefore never confirms from that pa
 - the page is left on the last list fetched, so a `desktop_status()` after `log_off()`
   (the check-out's second read) reads the broker's state too. The port contract is
   unchanged.
+
+An answer is logged at INFO as `Horizon kill-session answered: <status> after <ms>
+ms`: `<status>` is the HTTP status of the broker's answer, whatever it is (a 401 or a
+500 releases the wait too, and the fresh list decides), and `<ms>` is the time from the
+OK click's return to the answer, on a monotonic clock. The line carries nothing else:
+no URL, no body, no credential. The live check reads it to see that the request was
+answered before the reload, with what, and how long it took; `<ms>` includes the
+client's own path from OK to the request, so it is an upper bound on the broker's time,
+and it is the number `kill_session_answer_ms` is sized from.
 
 Not measured on the live portal: whether a reload keeps the web session (the fallback
 covers both answers; the bundle ties it to the broker's
@@ -190,8 +203,16 @@ which pins the adapter's wait for it to go; the tile geometry, which comes from 
 stylesheet not in the bundle. The fixture broker can also refuse a log off, end the
 session only a few lists later, serve one list per login, so that a reload lands on
 the login form, answer kill-session late (1.5 s, beyond the 1 s the adapter once waited
-after OK) with credential cleanup on, never answer it, and never show the log-off
-confirmation.
+after OK) with credential cleanup on, answer it with an error status, never answer it,
+and never show the log-off confirmation. The page can also post a non-UTF-8 body
+beside the log off, answered while the adapter waits, and send kill-session as a
+synchronous XHR inside OK's click handler, so that the answer is in before the click
+returns. The real client sends it asynchronously after a hop; that extreme exists only
+to pin a wait armed before the click. That pin rests on an ordering measured, not
+promised by Playwright: with the synchronous request, a wait armed after the click
+missed the answer in 100 of 100 runs and one armed before it caught it in 100 of 100.
+A wait armed late costs the bound and a warning, not a false result, since the fresh
+list still decides.
 
 No acceptance scenario reaches this adapter: the scenarios run on a fake of the port
 (`tests/support/fakes.py`). A test on the fixture proves the fixture's contract; the

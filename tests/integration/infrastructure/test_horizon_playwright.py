@@ -67,6 +67,13 @@ FAST = HorizonTimeouts(
 # Longer than the live poll interval (1 s) the adapter once waited after OK, and well
 # inside FAST.kill_session_answer_ms.
 SLOW_KILL_SESSION_ANSWER_S = 1.5
+# Long enough that the fixture's binary POST, sent on OK, is answered while the adapter
+# still waits for the kill-session answer.
+BINARY_POST_KILL_SESSION_ANSWER_S = 0.3
+ADAPTER_LOGGER = "horizon_tracker.infrastructure.horizon_playwright"
+KILL_SESSION_ANSWERED = re.compile(
+    r"Horizon kill-session answered: (?P<status>\d{3}) after (?P<ms>\d+) ms"
+)
 # How long a kill-session the broker never answers holds its handler thread when the
 # test does not release it first.
 UNANSWERED_HOLD_S = 30.0
@@ -98,7 +105,13 @@ class PortalState:
     # How long the broker takes to answer kill-session; it acts on it when it answers.
     kill_session_answer_s: float = 0.0
     kill_session_unanswered: bool = False
+    # The HTTP status the broker answers kill-session with.
+    kill_session_status: int = 200
     logoff_dialog: bool = True
+    # The page posts a non-UTF-8 body to /fixture/telemetry on OK, beside the log off.
+    binary_post: bool = False
+    # The page sends kill-session as a synchronous XHR on OK: answered before the click returns.
+    kill_session_sync: bool = False
     released: threading.Event = field(default_factory=threading.Event)
     logins: dict[str, int] = field(default_factory=dict)
     logged_out: set[str] = field(default_factory=set)
@@ -134,6 +147,8 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "blast_path": self.state.blast_path,
                     "credential_cleanup": self.state.credential_cleanup,
                     "logoff_dialog": self.state.logoff_dialog,
+                    "binary_post": self.state.binary_post,
+                    "kill_session_sync": self.state.kill_session_sync,
                 },
             )
         else:
@@ -143,6 +158,10 @@ class PortalHandler(SimpleHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         if self.path == "/broker/xml":
             self._broker_xml(raw.decode())
+            return
+        if self.path == "/fixture/telemetry":
+            self.state.record("telemetry")
+            self._json(200, {})
             return
         body: dict[str, object] = json.loads(raw or b"{}")
         if self.path == "/fixture/login":
@@ -246,7 +265,9 @@ class PortalHandler(SimpleHTTPRequestHandler):
             if not self.state.logoff_pending:
                 self.state.session = "none"
         self.state.record("kill-session-answered")
-        self._xml(200, "<kill-session><result>ok</result></kill-session>")
+        self._xml(
+            self.state.kill_session_status, "<kill-session><result>ok</result></kill-session>"
+        )
 
     def _broker_logout(self) -> None:
         """The client's logout on unload: the web session ends, the desktop's does not."""
@@ -401,6 +422,16 @@ def make_client(
 @pytest.fixture
 def client(make_client: Callable[..., PlaywrightHorizonClient]) -> PlaywrightHorizonClient:
     return make_client()
+
+
+def kill_session_answers(caplog: pytest.LogCaptureFixture) -> list[re.Match[str]]:
+    """The adapter's "kill-session answered" lines, each matched against the whole line."""
+    return [
+        match
+        for record in caplog.records
+        if record.name == ADAPTER_LOGGER
+        and (match := KILL_SESSION_ANSWERED.fullmatch(record.getMessage())) is not None
+    ]
 
 
 def fails_with(reason: Reason, action: Callable[[], object]) -> HorizonClientError:
@@ -705,10 +736,13 @@ def test_a_log_off_is_confirmed_through_a_fresh_login_when_a_reload_ends_the_web
 
 
 def test_a_log_off_waits_for_the_brokers_kill_session_answer_before_reloading(
-    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # With credential cleanup on, a reload logs out of the broker; a kill-session still
     # unanswered then is cut off and the session stays.
+    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
     portal.state.session = "disconnected"
     portal.state.credential_cleanup = True
     portal.state.kill_session_answer_s = SLOW_KILL_SESSION_ANSWER_S
@@ -723,8 +757,73 @@ def test_a_log_off_waits_for_the_brokers_kill_session_answer_before_reloading(
     assert events.index("kill-session-answered") < events.index("broker-logout"), (
         "the page was reloaded before the broker answered kill-session"
     )
+    # The logged time is the wait's own, measured on a clock, not the bound.
+    (answer,) = kill_session_answers(caplog)
+    assert int(answer.group("ms")) >= SLOW_KILL_SESSION_ANSWER_S * 1000
     assert portal.state.session == "none"
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_the_kill_session_answer_is_logged_with_its_status_and_time_and_no_secret(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The live check reads the broker's answer and sizes kill_session_answer_ms from it.
+    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
+    portal.state.session = "disconnected"
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    (answer,) = kill_session_answers(caplog)
+    assert answer.group("status") == "200"
+    line = answer.string
+    assert PASSWORD not in line
+    assert USERNAME not in line
+    assert "unanswered" not in caplog.text
+
+
+def test_a_kill_session_answered_with_an_error_is_logged_and_the_fresh_list_decides(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Any status releases the wait; the log names it, and a broker that did not act
+    # fails the log off closed.
+    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
+    portal.state.session = "disconnected"
+    portal.state.kill_session_status = 500
+    portal.state.ignore_logoff = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    (answer,) = kill_session_answers(caplog)
+    assert answer.group("status") == "500"
+
+
+def test_the_wait_for_the_answer_is_armed_before_the_ok_click(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The page answers kill-session inside OK's click handler, so the answer is in before
+    # the click returns: a wait armed after the click misses it (measured 100 of 100) and
+    # sits out the bound. The fresh list still confirms, so only the log tells.
+    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
+    portal.state.session = "disconnected"
+    portal.state.kill_session_sync = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    assert portal.state.events.count("kill-session-answered") == 1
+    assert "unanswered" not in caplog.text, "the wait was armed after the answer came"
+    assert len(kill_session_answers(caplog)) == 1
 
 
 def test_a_log_off_whose_kill_session_is_never_answered_is_not_confirmed(
@@ -762,6 +861,26 @@ def test_a_log_off_whose_confirmation_never_shows_fails_without_awaiting_an_answ
 
     assert "kill-session" not in portal.state.events
     assert "kill-session unanswered" not in caplog.text, "a failed OK click read as no answer"
+
+
+def test_an_unrelated_binary_post_while_awaiting_the_answer_does_not_fail_the_log_off(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    # Every page response passes the wait's predicate. A POST whose body is not UTF-8
+    # (telemetry, an upload) answered before the kill-session must not be read as text.
+    portal.state.session = "disconnected"
+    portal.state.binary_post = True
+    portal.state.kill_session_answer_s = BINARY_POST_KILL_SESSION_ANSWER_S
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    assert events.index("telemetry") < events.index("kill-session-answered"), (
+        "the binary POST was not answered inside the wait"
+    )
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
 def test_log_off_without_a_session_is_already_logged_off(

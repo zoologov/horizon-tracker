@@ -358,20 +358,27 @@ class PlaywrightHorizonClient:
         The request leaves after OK through the client's own command path, and a reload
         before the broker answers can cancel it or, with credential cleanup, log out of
         the broker under it. The wait is armed before the click so a quick answer is not
-        missed. An answer that does not come in time is logged and left to the
-        fresh-list confirmation, which fails closed.
+        missed. The answer is logged with its status and the time since the click returned,
+        whatever the status: the fresh-list confirmation decides either way. An answer that
+        does not come in time is logged and left to that confirmation too, which fails closed.
         """
         page = self._live_page()
         bound_ms = self._timeouts.kill_session_answer_ms
         clicked = False
         try:
-            with page.expect_response(_answers_kill_session, timeout=bound_ms):
+            with page.expect_response(_answers_kill_session, timeout=bound_ms) as answer:
                 page.locator(DIALOG_OK).click()
                 clicked = True
+                started = time.monotonic()
         except PlaywrightTimeoutError:
             if not clicked:
                 raise
             logger.warning("Horizon kill-session unanswered after %d ms", bound_ms)
+            return
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        logger.info(
+            "Horizon kill-session answered: %d after %d ms", answer.value.status, elapsed_ms
+        )
 
     def _tile(self, name: str) -> Locator:
         """The named desktop's tile on ``#/launchitems``; logs in first when no page is live."""
@@ -518,9 +525,15 @@ def _close_quietly(part: str, close: Callable[[], None]) -> None:
 
 
 def _answers_kill_session(response: Response) -> bool:
-    """Whether a response is the broker's answer to a request that carries kill-session."""
-    carries = KILL_SESSION_TAG in (response.request.post_data or "")
-    return carries and BROKER_XML_PATH in urlsplit(response.url).path
+    """Whether a response is the broker's answer to a request that carries kill-session.
+
+    The path is checked first: every page response passes here while the wait is armed,
+    and ``post_data`` decodes the body as strict UTF-8, so an unrelated binary POST
+    (telemetry, an upload) would raise. Only a broker document's body is read.
+    """
+    if BROKER_XML_PATH not in urlsplit(response.url).path:
+        return False
+    return KILL_SESSION_TAG in (response.request.post_data or "")
 
 
 def _offered(menu_item: Locator) -> bool:
