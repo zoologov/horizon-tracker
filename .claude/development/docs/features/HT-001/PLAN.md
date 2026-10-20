@@ -1,6 +1,6 @@
 # PLAN: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---

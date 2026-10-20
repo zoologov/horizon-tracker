@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-**Bead:** waiting for the landing of HT-002 (ht-tvn), then wave 1 — BEAD-01 (ht-ust)
+**Bead:** wave 1 — BEAD-01 (ht-ust), started after the HT-002 live check
 **Goal:** the daily draw of the moments in the domain
 **Done when:** the unit tests and the core's mutants are green
 
@@ -36,5 +36,5 @@
 
 ## Notes
 
-- BEAD-01 depends on the parent HT-002 (ht-tvn): the schedule changes only after a confirmed live check-in and check-out.
+- BEAD-01 waited for the live check of HT-002 (ht-28a, passed 2026-10-20): the schedule changes only after a confirmed check-in and check-out.
 - The seven PRD scenarios lie in the suite as explicit SKIPs with a reason (`randomised_moments.feature`), otherwise `scenario-coverage` would have held the gate red until BEAD-06; BEAD-06 replaces the stubs with real steps.

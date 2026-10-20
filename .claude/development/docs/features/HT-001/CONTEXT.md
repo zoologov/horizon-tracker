@@ -1,6 +1,6 @@
 # CONTEXT: HT-001 — Automatic check-in and check-out of Horizon VDI
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 > **Last updated:** 2026-10-20 (after wave 5)
 
@@ -117,6 +117,6 @@ Log Off, and reports every run to Telegram.
 
 ## Current Phase
 
-- **Phase:** Review
+- **Phase:** Done
 - **Current bead:** BEAD-13 (the owner) — the PR to `main` is open
 - **Blockers:** the secrets of the environment `horizon-vps` and the PR merge — with the owner

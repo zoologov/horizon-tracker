@@ -1,7 +1,7 @@
 # ACTIVE: HT-002 — HTML Access 2312.1 selectors
 
 > **Last updated:** 2026-10-20 (ready for the PR)
-> **Phase:** Development
+> **Phase:** Completed
 
 ---
 
@@ -22,9 +22,9 @@
 - [x] BEAD-06 fix (ht-tvn.3)
 - [x] BEAD-07 re-review (ht-tvn.4) OK
 - [x] BEAD-08 fix (ht-tvn.5)
-- [ ] PR → main → deploy (opened by the coordinator)
+- [x] PR #2 → main → deploy (run 2, success)
 - [ ] PR → main → deploy
-- [ ] BEAD-03 live check from the VPS (the local agent), then the timers
+- [x] BEAD-03 live check (2026-10-20), timers enabled: NEXT 07:55 and 17:00 in the configured time zone
 
 ## Results
 
@@ -32,7 +32,7 @@
 |------|--------|---------|
 | BEAD-01 | Done | ht-m7u, 39b1149 + d69cf64: tile/canvas/menu from the bundle, fixture rewritten (the old adapter on it: 13 red of 25), 470 tests, coverage 98 %; found beyond the BRIEF: the menu closes by a click, not by Escape; `canvas#mainCanvas`; risk: the client marks the desktop "logged off" before the broker answers |
 | BEAD-02 | Done | ht-75w: ISSUES — 1 major (the Log Off confirmation reads the client's optimistic flag, not the broker), 2 minor, 2 nit; 8 sabotages; fix → ht-tvn.1, re-review → ht-tvn.2 |
-| BEAD-03 | Open | — |
+| BEAD-03 | Done | ht-28a (the local agent): check-in 23:23:52 in the configured time zone, session disconnected (web client: Connect + Log off), check-out 23:39:32, kill-session 200 in 446 ms, the broker confirmed after 14 s, timers enabled |
 | BEAD-04 | Done | ht-tvn.1, f706192: 473 tests, coverage 98 %, ci rc 0 |
 | BEAD-05 | Done | ht-tvn.2: OK (0 major, 2 minor, 2 nit); minor 1 → ht-tvn.3, minor 2 → measurements in ht-28a |
 | BEAD-06 | Done | ht-tvn.3, 9f243d8: 476 tests, coverage 99 %, ci rc 0 |
