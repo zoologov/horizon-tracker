@@ -1,9 +1,11 @@
 """Tests of the Playwright Horizon client against a local HTML Access fixture, never the portal.
 
-The fixture pages under ``tests/fixtures/htmlaccess/`` carry the ids of the real HTML
-Access 2312 bundle; a ``ThreadingHTTPServer`` on 127.0.0.1 serves them and plays the
-broker behind ``/fixture/*``, including a bare WebSocket handshake on ``/r/`` so the
-client's Blast connection is a real socket the browser opens and closes.
+The fixture pages under ``tests/fixtures/htmlaccess/`` reproduce the structure the real
+HTML Access 2312.1 bundle renders where the adapter reads the page: the tile, its menu
+and the canvas the Blast session appends. A ``ThreadingHTTPServer`` on 127.0.0.1 serves
+them and plays the broker behind ``/fixture/*``, including a bare WebSocket handshake on
+the Blast path (``/r/`` unless a test moves it) so the client's Blast connection is a
+real socket the browser opens and closes.
 """
 
 import base64
@@ -46,6 +48,8 @@ PASSWORD = "correct-horse-battery-staple"
 DESKTOP = "DEV desktop"
 DESKTOP_ID = "dev-desktop-1"
 OTHER_DESKTOP_ID = "test-desktop-2"
+QUOTED_DESKTOP = 'Стенд "B" \\ 2'
+QUOTED_DESKTOP_ID = "lab-desktop-3"
 
 WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 SESSION_COOKIE = "fixture-session"
@@ -69,6 +73,7 @@ class PortalState:
 
     session: str = "none"
     refuse_blast: bool = False
+    blast_path: str = "/r/"
     draw_canvas: bool = True
     ignore_logoff: bool = False
     events: list[str] = field(default_factory=list)
@@ -91,12 +96,15 @@ class PortalHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         self.state.user_agents.append(self.headers.get("User-Agent", ""))
-        if self.path.startswith("/r/"):
+        if self.path.startswith(self.state.blast_path):
             self._blast()
         elif self.path == "/fixture/launch-items":
             self._launch_items()
         elif self.path == "/fixture/behaviour":
-            self._json(200, {"draw_canvas": self.state.draw_canvas})
+            self._json(
+                200,
+                {"draw_canvas": self.state.draw_canvas, "blast_path": self.state.blast_path},
+            )
         else:
             super().do_GET()
 
@@ -148,6 +156,7 @@ class PortalHandler(SimpleHTTPRequestHandler):
             [
                 {"id": DESKTOP_ID, "name": DESKTOP, "session": self.state.session},
                 {"id": OTHER_DESKTOP_ID, "name": "Test desktop", "session": "none"},
+                {"id": QUOTED_DESKTOP_ID, "name": QUOTED_DESKTOP, "session": "none"},
             ],
         )
 
@@ -389,6 +398,14 @@ def test_the_state_is_read_from_the_named_tile_only(
     assert client.desktop_status("Test desktop").state is SessionState.NO_SESSION
 
 
+def test_a_tile_is_found_by_a_name_with_quotes_and_a_backslash(
+    client: PlaywrightHorizonClient,
+) -> None:
+    client.login()
+
+    assert client.desktop_status(QUOTED_DESKTOP).state is SessionState.NO_SESSION
+
+
 @pytest.mark.parametrize("step", ["desktop_status", "open_desktop", "log_off"])
 def test_an_unknown_desktop_is_not_found(
     client: PlaywrightHorizonClient, portal: Portal, step: str
@@ -440,6 +457,22 @@ def test_a_desktop_never_drawn_did_not_open(
     fails_with(Reason.DESKTOP_DID_NOT_OPEN, lambda: client.open_desktop(DESKTOP))
 
     assert "blast-open" in portal.state.events
+
+
+def test_the_blast_socket_path_does_not_decide_whether_the_desktop_opened(
+    client: PlaywrightHorizonClient, portal: Portal, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The /r/, /d/ reading is unverified without a login, so it is logged and never
+    # gates the verdict: a drawn canvas over a socket on another path is an open desktop.
+    caplog.set_level(logging.INFO)
+    portal.state.blast_path = "/elsewhere/"
+    client.login()
+
+    client.open_desktop(DESKTOP)
+
+    assert "blast-open" in portal.state.events
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+    assert "no WebSocket on a Blast path seen" in caplog.text
 
 
 def test_disconnect_lets_go_and_leaves_the_windows_session_running(
@@ -502,6 +535,22 @@ def test_log_off_through_the_tile_menu_ends_the_session(
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
+def test_log_off_after_reading_the_state_ends_the_session(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    # The check-out's own order: read the state, then log off. The menu the read opened
+    # must be closed by then, and the client's menu ignores Escape.
+    portal.state.session = "disconnected"
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
+    client.log_off(DESKTOP)
+
+    assert portal.state.events.count("kill-session") == 1
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
 def test_a_log_off_the_portal_never_confirms_fails_with_a_screenshot(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
@@ -527,6 +576,21 @@ def test_log_off_without_a_session_is_already_logged_off(
     fails_with(Reason.ALREADY_LOGGED_OFF, lambda: client.log_off(DESKTOP))
 
     assert "kill-session" not in portal.state.events
+
+
+def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logged_off(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    # The tile menu hides "Log Off" (the hidden attribute, never disabled) when Windows
+    # holds no session: the state reads NO_SESSION and a log off says so, in that order.
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+    fails_with(Reason.ALREADY_LOGGED_OFF, lambda: client.log_off(DESKTOP))
+
+    assert "kill-session" not in portal.state.events
+    assert "blast-open" not in portal.state.events
 
 
 # --- probe ---------------------------------------------------------------------------------

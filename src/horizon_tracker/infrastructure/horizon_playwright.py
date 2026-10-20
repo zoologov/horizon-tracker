@@ -1,11 +1,11 @@
 """Drives the VMware Horizon HTML Access web client in headless Chrome: the ``HorizonClient`` port.
 
 The path follows a person's: ``#/home`` (login) -> ``#/launchitems`` (desktop tiles) ->
-``#/desktop`` (the Blast canvas). Every selector below was read from the HTML Access 2312
-bundle (RFC HT-001, "The path through the web client"), except the tile's "…" button, which the RFC
-names only by its glyph. Two readings are hypotheses until the first ``horizon probe`` on
-the VPS and say so where they live: the "desktop is open" signal and the tile's session
-state.
+``#/desktop`` (the Blast canvas). Every selector below was read from the compiled
+templates of the HTML Access 2312.1 bundle (``app-htmlaccess.4eb7424a56fc03317f06.js``;
+RFC HT-001 and BRIEF HT-002). Two readings are inferred from that code, not measured on
+a logged-in portal, and say so where they live: the "desktop is open" signal and the
+tile's session state.
 
 Secrets: the password is typed into ``#password`` and goes nowhere else. Failure
 screenshots are taken only on an allowlist of routes after the login page; Playwright
@@ -18,7 +18,6 @@ the same thread, so a client is closed (it is a context manager) before the next
 
 # beadloom:domain=infrastructure
 
-import json
 import logging
 import re
 import time
@@ -62,20 +61,29 @@ PASSWORD_FIELD = "#password"
 LOGIN_BUTTON = "#loginButton"
 DIALOG_OK = "#okDialogBtn"
 DIALOG_CANCEL = "#cancelDialogBtn"
-ANY_TILE = "li[title]"
-LAUNCH_BUTTON = "[id^='launch-']"
-# Unmeasured: the RFC names the tile menu button only by its glyph "…".
-TILE_MENU_BUTTON = "button[aria-haspopup], button:has-text('…')"
+# A tile is ``li#<id>`` with no title; the name is on its launch button, which also holds
+# the overflow button and, while it is open, the tile menu.
+LAUNCH_BUTTON = "button[id^='launch-']"
+ANY_TILE = f"li:has(> {LAUNCH_BUTTON})"
+TILE_MENU_BUTTON = "button.overflow-button[aria-haspopup]"
+TILE_MENU = ".content-menu .context-menu-container"
+# An ``li`` the client hides (the ``hidden`` attribute) when the desktop has no session;
+# it is never disabled.
 LOGOFF_MENU_ITEM = "#menu-item-logoff-btn"
-DESKTOP_CANVAS = "#canvas-container #canvas"
+# The Blast session draws into a canvas it appends to ``#canvas-container``; the service
+# ``canvas#canvas`` beside the container is never shown.
+DESKTOP_CANVAS = "#canvas-container canvas"
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
 
-_CANVAS_IS_DRAWN = """(selector) => {
-    const canvas = document.querySelector(selector);
-    if (canvas === null) { return false; }
-    const box = canvas.getBoundingClientRect();
-    return box.width > 0 && box.height > 0;
-}"""
+_CANVAS_IS_DRAWN = """(selector) => Array.from(document.querySelectorAll(selector)).some(
+    (canvas) => {
+        const box = canvas.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+    }
+)"""
+_CSS_STRING_ESCAPES = str.maketrans(
+    {"\\": "\\\\", '"': '\\"', "\n": "\\a ", "\r": "\\d ", "\f": "\\c "}
+)
 _BUNDLE_SCRIPT = re.compile(r"<script[^>]*\bsrc=[\"']([^\"']+\.js)[\"']", re.IGNORECASE)
 _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -181,7 +189,8 @@ class PlaywrightHorizonClient:
             opened = self._poll(self._settle_desktop, self._timeouts.desktop_open_ms)
         if not opened:
             raise self._failure(Reason.DESKTOP_DID_NOT_OPEN)
-        logger.info("Horizon desktop open")
+        blast = "seen" if self._blast_socket_open() else "no WebSocket on a Blast path seen"
+        logger.info("Horizon desktop open (%s)", blast)
 
     def disconnect(self) -> None:
         """Close the browser context: the client lets go, the Windows session keeps running."""
@@ -197,8 +206,8 @@ class PlaywrightHorizonClient:
         with self._step(Reason.LOGOFF_NOT_CONFIRMED):
             tile = self._tile(name)
             logoff = self._open_tile_menu(tile)
-            if not logoff.is_enabled():
-                self._close_tile_menu()
+            if not _offered(logoff):
+                self._close_tile_menu(tile)
                 raise self._failure(Reason.ALREADY_LOGGED_OFF)
             logoff.click()
             self._live_page().locator(DIALOG_OK).click()
@@ -263,32 +272,42 @@ class PlaywrightHorizonClient:
     # --- the two hypotheses -----------------------------------------------------------
 
     def _desktop_is_open(self) -> bool:
-        """HYPOTHESIS until the first ``horizon probe`` on the VPS: is the desktop open?
+        """HYPOTHESIS until the first live ``checkin --force``: is the desktop open?
 
-        Read from the bundle, not measured: ``#canvas`` inside ``#canvas-container`` has a
-        non-zero size AND a WebSocket on a Blast path (``/r/…`` or ``/d/…``) is still open.
-        ``#sidebar-toggler`` is a secondary sign the RFC names; it is not consulted. If the
-        live portal disagrees, this method is the one place to change.
+        Read from the bundle, not measured: a canvas the Blast session appended to
+        ``#canvas-container`` has a non-zero size (WMKS keeps its container hidden until
+        it connects). ``#sidebar-toggler`` is a secondary sign the RFC names; it is not
+        consulted. If the live portal disagrees, this method is the one place to change.
         """
         page = self._page
         if page is None or page.is_closed():
             return False
-        blast_open = any(
+        return bool(page.evaluate(_CANVAS_IS_DRAWN, DESKTOP_CANVAS))
+
+    def _blast_socket_open(self) -> bool:
+        """Whether a WebSocket on a Blast path (``/r/…``, ``/d/…``) is open; logged only.
+
+        The paths are a reading nobody has verified without a login, so the answer never
+        decides whether the desktop opened.
+        """
+        return any(
             not socket.is_closed() and urlsplit(socket.url).path.startswith(BLAST_PATH_PREFIXES)
             for socket in self._websockets
         )
-        return blast_open and bool(page.evaluate(_CANVAS_IS_DRAWN, DESKTOP_CANVAS))
 
     def _tile_session_state(self, tile: Locator) -> SessionState:
-        """HYPOTHESIS until the first ``horizon probe`` on the VPS: the tile's session state.
+        """HYPOTHESIS until the first live ``checkout --force``: the tile's session state.
 
-        The tile's "…" menu offers an enabled ``#menu-item-logoff-btn`` only when Windows
-        holds a session. The tile cannot tell whether another client is attached, so a
-        session reads as DISCONNECTED; CONNECTED is only ever this client's own open desktop.
+        The client binds ``[hidden]`` on ``#menu-item-logoff-btn`` in the tile's menu: the
+        item is offered only for a desktop that holds a session (it is never disabled).
+        The attribute is read rather than the item's visibility, which the client's own
+        stylesheet, not in the bundle, could override. The tile
+        cannot tell whether another client is attached, so a session reads as
+        DISCONNECTED; CONNECTED is only ever this client's own open desktop.
         """
-        enabled = self._open_tile_menu(tile).is_enabled()
-        self._close_tile_menu()
-        return SessionState.DISCONNECTED if enabled else SessionState.NO_SESSION
+        offered = _offered(self._open_tile_menu(tile))
+        self._close_tile_menu(tile)
+        return SessionState.DISCONNECTED if offered else SessionState.NO_SESSION
 
     # --- steps ------------------------------------------------------------------------
 
@@ -313,7 +332,7 @@ class PlaywrightHorizonClient:
         """The named desktop's tile on ``#/launchitems``; logs in first when no page is live."""
         page = self._launch_items_page()
         page.locator(ANY_TILE).first.wait_for(timeout=self._timeouts.page_load_ms)
-        tile = page.locator(f"li[title={json.dumps(name)}]")
+        tile = page.locator(f"li:has(> {LAUNCH_BUTTON}[title={_css_string(name)}])")
         if tile.count() == 0:
             raise self._failure(Reason.DESKTOP_NOT_FOUND)
         return tile.first
@@ -328,13 +347,19 @@ class PlaywrightHorizonClient:
         return page
 
     def _open_tile_menu(self, tile: Locator) -> Locator:
+        """Open the tile's "…" menu, wait for the menu itself, return its log-off item."""
         tile.locator(TILE_MENU_BUTTON).first.click()
-        logoff = self._live_page().locator(LOGOFF_MENU_ITEM)
-        logoff.wait_for(state="visible")
-        return logoff
+        menu = tile.locator(TILE_MENU)
+        menu.wait_for(state="visible")
+        return menu.locator(LOGOFF_MENU_ITEM)
 
-    def _close_tile_menu(self) -> None:
-        self._live_page().keyboard.press("Escape")
+    def _close_tile_menu(self, tile: Locator) -> None:
+        """Close the tile's menu the way the client does: a click on the document.
+
+        The menu ignores Escape; it listens for a click anywhere outside its trigger.
+        """
+        self._live_page().locator("body").dispatch_event("click")
+        tile.locator(TILE_MENU).wait_for(state="hidden")
 
     # --- browser lifecycle ------------------------------------------------------------
 
@@ -429,6 +454,16 @@ def _close_quietly(part: str, close: Callable[[], None]) -> None:
         close()
     except PlaywrightError as error:
         logger.warning("Horizon %s did not close: %s", part, type(error).__name__)
+
+
+def _offered(menu_item: Locator) -> bool:
+    """Whether the tile menu offers this item: the client hides it, it never disables it."""
+    return menu_item.get_attribute("hidden") is None
+
+
+def _css_string(value: str) -> str:
+    """``value`` as a double-quoted CSS string, for an attribute selector."""
+    return '"' + value.translate(_CSS_STRING_ESCAPES) + '"'
 
 
 def _route(url: str) -> str:

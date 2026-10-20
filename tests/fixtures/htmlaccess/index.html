@@ -1,17 +1,45 @@
 <!doctype html>
 <!--
-  Local stand-in for the VMware Horizon HTML Access 2312 single-page client.
-  Element ids and hash routes are the ones read from the real bundle (see the RFC table
-  "Путь по веб-клиенту"); the behaviour is the minimum the Playwright adapter relies on.
-  The real bundle is not copied here: app-htmlaccess.fixture.js reproduces the routes.
+  Local stand-in for the VMware Horizon HTML Access 2312.1 single-page client (client 8.12.1).
+  The structure is the one the real bundle app-htmlaccess.4eb7424a56fc03317f06.js renders
+  (compiled Angular templates, read by grep, not copied): app-root holds the routed view
+  and, beside it, div#main with the hidden service canvas#canvas and the empty
+  div#canvas-container the Blast session draws into. The behaviour is the minimum the
+  Playwright adapter relies on; app-htmlaccess.fixture.js reproduces the routes.
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>VMware Horizon (fixture)</title>
+  <style>
+    /* Layout the bundle's component styles imply; the client's global stylesheet is not
+       in the bundle, so the tile geometry below is an assumption, said once here. */
+    .ui-desktop-list > li { list-style: none; display: inline-block; margin: 8px; }
+    .ui-desktop-corner { position: relative; width: 160px; height: 120px; }
+    .ui-desktop-icon { width: 64px; height: 64px; }
+    .overflow-button { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; }
+    .overflow-button::after { content: "\2026"; }
+    /* From the bundle: share-contextmenu's own styles. */
+    .context-menu-container { box-sizing: border-box; min-width: 130px; min-height: 50px;
+      padding: 8px 0; background: #fff; position: absolute; top: 24px; right: -100%;
+      z-index: 200; max-width: 160px; text-align: left; overflow: hidden; }
+    .context-menu-container li { width: 100%; list-style: none; }
+    .context-menu-container button { display: block; height: 32px; width: 100%; }
+    .menu-item-icon { display: inline-block; width: 20px; height: 20px; }
+    #canvas-container { position: relative; width: 100%; height: 100%; }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
+  <div>
+    <div id="app"></div>
+  </div>
+  <div>
+    <div id="main" class="canvas-view-port">
+      <canvas width="320" id="canvas" height="240" style="display: none"></canvas>
+      <video id="video" width="0" height="0" autoplay style="display: none"></video>
+      <div id="canvas-container" class="web-container"></div>
+    </div>
+  </div>
   <script src="app-htmlaccess.fixture.js"></script>
 </body>
 </html>
