@@ -19,7 +19,7 @@
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
 - [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
 - [x] Wave 4: BEAD-08, BEAD-09 (landed 2026-10-20: a784433, 7d68763; 416 tests on the tree)
-- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 ✓ → BEAD-16 re-review (in progress) → BEAD-12; BEAD-13 the owner
+- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 ✓ → BEAD-16 ✓ OK → BEAD-12 tech-writer (in progress); BEAD-13 the owner
 
 ## Results
 
@@ -39,7 +39,7 @@
 | BEAD-12 | Open | — |
 | BEAD-13 | Open | — |
 | BEAD-15 | Done | ht-jz5.2, 8fd731f: CI with `--cov`, concurrency greenlet, probe → `client_bundles()` + `browser_version()` (a real Chrome start), DryRun over WindowedRun, prune/close best-effort; 466 tests, coverage 98.47 %, mutants 111/111; 8 document pairs went stale → BEAD-12 |
-| BEAD-16 | Open | ht-jz5.3: re-review |
+| BEAD-16 | Done | ht-jz5.3: OK — six findings closed, no regressions; 2 minor + 2 nits for BEAD-12; withholding did not hold (UX #6), `--release` exit 1 (UX #7) |
 | BEAD-14 | Done | ht-jz5.1, aaac43d: `Reason.TOO_EARLY`; 5 tests, 293/293 in a clean room over 4 files |
 
 ## Notes
