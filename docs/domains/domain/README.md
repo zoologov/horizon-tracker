@@ -15,7 +15,7 @@ deterministic and unit-tested first.
 | `schedule.py` | the run window and the decision for one attempt: `Window`, `RunKind` (CHECKIN, CHECKOUT), `RetryPolicy`, `FIRST_ATTEMPT` (1, the number the run loop counts from), `decide(now, window, verdict, attempt, policy)` → `Decision` (RUN, RETRY, SKIP_EARLY, SKIP_LATE, SKIP_NON_WORKING_DAY, GIVE_UP) |
 | `calendar.py` | the working-day verdict: `WorkingDayVerdict(is_working, source)` with `VerdictSource` CALENDAR or WEEKDAY_FALLBACK, `weekday_rule(day)`, `resolve(calendar_answer, day)` |
 | `session.py` | the states a Horizon session moves through and the two success rules: `SessionState` (NO_SESSION, CONNECTED, DISCONNECTED), `DesktopStatus`, `checkin_succeeded(while_open, after_disconnect)`, `checkout_succeeded(before, after)` |
-| `report.py` | the record of one run and its notification text: `RunReport`, `Outcome`, `Reason`, `render(report)`; the report has no password field by construction |
+| `report.py` | the record of one run and its notification text: `RunReport` (with `planned_at`, the day's drawn moment, since HT-003), `Outcome`, `Reason`, `render(report)`; the report has no password field by construction |
 | `ports.py` | the Protocols the adapters implement: `HorizonClient` (the run's `login`, `desktop_status`, `open_desktop`, `disconnect`, `log_off`, and the probe's `client_bundles()` and `browser_version()`), `WorkingDayCalendar`, `Notifier` (`send(report)`, the screenshot travels inside the report), `Clock`, `ArtifactStore`; `HorizonClientError(reason, screenshot)` |
 
 The whole package is the scope of the mutation gate (`scripts/mutation.sh`).
