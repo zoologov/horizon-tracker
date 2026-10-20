@@ -128,8 +128,8 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
   desktop_open_ms=90_000, logoff_confirm_ms=60_000, poll_ms=1_000)` — frozen.
 - Route and selector constants: `LOGIN_ROUTE`, `LAUNCH_ITEMS_ROUTE`, `DESKTOP_ROUTE`,
   `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON`, `DIALOG_OK`, `DIALOG_CANCEL`,
-  `ANY_TILE`, `LAUNCH_BUTTON`, `TILE_MENU_BUTTON`, `LOGOFF_MENU_ITEM`, `DESKTOP_CANVAS`,
-  `BLAST_PATH_PREFIXES`.
+  `ANY_TILE`, `LAUNCH_BUTTON`, `TILE_MENU_BUTTON`, `TILE_MENU`, `LOGOFF_MENU_ITEM`,
+  `DESKTOP_CANVAS`, `BLAST_PATH_PREFIXES`.
 
 ## Testing
 
