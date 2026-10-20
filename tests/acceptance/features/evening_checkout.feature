@@ -1,7 +1,9 @@
 @bead:ht-0jm @node:application @node:cli
 Feature: Evening check-out
-  At 17:00 Moscow time the service logs the Windows session of the desktop off, so the
-  accounting system records the end of the working day.
+  At the day's drawn check-out moment, nine hours and up to ten minutes after the check-in
+  and no later than 17:10 Moscow time, the service logs the Windows session of the desktop
+  off, so the accounting system records the end of the working day. Its timer fires at
+  16:30, the start of the range; on Wednesday 2026-10-21 the drawn moment is 16:39.
 
   Background:
     Given the service is configured for the desktop "DEV desktop"
@@ -9,7 +11,7 @@ Feature: Evening check-out
 
   Scenario: Evening check-out logs the desktop off
     Given the desktop has a session no client is attached to
-    When the check-out runs at 17:00:00 on Wednesday 2026-10-21
+    When the check-out runs at 16:30:00 on Wednesday 2026-10-21
     Then the desktop was logged off
     And the desktop has no session
     And exactly one message reaches the owner
@@ -18,7 +20,7 @@ Feature: Evening check-out
 
   Scenario: Evening check-out on an already logged-off desktop reports it and stops
     Given the desktop has no session
-    When the check-out runs at 17:00:00 on Wednesday 2026-10-21
+    When the check-out runs at 16:30:00 on Wednesday 2026-10-21
     Then the desktop was never logged off
     And the portal was logged in to 1 time
     And exactly one message reaches the owner

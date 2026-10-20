@@ -67,7 +67,7 @@ class World:
         # What the command delivers through; the recording fake unless a test hands in
         # a real notifier (the acceptance suite drives the Telegram adapter).
         self.delivery: Notifier = self.notifier if delivery is None else delivery
-        self.client = FakeHorizonClient(desktop=desktop, state=state)
+        self.client = FakeHorizonClient(desktop=desktop, state=state, clock=self.clock)
         self.artifacts = FakeArtifacts()
         self.opened: list[tuple[Settings, RunKind]] = []
         self.closed = 0

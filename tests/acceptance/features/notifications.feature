@@ -10,7 +10,7 @@ Feature: Notifications
 
   Scenario: A failed run sends the reason and a screenshot
     Given every attempt to open the desktop fails and the adapter captures the page
-    When the check-in runs at 07:55:00 on Wednesday 2026-10-21
+    When the check-in runs at 07:30:00 on Wednesday 2026-10-21
     Then exactly one message reaches the owner
     And the message is a photo of the captured page
     And the message reads "Вход не удался"
@@ -19,7 +19,7 @@ Feature: Notifications
 
   Scenario Outline: A notification never contains the password
     Given the check-in <goes>
-    When the check-in runs at 07:55:00 on Wednesday 2026-10-21
+    When the check-in runs at 07:30:00 on Wednesday 2026-10-21
     Then exactly one message reaches the owner
     And nothing sent to Telegram contains the password or the account name
     And the service log does not contain the password or the account name

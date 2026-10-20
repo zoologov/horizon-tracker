@@ -8,6 +8,7 @@ service could see: the command's exit code and output, the service log, the mess
 that reached the chat, and the state of the desktop as the broker shows it.
 """
 
+import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -31,19 +32,23 @@ CHAT_ID = "424242"
 
 COMMANDS = {"check-in": "checkin", "check-out": "checkout"}
 
-# The HT-001 features speak of fixed windows, 07:55-08:00 and 17:00-17:05. Until BEAD-06
-# rewrites them for the daily draw, the scene pins the draw onto those windows: a one-minute
-# check-in range 07:55-07:56 under a seed that draws 07:55 on every date the features name
-# (2026-10-21, 2026-10-24, 2026-11-04; found by an oracle of the RFC formula, independent
-# of the code), and a one-minute session with no extra, which lifts every check-out to the
-# start of its range, 17:00. Each window then opens at its HT-001 start and lasts 5 minutes.
-HT001_PINNED_DRAW = {
-    "HT_CHECKIN_RANGE": "07:55-07:56",
-    "HT_CHECKOUT_RANGE": "17:00-17:01",
-    "HT_SESSION_LENGTH_MINUTES": "1",
-    "HT_SESSION_EXTRA_MAX_MINUTES": "0",
+# The schedule every scene runs under: the deployed ranges and day length (RUNBOOK §2.2)
+# under a seed of the suite's own, so each feature can name the moments a date draws. They
+# were computed by an oracle of the RFC formula that imports nothing from the project; the
+# dates the features name draw these (check-in / check-out):
+#   Wednesday 2026-10-21  07:38 / 16:39     Thursday 2026-10-22  07:37 / 16:38
+#   Saturday  2026-10-24  07:40 / 16:50     Thursday 2026-10-29  08:08 / 17:10 (17:12 clipped)
+#   Tuesday   2026-11-03  07:30 / 16:40     Wednesday 2026-11-11 08:10 / 17:10
+# The four weeks from Monday 2026-10-19 reach both ends of the check-in range and every
+# extra minute from 0 to 10, which is why this seed and not another.
+SEED = "horizon-acceptance-6"
+DEPLOYED_SCHEDULE = {
+    "HT_CHECKIN_RANGE": "07:30-08:10",
+    "HT_CHECKOUT_RANGE": "16:30-17:10",
+    "HT_SESSION_LENGTH_MINUTES": "540",
+    "HT_SESSION_EXTRA_MAX_MINUTES": "10",
     "HT_WINDOW_GRACE_MINUTES": "5",
-    "HT_JITTER_SEED": "ht001-fixed-moments-8",
+    "HT_JITTER_SEED": SEED,
 }
 
 Script = Callable[[World], None]
@@ -51,7 +56,13 @@ Script = Callable[[World], None]
 
 @dataclass
 class Scene:
-    """What the Given steps arranged, and what the When step produced."""
+    """What the Given steps arranged, and what the When steps produced.
+
+    ``world`` and ``result`` are the last command's; ``starts``, ``worlds`` and ``results``
+    keep every command of the scenario in order, for the scenarios that run one each day.
+    The bot is shared, so ``bot.messages`` holds every message of the scenario.
+    ``processes`` holds the commands a scenario ran in an interpreter of their own.
+    """
 
     root: Path
     desktop: str = "DEV desktop"
@@ -62,6 +73,10 @@ class Scene:
     bot: RecordingBotApi = field(default_factory=RecordingBotApi)
     world: World | None = None
     result: Result | None = None
+    results: list[Result] = field(default_factory=list)
+    worlds: list[World] = field(default_factory=list)
+    starts: list[datetime] = field(default_factory=list)
+    processes: list[subprocess.CompletedProcess[str]] = field(default_factory=list)
 
     def env(self) -> dict[str, str | None]:
         chrome = self.root / "google-chrome"
@@ -74,7 +89,7 @@ class Scene:
             "TELEGRAM_BOT_TOKEN": TOKEN,
             "TELEGRAM_CHAT_ID": CHAT_ID,
             "HT_TIMEZONE": "Europe/Moscow",
-            **HT001_PINNED_DRAW,
+            **DEPLOYED_SCHEDULE,
             "HT_HOLD_SECONDS": "120",
             "HT_CHROME_PATH": str(chrome),
             "HT_ARTIFACTS_DIR": str(self.root / "artifacts"),
@@ -94,6 +109,9 @@ class Scene:
             script(world)
         self.world = world
         self.result = world.invoke(args, self.env())
+        self.starts.append(now)
+        self.worlds.append(world)
+        self.results.append(self.result)
 
     @property
     def ran(self) -> World:

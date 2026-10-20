@@ -14,6 +14,7 @@ Feature: Checks without logging in
     When the owner runs "horizon probe" at 12:00:00 on Wednesday 2026-10-21
     Then the output reads "portal: ok - client bundles: app-htmlaccess.fake-2312.js"
     And the output reads "chrome: ok - Chrome 131.0.6778.85 started from"
+    And the output reads "schedule: today 07:38 / 16:39"
     And the portal was asked for its client bundles, Chrome for its version, and nothing else
     And no message reaches the owner
     And the command exits with 0
@@ -30,5 +31,5 @@ Feature: Checks without logging in
 
     Examples:
       | run      | start    | step                                    |
-      | checkin  | 07:55:00 | hold the desktop open for 120 s         |
-      | checkout | 17:00:00 | log off from the tile menu              |
+      | checkin  | 07:30:00 | hold the desktop open for 120 s         |
+      | checkout | 16:30:00 | log off from the tile menu              |

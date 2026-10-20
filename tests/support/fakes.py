@@ -57,7 +57,8 @@ class FakeHorizonClient:
     an exception that a later call of ``method`` raises before it has any effect.
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
     a broker that does not do what it was asked; ``bundles`` are the client bundles the
-    portal names and ``browser`` the version the Chrome binary reports.
+    portal names and ``browser`` the version the Chrome binary reports. Given a ``clock``,
+    ``called_at`` records the clock's time of each call beside ``calls``.
     """
 
     desktop: str
@@ -67,7 +68,9 @@ class FakeHorizonClient:
     log_off_takes_effect: bool = True
     bundles: tuple[str, ...] = ("app-htmlaccess.fake-2312.js",)
     browser: str = "131.0.6778.85"
+    clock: FakeClock | None = None
     calls: list[str] = field(default_factory=list)
+    called_at: list[datetime] = field(default_factory=list)
     _script: dict[str, list[Exception | None]] = field(default_factory=dict)
 
     def fail_on(self, method: str, error: Exception, *, times: int = 1, after: int = 0) -> None:
@@ -76,6 +79,8 @@ class FakeHorizonClient:
 
     def _enter(self, method: str, name: str | None = None) -> None:
         self.calls.append(method)
+        if self.clock is not None:
+            self.called_at.append(self.clock.now())
         if name is not None and name != self.desktop:
             raise AssertionError(f"use case asked for desktop {name!r}, not {self.desktop!r}")
         queued = self._script.get(method)

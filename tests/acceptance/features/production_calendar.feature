@@ -9,7 +9,7 @@ Feature: Production calendar
 
   Scenario: A day the calendar marks as a holiday is skipped with a notice
     Given the calendar marks the day as a day off
-    When the check-in runs at 07:55:00 on Wednesday 2026-11-04
+    When the check-in runs at 07:30:00 on Wednesday 2026-11-04
     Then the portal was never contacted
     And exactly one message reaches the owner
     And the message reads "Вход пропущен"
@@ -19,7 +19,7 @@ Feature: Production calendar
 
   Scenario Outline: When the calendar is unreachable the weekday rule decides and says so
     Given the calendar cannot be reached
-    When the check-in runs at 07:55:00 on <weekday> <date>
+    When the check-in runs at 07:30:00 on <weekday> <date>
     Then the message reads "<headline>"
     And the message reads "Календарь: недоступен, решило правило пн-пт"
     And the portal was logged in to <logins> times
