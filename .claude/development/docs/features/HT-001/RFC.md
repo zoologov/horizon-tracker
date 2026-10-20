@@ -222,8 +222,8 @@ No `journalctl`, no `failed` status, no `EnvironmentFile`. Rejected.
 
 | # | Question | Decision |
 |---|----------|----------|
-| Q1 | How long to hold the open desktop in the morning so that the Windows logon definitely completes? | Pending: 120 s by default, tuned from the first runs |
-| Q2 | Does the pool auto-log-off after a disconnect? | Pending: the owner checks in the first days from the evening reports |
+| Q1 | How long to hold the open desktop in the morning so that the Windows logon definitely completes? | Decided (the owner, 2026-10-20): hold until the desktop has fully loaded; 120 s by default, `HT_HOLD_SECONDS` is tuned from the first runs |
+| Q2 | Does the pool auto-log-off after a disconnect? | Decided (the owner, 2026-10-20): by the owner's information no, or with a timeout longer than a day; the evening run recognises "no session" and reports anyway |
 | Q3 | Is `--force` needed for a manual run from the VPS outside the window? | Decided: yes, only by hand from the VPS, the timers do not pass it |
-| Q4 | The Python version on the VPS and sudo for `VPS_USER` for `sudo -u horizon` and `systemctl` | Pending: the same user and key as the neighbouring service's deploy; confirmed by the first deploy |
-| Q5 | The shape of the `get-launch-items` answer (the session-state field) | Pending: read by the first `probe` on the VPS |
+| Q4 | The Python version on the VPS and sudo for `VPS_USER` for `sudo -u horizon` and `systemctl` | Decided (the owner, 2026-10-20): there is no separate sudo; the same user and key as the neighbouring service's deploy, and that deploy runs `sudo -u <its user>` and `systemctl restart` as this user successfully, so it is root. The deploy repeats the shape of the neighbour's commands; Python 3.12 is confirmed by the first deploy |
+| Q5 | The shape of the `get-launch-items` answer (the session-state field) | Decided: not decided at the desk but measured by the first `probe` on the VPS; until measured the adapter reads the state from the tile and marks the XML path as a hypothesis |
