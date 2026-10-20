@@ -1,0 +1,38 @@
+# Features of the `application` layer: the shared run loop, the two daily use
+# cases and the checks that run without logging in.
+#
+# Layer tags stay on the layer node; see domain-features.yml.
+nodes:
+  - ref_id: windowed-run
+    kind: feature
+    summary: "The run loop both use cases share: asks the calendar once, decides each attempt, retries failures inside the window, sends exactly one report"
+    source: src/horizon_tracker/application/windowed_run.py
+    docs:
+      - docs/domains/application/features/windowed-run/SPEC.md
+
+  - ref_id: morning-checkin
+    kind: feature
+    summary: "The morning check-in: open the desktop over Blast, hold it until Windows logs on, disconnect without logging off, confirm the session runs on"
+    source: src/horizon_tracker/application/checkin.py
+    docs:
+      - docs/domains/application/features/morning-checkin/SPEC.md
+
+  - ref_id: evening-checkout
+    kind: feature
+    summary: "The evening check-out: log the Windows session off from the tile menu and confirm it ended; a desktop with no session is reported as already logged off"
+    source: src/horizon_tracker/application/checkout.py
+    docs:
+      - docs/domains/application/features/evening-checkout/SPEC.md
+
+  - ref_id: probe
+    kind: feature
+    summary: "Checks without logging in: Probe asks the portal for its client bundles, the calendar for today and Chrome for its version; DryRun plans the run a use case would make"
+    source: src/horizon_tracker/application/probe.py
+    docs:
+      - docs/domains/application/features/probe/SPEC.md
+
+edges:
+  - { src: windowed-run,     dst: application, kind: part_of }
+  - { src: morning-checkin,  dst: application, kind: part_of }
+  - { src: evening-checkout, dst: application, kind: part_of }
+  - { src: probe,            dst: application, kind: part_of }

@@ -1,0 +1,58 @@
+# Features of the `infrastructure` layer: one adapter per port, plus the settings
+# the composition root reads from the environment.
+#
+# Three modules, three nodes: `config.py` reads the settings, `clock.py` and
+# `artifacts.py` implement two ports. One `runtime-config` node over all three
+# would name three responsibilities with one word.
+#
+# Layer tags stay on the layer node; see domain-features.yml.
+nodes:
+  - ref_id: horizon-playwright-client
+    kind: feature
+    summary: "The HorizonClient port over Playwright and the system Chrome: drives the HTML Access web client headless, screenshots only after the login page"
+    source: src/horizon_tracker/infrastructure/horizon_playwright.py
+    docs:
+      - docs/domains/infrastructure/features/horizon-playwright-client/SPEC.md
+
+  - ref_id: isdayoff-calendar
+    kind: feature
+    summary: "The WorkingDayCalendar port over isdayoff.ru: any answer that is not clean is None, logged and never raised"
+    source: src/horizon_tracker/infrastructure/isdayoff.py
+    docs:
+      - docs/domains/infrastructure/features/isdayoff-calendar/SPEC.md
+
+  - ref_id: telegram-notifier
+    kind: feature
+    summary: "The Notifier port over the Telegram Bot API: a photo with a caption or a text message; a failed delivery is logged, never raised, and the token never reaches a log"
+    source: src/horizon_tracker/infrastructure/telegram.py
+    docs:
+      - docs/domains/infrastructure/features/telegram-notifier/SPEC.md
+
+  - ref_id: settings
+    kind: feature
+    summary: "Reads the service's settings from environment variables, refuses an incomplete set by naming the variable, and never renders a credential"
+    source: src/horizon_tracker/infrastructure/config.py
+    docs:
+      - docs/domains/infrastructure/features/settings/SPEC.md
+
+  - ref_id: artifact-store
+    kind: feature
+    summary: "The ArtifactStore port on a directory: names screenshots by wall time and run kind, and removes its own files older than 14 days"
+    source: src/horizon_tracker/infrastructure/artifacts.py
+    docs:
+      - docs/domains/infrastructure/features/artifact-store/SPEC.md
+
+  - ref_id: system-clock
+    kind: feature
+    summary: "The Clock port on the system's wall clock: an aware now() in the service's time zone and a blocking sleep()"
+    source: src/horizon_tracker/infrastructure/clock.py
+    docs:
+      - docs/domains/infrastructure/features/system-clock/SPEC.md
+
+edges:
+  - { src: horizon-playwright-client, dst: infrastructure, kind: part_of }
+  - { src: isdayoff-calendar,         dst: infrastructure, kind: part_of }
+  - { src: telegram-notifier,         dst: infrastructure, kind: part_of }
+  - { src: settings,                  dst: infrastructure, kind: part_of }
+  - { src: artifact-store,            dst: infrastructure, kind: part_of }
+  - { src: system-clock,              dst: infrastructure, kind: part_of }

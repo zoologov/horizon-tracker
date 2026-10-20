@@ -1,0 +1,47 @@
+# Features of the `domain` layer: one node per module, each with its SPEC.
+#
+# A feature carries no layer tag of its own: it is part_of a layer node, and the
+# layer rule reads a feature's layer from that container. Import edges between
+# features are derived from the code on reindex, so none is authored here.
+nodes:
+  - ref_id: schedule
+    kind: feature
+    summary: "Decides whether a run attempt may go ahead now: run, retry or skip, given its window, the working-day verdict and the retry policy"
+    source: src/horizon_tracker/domain/schedule.py
+    docs:
+      - docs/domains/domain/features/schedule/SPEC.md
+
+  - ref_id: working-day-calendar
+    kind: feature
+    summary: "Decides whether a date is a working day: the production calendar's answer first, Monday-Friday as the fallback, and names which rule decided"
+    source: src/horizon_tracker/domain/calendar.py
+    docs:
+      - docs/domains/domain/features/working-day-calendar/SPEC.md
+
+  - ref_id: session-state
+    kind: feature
+    summary: "Horizon session states and the two rules for a completed check-in (CONNECTED -> DISCONNECTED) and check-out (a session -> NO_SESSION)"
+    source: src/horizon_tracker/domain/session.py
+    docs:
+      - docs/domains/domain/features/session-state/SPEC.md
+
+  - ref_id: run-report
+    kind: feature
+    summary: "The run report as a value of closed vocabularies, and the Russian notification text rendered from it; no field can carry a password"
+    source: src/horizon_tracker/domain/report.py
+    docs:
+      - docs/domains/domain/features/run-report/SPEC.md
+
+  - ref_id: ports
+    kind: feature
+    summary: "The contracts the core needs from the outside world as Protocols: HorizonClient, WorkingDayCalendar, Notifier, Clock, ArtifactStore"
+    source: src/horizon_tracker/domain/ports.py
+    docs:
+      - docs/domains/domain/features/ports/SPEC.md
+
+edges:
+  - { src: schedule,             dst: domain, kind: part_of }
+  - { src: working-day-calendar, dst: domain, kind: part_of }
+  - { src: session-state,        dst: domain, kind: part_of }
+  - { src: run-report,           dst: domain, kind: part_of }
+  - { src: ports,                dst: domain, kind: part_of }
