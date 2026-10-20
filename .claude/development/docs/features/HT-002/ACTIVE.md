@@ -20,7 +20,8 @@
 - [x] BEAD-04 fix (ht-tvn.1)
 - [x] BEAD-05 re-review (ht-tvn.2) OK
 - [x] BEAD-06 fix (ht-tvn.3)
-- [ ] BEAD-07 re-review (ht-tvn.4)
+- [x] BEAD-07 re-review (ht-tvn.4) OK
+- [ ] BEAD-08 fix (ht-tvn.5), then the PR
 - [ ] PR → main → deploy
 - [ ] BEAD-03 live check from the VPS (the local agent), then the timers
 
@@ -34,7 +35,8 @@
 | BEAD-04 | Done | ht-tvn.1, f706192: 473 tests, coverage 98 %, ci rc 0 |
 | BEAD-05 | Done | ht-tvn.2: OK (0 major, 2 minor, 2 nit); minor 1 → ht-tvn.3, minor 2 → measurements in ht-28a |
 | BEAD-06 | Done | ht-tvn.3, 9f243d8: 476 tests, coverage 99 %, ci rc 0 |
-| BEAD-07 | Open | ht-tvn.4: narrow re-review |
+| BEAD-07 | Done | ht-tvn.4: OK (2 minor, 1 nit) → ht-tvn.5 |
+| BEAD-08 | Open | ht-tvn.5: the predicate by path, a log of the kill-session answer |
 
 ## Notes
 

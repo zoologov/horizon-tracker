@@ -147,6 +147,7 @@ created, and then the id the tracker answered.
 | BEAD-05 | ht-tvn.2 | Re-review | P0 |
 | BEAD-06 | ht-tvn.3 | Fix: wait for the broker's answer to kill-session before reloading the list | P0 |
 | BEAD-07 | ht-tvn.4 | Narrow re-review of BEAD-06 | P0 |
+| BEAD-08 | ht-tvn.5 | Fix: the kill-session predicate by path, a log of the answer's status and duration | P0 |
 
 ## Acceptance Criteria
 
