@@ -11,6 +11,10 @@ name: Deploy
 #
 # Command shape mirrors the neighbouring service's deploy (VPS_USER is root-equivalent): repository and venv
 # work runs as `sudo -u horizon`, systemd work as VPS_USER itself.
+#
+# A preflight reaches the VPS and changes nothing, so an unreachable host or a broken key
+# stops the run before the first command that would leave the VPS half-updated. The job
+# summary names the commit, the probe's answer and the timers after the deploy.
 on:
   push:
     branches: [main]
@@ -35,6 +39,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     environment: horizon-vps
     steps:
       - name: Set up SSH
@@ -60,6 +66,15 @@ jobs:
             StrictHostKeyChecking yes
             BatchMode yes
           EOF
+
+      - name: "Preflight: reach the VPS"
+        # Before any change: the host answers with the pinned key, the clone is there and
+        # the steps below can act as horizon without a password prompt.
+        run: |
+          set -euo pipefail
+          ssh vps "set -e; true; \
+            test -d /opt/horizon-tracker/.git; \
+            sudo -n -u horizon true"
 
       - name: Update the code
         # The exact commit this run was started for, checked out by the clone's owner;
@@ -162,14 +177,45 @@ jobs:
       - name: "Smoke: horizon probe"
         # As horizon, with .env read by the same parser the timers use (RUNBOOK §3). The
         # probe never logs in; its exit code - 1 when settings, portal or Chrome FAILED -
-        # is the step's through systemd-run --wait and ssh.
+        # is the step's through systemd-run --wait and ssh (pipefail keeps it through tee).
+        # Its answer is kept for the summary: the probe prints no secret (RUNBOOK §3).
         run: |
           set -euo pipefail
           ssh vps "systemd-run --quiet --pipe --wait --collect \
             --uid=horizon --gid=horizon \
             --working-directory=/opt/horizon-tracker \
             -p EnvironmentFile=/opt/horizon-tracker/.env \
-            /opt/horizon-tracker/.venv/bin/horizon probe"
+            /opt/horizon-tracker/.venv/bin/horizon probe" | tee "$RUNNER_TEMP/probe.txt"
+
+      - name: Deploy summary
+        # Also after a red deploy: which commit was meant, what the probe said if it ran,
+        # and the timers as the VPS has them now.
+        if: ${{ !cancelled() }}
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deploy to horizon-vps"
+            echo
+            echo "Commit: [\`${DEPLOY_SHA}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${DEPLOY_SHA})"
+            echo
+            echo "#### horizon probe"
+            echo
+            echo '```text'
+            if [ -s "$RUNNER_TEMP/probe.txt" ]; then
+              cat "$RUNNER_TEMP/probe.txt"
+            else
+              echo "the probe did not run - an earlier step failed"
+            fi
+            echo '```'
+            echo
+            echo "#### Timers"
+            echo
+            echo '```text'
+            ssh vps "systemctl list-timers 'horizon-*' --all --no-pager"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove the key and .env from the runner
         if: always()

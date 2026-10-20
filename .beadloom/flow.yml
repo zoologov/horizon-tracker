@@ -24,3 +24,11 @@ waves:
     decision: parallel
     reason: "disjoint files: tests/acceptance/** (ht-slm) vs .github/**, scripts/mutation.sh, flow.yml mutation.targets, tests/unit/deploy/** (ht-5ni)"
     until: "2026-11-20"
+
+# The declared mutation scope (HT-005). The pure domain only: no I/O, no clock, no browser,
+# so a surviving mutant is a weak assertion and not an unreachable adapter branch. The same
+# scope as [tool.mutmut] only_mutate in pyproject.toml; .github/workflows/mutation.yml reads
+# it through `beadloom mutation --changed-since` (per change) and names it in the sample.
+mutation:
+  targets:
+  - src/horizon_tracker/domain/

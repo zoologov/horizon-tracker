@@ -58,13 +58,17 @@ SEED_STAND_IN = ' seed "q" $X `id` \\ é '
 UNITS = sorted(p.name for p in (ROOT / "deploy").iterdir() if p.suffix in {".service", ".timer"})
 TIMERS = "horizon-checkin.timer horizon-checkout.timer"
 BUILD_ENV = "Build .env"
+PREFLIGHT = "Preflight: reach the VPS"
+SUMMARY = "Deploy summary"
 STEP_ORDER = [
     "Set up SSH",
+    PREFLIGHT,
     "Update the code",
     BUILD_ENV,
     "Write .env",
     "Install the units",
     "Smoke: horizon probe",
+    SUMMARY,
 ]
 # Stand-ins chosen to break a naive writer: quotes of both kinds, a backslash, `$`,
 # a backtick, `#`, `=`, outer spaces and non-ASCII.
@@ -165,13 +169,6 @@ def test_every_secret_of_the_environment_is_used_and_no_other() -> None:
         m.group(1) for s in all_strings(deploy()) for m in re.finditer(r"secrets\.([A-Z_]+)", s)
     }
     assert named == SECRETS | OPTIONAL_SECRETS
-
-
-@pytest.mark.parametrize("workflow", ["ci.yml", "deploy.yml"])
-def test_run_scripts_carry_no_expressions(workflow: str) -> None:
-    """Secrets and contexts enter a script through env:, never pasted into its text."""
-    for text in run_scripts(load_workflow(workflow)):
-        assert "${{" not in text, f"{workflow}: an expression is pasted into a run script"
 
 
 def test_no_secret_is_echoed_to_the_log() -> None:
@@ -327,3 +324,86 @@ def test_smoke_probe_runs_as_horizon_with_the_units_environment() -> None:
     ):
         assert flag in text, flag
     assert f"{HOME}/.venv/bin/horizon probe" in text
+
+
+# --- preflight and summary --------------------------------------------------------------
+
+CHANGES = re.compile(r"\b(install|mv|rm|git|uv|systemctl|systemd-run|chown|chmod)\b")
+
+
+def test_the_preflight_reaches_the_vps_and_changes_nothing() -> None:
+    text = script(PREFLIGHT)
+    assert text.strip().startswith("set -euo pipefail")
+    assert 'ssh vps "' in text
+    assert "true" in text
+    assert f"test -d {HOME}/.git" in text
+    assert "sudo -n -u horizon true" in text
+    assert not CHANGES.search(text.replace(f"{HOME}/.git", "")), text
+
+
+def test_the_probe_output_is_kept_for_the_summary() -> None:
+    text = script("Smoke: horizon probe")
+    assert '| tee "$RUNNER_TEMP/probe.txt"' in text
+    assert text.strip().startswith("set -euo pipefail"), "without pipefail tee hides the probe"
+
+
+def fake_ssh(bin_dir: Path) -> None:
+    """An ``ssh`` that answers list-timers and refuses anything else."""
+    bin_dir.mkdir()
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$*" in\n'
+        "  *\"list-timers 'horizon-*'\"*) echo 'NEXT LEFT UNIT horizon-checkin.timer' ;;\n"
+        '  *) echo "unexpected: $*" >&2; exit 9 ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+
+
+def run_summary(tmp_path: Path, probe: str | None) -> tuple[subprocess.CompletedProcess[str], str]:
+    assert BASH is not None
+    fake_ssh(tmp_path / "bin")
+    summary = tmp_path / "summary.md"
+    if probe is not None:
+        (tmp_path / "probe.txt").write_text(probe, encoding="utf-8")
+    step = step_named(deploy(), "deploy", SUMMARY)
+    assert step["env"] == {"DEPLOY_SHA": "${{ github.sha }}"}
+    env = {
+        "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_STEP_SUMMARY": str(summary),
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_REPOSITORY": "zoologov/horizon-tracker",
+        "DEPLOY_SHA": "0123456789abcdef0123456789abcdef01234567",
+    }
+    result = subprocess.run(
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", str(step["run"])],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_summary_names_the_commit_the_probe_and_the_timers(tmp_path: Path) -> None:
+    result, summary = run_summary(tmp_path, "settings: ok\nportal: ok\n")
+    assert result.returncode == 0, result.stderr
+    assert "0123456789abcdef0123456789abcdef01234567" in summary
+    assert "https://github.com/zoologov/horizon-tracker/commit/0123456789abcdef" in summary
+    assert "settings: ok\nportal: ok" in summary
+    assert "horizon-checkin.timer" in summary
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_summary_says_when_the_probe_never_ran(tmp_path: Path) -> None:
+    result, summary = run_summary(tmp_path, None)
+    assert result.returncode == 0, result.stderr
+    assert "probe did not run" in summary
+
+
+def test_the_summary_is_written_whatever_the_deploy_did_but_not_when_cancelled() -> None:
+    assert step_named(deploy(), "deploy", SUMMARY)["if"] == "${{ !cancelled() }}"

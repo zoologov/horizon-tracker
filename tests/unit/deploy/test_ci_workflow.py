@@ -1,43 +1,86 @@
-"""Tests for the CI workflow: every check of the completion checklist runs, and none is excused.
+"""Tests for the CI workflow: three stages, early refusal, and one status that sums them.
 
-CI is the gate a pull request is read by and the gate the deploy reuses, so its steps are
-asserted in order: dependencies with the dev extra, ruff, mypy, a browser for the adapter
-tests, pytest, then the Beadloom Gate on an index rebuilt from nothing.
+CI is the gate a pull request is read by and the gate the deploy reuses. Stage 1 holds
+the cheap static checks; stage 2 - the suite with its browser, and the Beadloom Gate -
+starts only when all of stage 1 passed, so a linter error never pays for Chromium; stage
+3 is ``ci-ok``, the one status branch protection can require. The scripts whose outcome
+is the gate's (``ci-ok``, the unit verification, the Playwright version) are executed here
+with the inputs a runner would give them, not only read.
 """
 
+import json
+import os
 import re
+import shutil
+import subprocess
 import tomllib
+from pathlib import Path
+
+import pytest
 
 from tests.support.repository_root import repository_root
-from tests.support.workflows import Mapping, all_strings, load_workflow, run_scripts, steps
+from tests.support.workflows import ROOT, Mapping, load_workflow, step_named, steps
 
 COVERAGE_FLOOR = 80
-
-ORDERED_COMMANDS = [
-    "uv sync --extra dev",
-    "uv run ruff check src/ tests/",
-    "uv run mypy src/",
-    "uv run playwright install --with-deps chromium",
-    "uv run pytest -q -rs",
-    "uv tool install beadloom==9.0.0",
-    "rm -f .beadloom/beadloom.db",
-    "beadloom reindex",
-    "beadloom ci",
-]
+STAGE_1 = {"lint", "types", "workflow-lint"}
+STAGE_2 = {"tests", "beadloom-gate"}
+AGGREGATE = "ci-ok"
+PYTHONS = ["3.12", "3.13"]
+BASH = shutil.which("bash")
+JQ = shutil.which("jq")
 
 
 def ci() -> Mapping:
     return load_workflow("ci.yml")
 
 
-def command_lines(workflow: Mapping) -> list[str]:
-    """The shell lines of every run script, in order, comments and blanks dropped."""
+def job(name: str) -> Mapping:
+    found = ci()["jobs"][name]
+    assert isinstance(found, dict)
+    return found
+
+
+def needs(name: str) -> set[str]:
+    value = job(name).get("needs", [])
+    return {value} if isinstance(value, str) else set(value)
+
+
+def command_lines(job_name: str) -> list[str]:
+    """The shell lines of every run script of a job, in order, comments and blanks dropped."""
     return [
         line.strip()
-        for script in run_scripts(workflow)
-        for line in script.splitlines()
+        for step in steps(ci(), job_name)
+        for line in str(step.get("run", "")).splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
+
+
+def assert_in_order(job_name: str, commands: list[str]) -> None:
+    lines = command_lines(job_name)
+    positions = []
+    for command in commands:
+        found = [i for i, line in enumerate(lines) if line.startswith(command)]
+        assert found, f"{job_name} never runs {command!r}: {lines}"
+        positions.append(found[0])
+    assert positions == sorted(positions), f"{job_name} runs out of order: {lines}"
+
+
+def run_step(
+    script: str, env: dict[str, str], cwd: Path = ROOT
+) -> subprocess.CompletedProcess[str]:
+    """A step's script under bash as the runner starts it, with only the given env."""
+    assert BASH is not None
+    return subprocess.run(
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+        env={"PATH": os.environ["PATH"], **env},
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+# --- triggers and concurrency ---------------------------------------------------------------
 
 
 def test_ci_runs_on_pull_requests_and_pushes_to_main_and_for_the_deploy() -> None:
@@ -47,45 +90,174 @@ def test_ci_runs_on_pull_requests_and_pushes_to_main_and_for_the_deploy() -> Non
     assert "workflow_call" in on
 
 
-def test_ci_runs_the_checklist_in_order() -> None:
-    lines = command_lines(ci())
-    positions = []
-    for command in ORDERED_COMMANDS:
-        found = [i for i, line in enumerate(lines) if line == command or line.startswith(command)]
-        assert found, f"ci.yml never runs {command!r}"
-        positions.append(found[0])
-    assert positions == sorted(positions), f"ci.yml runs the checklist out of order: {lines}"
+def test_only_a_pull_requests_superseded_run_is_cancelled() -> None:
+    concurrency = ci()["concurrency"]
+    assert "github.workflow" in concurrency["group"]
+    assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
 
-def test_ci_installs_the_pinned_beadloom_without_a_workaround() -> None:
-    installs = [line for line in command_lines(ci()) if "uv tool install" in line]
-    assert installs == ["uv tool install beadloom==9.0.0"]
+# --- stages ---------------------------------------------------------------------------------
 
 
-def test_ci_gate_runs_on_a_clean_index_in_one_step() -> None:
-    gate = [s for s in steps(ci(), "ci") if "beadloom ci" in str(s.get("run", ""))]
-    assert len(gate) == 1
-    script = [line.strip() for line in str(gate[0]["run"]).splitlines() if line.strip()]
-    assert script[-3:] == ["rm -f .beadloom/beadloom.db", "beadloom reindex", "beadloom ci"]
+def test_the_jobs_are_the_three_stages() -> None:
+    assert set(ci()["jobs"]) == STAGE_1 | STAGE_2 | {AGGREGATE}
 
 
-def test_ci_builds_with_the_python_of_the_vps() -> None:
-    setup = [s for s in steps(ci(), "ci") if str(s.get("uses", "")).startswith("astral-sh/")]
+@pytest.mark.parametrize("name", sorted(STAGE_1))
+def test_stage_one_waits_for_nothing(name: str) -> None:
+    assert needs(name) == set()
+
+
+@pytest.mark.parametrize("name", sorted(STAGE_2))
+def test_stage_two_starts_only_after_all_of_stage_one(name: str) -> None:
+    assert needs(name) == STAGE_1
+
+
+def test_ci_ok_waits_for_every_other_job_and_runs_whatever_they_did() -> None:
+    assert needs(AGGREGATE) == STAGE_1 | STAGE_2
+    # Without always() a failed need SKIPS ci-ok, and a skipped required check reads as
+    # passed in branch protection.
+    assert job(AGGREGATE)["if"] == "always()"
+
+
+def ci_ok(results: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    step = steps(ci(), AGGREGATE)[-1]
+    needs_json = json.dumps({name: {"result": r, "outputs": {}} for name, r in results.items()})
+    assert step["env"]["NEEDS"] == "${{ toJSON(needs) }}"
+    return run_step(str(step["run"]), {"NEEDS": needs_json})
+
+
+@pytest.mark.skipif(BASH is None or JQ is None, reason="bash or jq absent")
+def test_ci_ok_is_green_when_every_needed_job_succeeded() -> None:
+    result = ci_ok(dict.fromkeys(STAGE_1 | STAGE_2, "success"))
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(BASH is None or JQ is None, reason="bash or jq absent")
+@pytest.mark.parametrize("outcome", ["failure", "cancelled", "skipped"])
+def test_ci_ok_is_red_and_names_the_job_that_did_not_succeed(outcome: str) -> None:
+    results = dict.fromkeys(STAGE_1 | STAGE_2, "success")
+    results["tests"] = outcome
+    result = ci_ok(results)
+    assert result.returncode != 0
+    assert "tests" in result.stdout
+
+
+@pytest.mark.skipif(BASH is None or JQ is None, reason="bash or jq absent")
+def test_ci_ok_is_red_when_it_was_given_no_job_to_sum() -> None:
+    assert ci_ok({}).returncode != 0
+
+
+# --- stage 1 --------------------------------------------------------------------------------
+
+
+def test_lint_checks_the_rules_and_the_format() -> None:
+    assert_in_order(
+        "lint",
+        [
+            "uv sync --extra dev",
+            "uv run ruff check src/ tests/",
+            "uv run ruff format --check src/ tests/",
+        ],
+    )
+
+
+def test_types_checks_the_code_and_the_tests() -> None:
+    assert_in_order("types", ["uv sync --extra dev", "uv run mypy src/ tests/"])
+
+
+def test_workflow_lint_checks_workflows_scripts_and_units() -> None:
+    assert_in_order(
+        "workflow-lint",
+        [
+            "go install github.com/rhysd/actionlint/cmd/actionlint@v",
+            "actionlint",
+            "shellcheck deploy/*.sh scripts/*.sh",
+        ],
+    )
+
+
+VERIFY_UNITS = "systemd: verify the units"
+
+
+def write_units(deploy_dir: Path, *, break_timer: bool = False) -> None:
+    deploy_dir.mkdir()
+    for unit in (ROOT / "deploy").iterdir():
+        if unit.suffix in {".service", ".timer"}:
+            text = unit.read_text(encoding="utf-8")
+            if break_timer and unit.suffix == ".timer":
+                text = text.replace("[Timer]", "[Timer]\nOnCalendr=daily")
+            (deploy_dir / unit.name).write_text(text, encoding="utf-8")
+
+
+@pytest.mark.skipif(BASH is None or shutil.which("systemd-analyze") is None, reason="no systemd")
+def test_the_unit_verification_passes_the_shipped_units(tmp_path: Path) -> None:
+    write_units(tmp_path / "deploy")
+    runner_temp = tmp_path / "runner"
+    runner_temp.mkdir()
+    script = str(step_named(ci(), "workflow-lint", VERIFY_UNITS)["run"])
+    result = run_step(script, {"RUNNER_TEMP": str(runner_temp)}, cwd=tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(BASH is None or shutil.which("systemd-analyze") is None, reason="no systemd")
+def test_the_unit_verification_refuses_a_key_systemd_only_warns_about(tmp_path: Path) -> None:
+    # verify exits 0 on an unknown key and only prints a warning: the step must read the
+    # output, not the exit code alone.
+    write_units(tmp_path / "deploy", break_timer=True)
+    runner_temp = tmp_path / "runner"
+    runner_temp.mkdir()
+    script = str(step_named(ci(), "workflow-lint", VERIFY_UNITS)["run"])
+    result = run_step(script, {"RUNNER_TEMP": str(runner_temp)}, cwd=tmp_path)
+    assert result.returncode != 0
+    assert "OnCalendr" in result.stdout + result.stderr
+
+
+# --- stage 2: tests -------------------------------------------------------------------------
+
+
+def test_tests_run_on_the_python_of_the_vps_and_of_development() -> None:
+    strategy = job("tests")["strategy"]
+    assert [str(v) for v in strategy["matrix"]["python"]] == PYTHONS
+    # Every leg reports: one red leg must not hide what the other would have said.
+    assert strategy["fail-fast"] is False
+    setup = [s for s in steps(ci(), "tests") if str(s.get("uses", "")).startswith("astral-sh/")]
     assert len(setup) == 1
-    assert str(setup[0]["with"]["python-version"]) == "3.12"
+    assert setup[0]["with"]["python-version"] == "${{ matrix.python }}"
 
 
-def test_no_check_is_excused_from_failing_the_run() -> None:
-    for name in ("ci.yml", "deploy.yml"):
-        workflow = load_workflow(name)
-        assert "continue-on-error" not in all_strings(workflow), name
-        for script in run_scripts(workflow):
-            assert not re.search(r"\|\|\s*(true|:)", script), f"{name}: a failure is swallowed"
+def test_tests_install_the_browser_after_restoring_its_cache() -> None:
+    names = [s.get("name") for s in steps(ci(), "tests")]
+    cache = step_named(ci(), "tests", "Cache the Playwright browser")
+    assert cache["with"]["path"] == "~/.cache/ms-playwright"
+    assert "${{ steps.playwright.outputs.version }}" in cache["with"]["key"]
+    assert names.index("Cache the Playwright browser") < names.index("Chromium for the adapters")
+    assert_in_order(
+        "tests",
+        ["uv sync --extra dev", "uv run playwright install --with-deps chromium", "uv run pytest"],
+    )
+
+
+def locked_playwright() -> str:
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    versions = [p["version"] for p in lock["package"] if p["name"] == "playwright"]
+    assert len(versions) == 1
+    return str(versions[0])
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_browser_cache_is_keyed_by_the_locked_playwright(tmp_path: Path) -> None:
+    step = step_named(ci(), "tests", "Playwright version from uv.lock")
+    assert step["id"] == "playwright"
+    output = tmp_path / "output"
+    result = run_step(str(step["run"]), {"GITHUB_OUTPUT": str(output)})
+    assert result.returncode == 0, result.stderr
+    assert output.read_text(encoding="utf-8") == f"version={locked_playwright()}\n"
 
 
 def pytest_command() -> list[str]:
     """The one pytest line of ci.yml, split into words."""
-    found = [line for line in command_lines(ci()) if line.startswith("uv run pytest")]
+    found = [line for line in command_lines("tests") if line.startswith("uv run pytest")]
     assert len(found) == 1, f"ci.yml runs pytest {len(found)} times: {found}"
     return found[0].split()
 
@@ -101,9 +273,20 @@ def test_ci_measures_coverage_so_the_floor_can_fail_the_run() -> None:
     # fail_under is read only by a pytest run that measures coverage: without --cov the
     # floor is declared and nothing ever evaluates it.
     words = pytest_command()
-    assert "--cov" in words
-    assert "--cov-report=term-missing" in words
+    assert {"-rs", "--cov", "--cov-report=term-missing", "--cov-report=xml"} <= set(words)
     assert not [w for w in words if w.startswith(("--no-cov", "--cov-fail-under"))], words
+
+
+def test_coverage_is_kept_and_summarised_per_python() -> None:
+    upload = step_named(ci(), "tests", "Keep coverage.xml")
+    assert upload["with"]["path"] == "coverage.xml"
+    assert "${{ matrix.python }}" in upload["with"]["name"]
+    summary = step_named(ci(), "tests", "Coverage in the job summary")
+    assert "coverage report --format=total" in summary["run"]
+    assert '>> "$GITHUB_STEP_SUMMARY"' in summary["run"]
+    # A red pytest still reports its figure; a cancelled run does not pretend to.
+    assert summary["if"] == "${{ !cancelled() }}"
+    assert upload["if"] == "${{ !cancelled() }}"
 
 
 def test_the_floor_ci_enforces_is_the_one_the_plan_names() -> None:
@@ -114,3 +297,29 @@ def test_coverage_follows_the_greenlets_the_browser_adapter_runs_on() -> None:
     # Playwright's sync API runs on greenlets; without this, the lines it executes are
     # counted as missed and the figure the floor is held against is wrong.
     assert set(coverage_settings()["run"].get("concurrency", [])) == {"greenlet", "thread"}
+
+
+# --- stage 2: Beadloom Gate -----------------------------------------------------------------
+
+
+def test_the_gate_installs_the_pinned_beadloom_without_a_workaround() -> None:
+    installs = [line for line in command_lines("beadloom-gate") if "uv tool install" in line]
+    assert installs == ["uv tool install beadloom==9.0.0"]
+
+
+def test_the_gate_runs_on_a_clean_index_in_one_step() -> None:
+    gate = [s for s in steps(ci(), "beadloom-gate") if "beadloom ci" in str(s.get("run", ""))]
+    assert len(gate) == 1
+    script = [line.strip() for line in str(gate[0]["run"]).splitlines() if line.strip()]
+    assert script[-3:] == ["rm -f .beadloom/beadloom.db", "beadloom reindex", "beadloom ci"]
+
+
+def test_the_gate_holds_the_epics_against_the_as_is_space() -> None:
+    assert_in_order("beadloom-gate", ["beadloom ci", "beadloom docs spaces --strict"])
+
+
+def test_no_job_runs_without_the_code_it_checks() -> None:
+    for name in STAGE_1 | STAGE_2:
+        first = steps(ci(), name)[0]
+        assert str(first.get("uses", "")).startswith("actions/checkout@"), name
+        assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", first["uses"]), name

@@ -3,14 +3,26 @@ name: CI
 # The completion checklist of CLAUDE.md, run on every pull request to main, on every push
 # to main, and - through workflow_call - as the gate the deploy waits for (deploy.yml).
 #
+# Three stages, each started only when the one before it passed:
+#   1. lint, types, workflow-lint - the static checks, a minute each; nothing else waits
+#      on a browser or a suite to report a linter error.
+#   2. tests (Python 3.12, the VPS, and 3.13, development) and beadloom-gate.
+#   3. ci-ok - the one status branch protection can require. It runs whatever the others
+#      did (if: always()) and is red unless every job it needs succeeded: a failed,
+#      cancelled or SKIPPED stage is red here, because a skipped required check would
+#      read as passed.
+#
 # Two meanings of "blocking", kept apart:
-#  1. Inside a run: every step below fails the run. There is no continue-on-error and no
+#  1. Inside a run: every step below fails its job. There is no continue-on-error and no
 #     `|| true`; a step that must stay informational decides its own outcome and prints a
 #     ::warning annotation instead, because continue-on-error turns a red step into a
 #     `success` conclusion that no annotation reports (measured on the neighbouring service's PR #138).
-#  2. On a merge: whether this check is REQUIRED is a branch-protection setting, and for
-#     this repository it is not measured (CLAUDE.md, project layer). Until it is, a red run
-#     is visible on the PR and does not stop a merge by itself.
+#  2. On a merge: whether ci-ok is REQUIRED is a branch-protection setting, which HT-005
+#     BEAD-03 (the owner) sets or records as unavailable. Until then a red run is visible
+#     on the PR and does not stop a merge by itself.
+#
+# Every action is pinned to a full commit SHA, its version in the comment; Dependabot
+# (.github/dependabot.yml) moves the pins. tests/unit/deploy/ holds this file's contract.
 on:
   pull_request:
     branches: [main]
@@ -29,16 +41,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  ci:
+  # --- stage 1 ------------------------------------------------------------------------------
+
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv (with cache)
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          # The VPS runs python3.12; CI builds with the same interpreter.
           python-version: "3.12"
 
       - name: Sync deps
@@ -49,19 +65,171 @@ jobs:
       - name: Ruff
         run: uv run ruff check src/ tests/
 
-      - name: Mypy
-        run: uv run mypy src/
+      - name: Ruff format
+        run: uv run ruff format --check src/ tests/
 
-      - name: Chromium for the adapter tests
+  types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv (with cache)
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Sync deps
+        run: uv sync --extra dev
+
+      - name: Mypy
+        # The tests too: a fixture typed wrong is a test that checks something else.
+        run: uv run mypy src/ tests/
+
+  workflow-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install actionlint
+        # A pinned version through the Go module proxy: the download is checked against
+        # the checksum database, and no install script is piped into a shell.
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: actionlint
+        # Reads every workflow, and runs shellcheck (preinstalled on the runner) over
+        # each run: script.
+        run: actionlint
+
+      - name: shellcheck
+        run: shellcheck deploy/*.sh scripts/*.sh
+
+      - name: "systemd: verify the units"
+        # As tests/unit/deploy/test_units.py does: the CLI exists only on the VPS, so
+        # ExecStart is pointed at a binary that exists here; everything else is the
+        # shipped text. verify exits 0 on a value it only warns about ("Unknown key name
+        # ..., ignoring"), so its output must be empty too.
+        run: |
+          set -euo pipefail
+          units="$RUNNER_TEMP/units"
+          rm -rf "$units"
+          mkdir -p "$units"
+          executable="$(command -v true)"
+          for unit in deploy/*.service deploy/*.timer; do
+            sed "s|/opt/horizon-tracker/.venv/bin/horizon|$executable|g" "$unit" \
+              > "$units/$(basename "$unit")"
+          done
+          if ! output="$(systemd-analyze verify "$units"/* 2>&1)"; then
+            printf '%s\n' "$output"
+            exit 1
+          fi
+          if [ -n "$output" ]; then
+            printf '%s\n' "$output"
+            echo "::error title=systemd::systemd-analyze verify warned about the units"
+            exit 1
+          fi
+          echo "verified: $(cd "$units" && echo *)"
+
+  # --- stage 2 ------------------------------------------------------------------------------
+
+  tests:
+    needs: [lint, types, workflow-lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      # Every leg reports: a red 3.13 must not hide what 3.12, the VPS, would have said.
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv (with cache)
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+
+      - name: Sync deps
+        run: uv sync --extra dev
+
+      - name: Playwright version from uv.lock
+        # The browser a Playwright release drives is fixed by that release, so the
+        # locked version is the cache key: a bump in uv.lock downloads the new browser.
+        id: playwright
+        run: |
+          set -euo pipefail
+          version="$(awk '/^name = "playwright"$/ { found = 1; next }
+                          found && /^version = / { gsub(/"/, "", $3); print $3; exit }' uv.lock)"
+          if [ -z "$version" ]; then
+            echo "::error title=uv.lock::no playwright package in uv.lock"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browser
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Chromium for the adapters
         # tests/integration/infrastructure drives Playwright against the local HTML Access
-        # fixture, never the portal. The browser comes from the locked Playwright version.
+        # fixture, never the portal. With the browser restored from the cache this only
+        # installs the system libraries, which no cache carries.
         run: uv run playwright install --with-deps chromium
 
       - name: Pytest
         # -rs prints the reason of every skip, so a skipped check is read as skipped.
         # --cov makes pytest-cov evaluate [tool.coverage.report] fail_under: coverage below
         # the floor fails this step. Without it the floor is declared and never checked.
-        run: uv run pytest -q -rs --cov --cov-report=term-missing
+        run: uv run pytest -q -rs --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Coverage in the job summary
+        if: ${{ !cancelled() }}
+        env:
+          PYTHON: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          if [ -f .coverage ]; then
+            total="$(uv run coverage report --format=total)"
+            line="Coverage on Python $PYTHON: ${total}% (floor: fail_under in pyproject.toml)"
+          else
+            line="Coverage on Python $PYTHON: no data - pytest did not reach the end"
+          fi
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep coverage.xml
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-python-${{ matrix.python }}
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  beadloom-gate:
+    needs: [lint, types, workflow-lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Install beadloom
         # 9.0.0 pins tree-sitter itself; no workaround is needed.
@@ -74,3 +242,37 @@ jobs:
           rm -f .beadloom/beadloom.db
           beadloom reindex
           beadloom ci
+
+      - name: Epics against the AS-IS space
+        run: beadloom docs spaces --strict
+
+  # --- stage 3 ------------------------------------------------------------------------------
+
+  ci-ok:
+    needs: [lint, types, workflow-lint, tests, beadloom-gate]
+    # always(): without it a failed need SKIPS this job, and a skipped required check is
+    # read as passed by branch protection.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Every stage succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          count="$(jq 'length' <<< "$NEEDS")"
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=ci-ok::no job to sum - ci-ok checked nothing"
+            exit 1
+          fi
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          failed="$(jq -r '[to_entries[] | select(.value.result != "success") | .key]
+                           | join(", ")' <<< "$NEEDS")"
+          if [ -n "$failed" ]; then
+            echo "::error title=ci-ok::did not succeed: $failed"
+            exit 1
+          fi
+          echo "all $count jobs succeeded"
