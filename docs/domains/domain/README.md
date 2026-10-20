@@ -8,13 +8,15 @@ deterministic and unit-tested first.
 
 `src/horizon_tracker/domain/`
 
-## Responsibilities
+## Modules
 
-- schedule windows: when a check-in or check-out may run, and when it is too late
-- working-day verdicts: whether a given date is a working day
-- session state: the states a Horizon session moves through (connected,
-  disconnected, logged off)
-- ports: the Protocols the adapters implement
+| Module | One responsibility |
+|--------|--------------------|
+| `schedule.py` | the run window and the decision for one attempt: `Window`, `RunKind` (CHECKIN, CHECKOUT), `RetryPolicy`, `decide(now, window, verdict, attempt, policy)` → `Decision` (RUN, RETRY, SKIP_EARLY, SKIP_LATE, SKIP_NON_WORKING_DAY, GIVE_UP) |
+| `calendar.py` | the working-day verdict: `WorkingDayVerdict(is_working, source)` with `VerdictSource` CALENDAR or WEEKDAY_FALLBACK, `weekday_rule(day)`, `resolve(calendar_answer, day)` |
+| `session.py` | the states a Horizon session moves through and the two success rules: `SessionState` (NO_SESSION, CONNECTED, DISCONNECTED), `DesktopStatus`, `checkin_succeeded(while_open, after_disconnect)`, `checkout_succeeded(before, after)` |
+| `report.py` | the record of one run and its notification text: `RunReport`, `Outcome`, `Reason`, `render(report)`; the report has no password field by construction |
+| `ports.py` | the Protocols the adapters implement: `HorizonClient`, `WorkingDayCalendar`, `Notifier` (`send(report)`, the screenshot travels inside the report), `Clock`, `ArtifactStore` |
 
 ## Features
 

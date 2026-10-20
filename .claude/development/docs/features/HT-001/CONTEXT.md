@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Created:** 2026-10-20
-> **Last updated:** 2026-10-20
+> **Last updated:** 2026-10-20 (after wave 1)
 
 ---
 
@@ -90,6 +90,10 @@ Log Off, and reports every run to Telegram.
 | 2026-10-20 | Deploy on a push to `main`, `.env` is written by the deploy from the secrets | the owner's requirement: secrets in GitHub, a release without manual steps |
 | 2026-10-20 | The epic's axes declared by the owner, not derived | over the empty skeleton the derivation found no seed; recorded in the RFC |
 | 2026-10-20 | The desktop state is read from the tile; XML `get-launch-items` is a hypothesis until the first `probe` | the shape of the answer is not measured |
+| 2026-10-20 | `Decision` extended to RUN, RETRY, SKIP_EARLY, SKIP_LATE, SKIP_NON_WORKING_DAY, GIVE_UP (BEAD-01) | a start before the window and exhausted attempts are separate outcomes, not "an error" |
+| 2026-10-20 | `checkin_succeeded(while_open, after_disconnect)`, not `(before, after)` (BEAD-02) | the state before the check-in does not affect the check-in's success; an unused parameter is a lie in the signature |
+| 2026-10-20 | `Notifier.send(report)` without a screenshot argument; the screenshot path inside `RunReport` (BEAD-02) | one source of truth about the attachment |
+| 2026-10-20 | A parallelism override in `flow.yml` for beads of one package, with a reason and a deadline of 2026-11-20 | the graph knows the layer, not the module; after BEAD-12 the feature nodes remove the need for the override |
 
 ## Related Files
 
@@ -100,6 +104,6 @@ Log Off, and reports every run to Telegram.
 
 ## Current Phase
 
-- **Phase:** Planning
-- **Current bead:** —
+- **Phase:** Development
+- **Current bead:** wave 2 — BEAD-03, BEAD-04, BEAD-05, BEAD-06
 - **Blockers:** none

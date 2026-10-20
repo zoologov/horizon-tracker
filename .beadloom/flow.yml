@@ -20,3 +20,7 @@ waves:
     decision: parallel
     reason: "disjoint modules of one package: domain/schedule.py+calendar.py vs domain/session.py+report.py+ports.py; tests under tests/unit/domain/ by module"
     until: "2026-11-20"
+  - beads: [ht-c5q, ht-axc, ht-xlh]
+    decision: parallel
+    reason: "disjoint modules of one package: infrastructure/config.py+clock.py+artifacts.py vs isdayoff.py+telegram.py vs horizon_playwright.py+tests/fixtures/htmlaccess; tests under tests/adapters/ and tests/unit/infrastructure/ by module"
+    until: "2026-11-20"
