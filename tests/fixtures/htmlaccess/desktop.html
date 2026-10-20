@@ -1,0 +1,14 @@
+<!-- Route #/desktop: the Blast canvas, the sidebar with its log-off button, and the one dialog
+     the route shows: Fullscreen on arrival (Cancel is the blue button there), Log Off later. -->
+<button id="sidebar-toggler" type="button">☰</button>
+<div id="sidebar" hidden>
+  <button id="sidebar-logout-button" class="icon-logoff-desktop-image" type="button">Log Off</button>
+</div>
+<div id="canvas-container">
+  <canvas id="canvas" width="0" height="0"></canvas>
+</div>
+<div id="dialog" class="dialog" hidden>
+  <p id="dialogMessage"></p>
+  <button id="okDialogBtn" type="button">OK</button>
+  <button id="cancelDialogBtn" type="button">Cancel</button>
+</div>

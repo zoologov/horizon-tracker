@@ -1,0 +1,11 @@
+<!-- Route #/home: the login form and the error dialog the client shows on a rejected login. -->
+<form id="loginForm" onsubmit="return false;">
+  <input id="username" name="username" type="text" autocomplete="username">
+  <input id="password" name="password" type="password" autocomplete="current-password">
+  <button id="loginButton" type="button">Login</button>
+  <button id="cancelLoginBtn" type="button">Cancel</button>
+</form>
+<div id="errorDialog" class="dialog" hidden>
+  <p>Authentication failed</p>
+  <button id="okDialogBtn" type="button">OK</button>
+</div>

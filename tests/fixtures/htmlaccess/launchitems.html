@@ -1,0 +1,22 @@
+<!-- Route #/launchitems: desktop tiles, the shared tile menu behind "…" and the log-off dialog. -->
+<ul id="launch-items">
+  <li class="launch-item" title="DEV desktop">
+    <button id="launch-dev-desktop-1" type="button">DEV desktop</button>
+    <button class="more-button" type="button" aria-haspopup="true" aria-label="More">…</button>
+  </li>
+  <li class="launch-item" title="Test desktop">
+    <button id="launch-test-desktop-2" type="button">Test desktop</button>
+    <button class="more-button" type="button" aria-haspopup="true" aria-label="More">…</button>
+  </li>
+</ul>
+<div id="tile-menu" role="menu" hidden>
+  <button id="menu-item-launch-btn" type="button" role="menuitem">Launch</button>
+  <button id="menu-item-logoff-btn" type="button" role="menuitem">Log Off</button>
+  <button id="menu-item-reset-btn" type="button" role="menuitem">Reset</button>
+</div>
+<div id="logoffDialog" class="dialog" hidden>
+  <p data-title="LOGOFF_DESKTOP_T">Log Off Desktop</p>
+  <p data-message="LOGOFF_DESKTOP_M">Any unsaved data will be lost. Log off?</p>
+  <button id="okDialogBtn" type="button">OK</button>
+  <button id="cancelDialogBtn" type="button">Cancel</button>
+</div>
