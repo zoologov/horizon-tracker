@@ -1,6 +1,6 @@
 # PLAN: HT-004 — Screenshot in the notification of a successful check-in and check-out
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---

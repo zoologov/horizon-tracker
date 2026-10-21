@@ -1,6 +1,6 @@
 # PLAN: HT-007 — Language of the notifications and the CLI output (i18n)
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---

@@ -19,7 +19,7 @@
 - [x] Wave 2: BEAD-03, BEAD-04, BEAD-05, BEAD-06 (landed 2026-10-20: a7695cd, 282811b, 88dce67, b7bbddc; 287 tests on the tree)
 - [x] Wave 3: BEAD-07, BEAD-14 (landed 2026-10-20: f0f958c, aaac43d; 358 tests on the tree)
 - [x] Wave 4: BEAD-08, BEAD-09 (landed 2026-10-20: a784433, 7d68763; 416 tests on the tree)
-- [ ] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 ✓ → BEAD-16 ✓ OK → BEAD-12 ✓; BEAD-13 the owner (after the PR merge)
+- [x] Wave 5: BEAD-10 ✓ → BEAD-11 ✓ (ISSUES) → BEAD-15 ✓ → BEAD-16 ✓ OK → BEAD-12 ✓; BEAD-13 the owner (after the PR merge) — BEAD-13 done (live check 2026-10-20; the scheduled cycle of 2026-10-21 confirmed by the owner)
 
 ## Results
 

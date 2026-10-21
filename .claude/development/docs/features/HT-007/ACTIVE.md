@@ -1,13 +1,13 @@
 # ACTIVE: HT-007 — i18n
 
 > **Last updated:** 2026-10-21
-> **Phase:** Development
+> **Phase:** Completed
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-06 (ht-1rh) live check — after the merge of PR #3 and `gh variable set HT_LANGUAGE --env horizon-vps --body ru`
+**Bead:** none — the work item is closed (BEAD-06 live check passed 2026-10-21)
 **Goal:** the notification arrives at the notification bot in Russian, the log in English
 **Done when:** the owner received a Russian notification; `horizon probe` on the VPS prints `language ru`
 
@@ -18,7 +18,7 @@
 - [x] BEAD-04 (2026-10-21)
 - [x] fix ht-7a0.1 (2026-10-21)
 - [x] BEAD-05 (2026-10-21)
-- [ ] BEAD-06: the live check after the merge
+- [x] BEAD-06: the live check after the merge — ht-1rh closed 2026-10-21: `HT_LANGUAGE=ru` as an environment variable, the check-out notification in Russian, the probe prints `язык ru`
 
 ## Results
 
@@ -30,7 +30,7 @@
 | fix | Done | ht-7a0.1, be6754b: `ScheduleError(reason: Message)` for the five refusals reachable from the settings; `Message.in_language` renders nested messages; the catalogue at 83 keys; `Check.label`/`status_label` are built at creation; `Message.fields` read-only; 1214 passed, coverage 99 %, mutations 370/372, 14 sabotages bite |
 | BEAD-04 | Done | ht-m1h: OK — 0 critical, 0 major, 2 minor, 4 nit; minor 1 (mixed languages in domain refusals) + nits 4, 5 → ht-7a0.1; minor 2 (the reason for excluding the catalogue from mutations) recorded in flow.yml; nit 3 — a documented decision; nit 6 closed |
 | BEAD-05 | Done | ht-zyh: 13 documentation files (the SPEC of messages/run-report/schedule/probe/telegram-notifier/windowed-run/morning-checkin/evening-checkout, cli.md, architecture.md, the domain and root READMEs, the summary of the `messages` node); sync-check 34/34, docs audit clean |
-| BEAD-06 | Open | — |
+| BEAD-06 | Done | ht-1rh: `HT_LANGUAGE=ru` in `horizon-vps`; the notification of 2026-10-21 17:08 in Russian; the v1.0.0 deploy's probe line `язык ru` |
 
 ## Notes
 

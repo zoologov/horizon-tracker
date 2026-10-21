@@ -1,6 +1,6 @@
 # PRD: HT-004 — Screenshot in the notification of a successful check-in and check-out
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---
@@ -61,4 +61,4 @@ them by name. `beadloom lint` reports a referenced scenario the suite does not c
 **Non-behavioural criteria** stay checkboxes and are labelled, so the absence of a scenario is
 a stated decision rather than a gap:
 
-- [ ] The first live notification with a photo received by the owner — non-behavioural: an observer outside the system.
+- [x] The first live notification with a photo received by the owner — non-behavioural: an observer outside the system. (the check-out photo, 2026-10-21 17:08 MSK)
