@@ -158,8 +158,9 @@ A release is a tag `vX.Y.Z` (strict semver, no pre-release suffix) on a commit o
 pull request runs CI alone; nothing reaches the host before a tag. Pushing the tag starts the
 Release workflow, which runs these jobs in order, each only after the one before it passed:
 
-1. **verify**: the tag is on `main`, equals the version in `pyproject.toml`, and has its
-   section in [`CHANGELOG.md`](CHANGELOG.md);
+1. **verify**: the tag is on `main`, equals the version in `pyproject.toml` and the version
+   `uv.lock` locks, and has its section in [`CHANGELOG.md`](CHANGELOG.md). A run by hand (a
+   redeploy) started from any branch but `main` stops here;
 2. **CI** on the tagged commit;
 3. **deploy** to the host;
 4. **GitHub Release** with the changelog section as its notes and the wheel and the sdist as

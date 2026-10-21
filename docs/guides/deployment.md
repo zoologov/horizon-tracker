@@ -191,10 +191,13 @@ is not started before the moment.
 ## 3. The GitHub Environment `horizon-vps`
 
 Settings -> Environments -> New environment -> `horizon-vps`. The `deploy` job of
-`release.yml` runs in this Environment and reads nothing else. If the Environment restricts
-its deployments to branches, it must also allow the release tags `v*`: a release runs on a
-tag, not on a branch. Values are entered only by a person, in GitHub's interface or through
-`gh`; they never go into a chat, an issue, a commit or a log.
+`release.yml` runs in this Environment and reads nothing else. Restrict its deployments to
+the branch `main` and the release tags `v*` (Deployment branches and tags -> Selected branches
+and tags): a release runs on a tag, and a redeploy by hand runs from `main`. A run started
+from any other branch then reaches none of the Environment's secrets, even when that branch's
+`release.yml` was edited to skip `verify`
+([`releasing.md`](releasing.md#what-verify-refuses)). Values are entered only by a person, in
+GitHub's interface or through `gh`; they never go into a chat, an issue, a commit or a log.
 
 ### 3.1. Secrets
 
@@ -511,9 +514,10 @@ workflow, section 6.4). A push to `main` deploys nothing. Two releases never run
 never cancel each other: the next one waits, and of several waiting runs GitHub keeps the
 newest. Cutting the tag, and what each job checks, is in [`releasing.md`](releasing.md).
 
-1. **`verify`** - the tag is a release tag, its commit is on `main`, `pyproject.toml` at that
-   commit declares the tag's version, and `CHANGELOG.md` holds the version's dated section. A
-   refused tag reaches nothing below.
+1. **`verify`** - the tag is a strict SemVer release tag, its commit is an ancestor of `main`,
+   `pyproject.toml` at that commit declares the tag's version, `uv.lock` locks the same
+   version, and `CHANGELOG.md` holds the version's dated section. A run by hand started from
+   any ref but `main` is refused. A refused tag reaches nothing below.
 2. **`gate`** - the full CI (`.github/workflows/ci.yml` through `workflow_call`) on the tag's
    commit: lint, types and workflow lint; then the tests and the architecture gate; then
    `ci-ok`, red unless everything before it succeeded. What reaches the host passed what a
@@ -526,7 +530,7 @@ newest. Cutting the tag, and what each job checks, is in [`releasing.md`](releas
 |------|--------------------------|-----------|
 | `Set up SSH` | nothing: key and `known_hosts` from the secrets onto the runner, alias `vps`, `StrictHostKeyChecking yes` | - |
 | `Preflight: reach the VPS` | nothing: refuses first when `HORIZON_URL` or `HORIZON_DESKTOP` is unset, then `ssh vps true`, the clone `/opt/horizon-tracker/.git` exists, `sudo -n -u horizon true` | a missing variable (named); the host unreachable, a wrong key or `known_hosts`, no clone, `sudo` asking for a password - before any change |
-| `Update the code` | `git fetch --prune origin` and `checkout --detach <the tag's commit>` as `horizon`, then `uv sync --locked` as `horizon` | no access to the host or the repository; a local edit in the clone; a stale `uv.lock` |
+| `Update the code` | `git fetch --prune origin` and `checkout --detach <the tag's commit>` as `horizon`, then `uv sync --locked` as `horizon` | no access to the host or the repository; a local edit in the clone. A stale `uv.lock` stops earlier, at `verify` (`lock`) or at `gate` (CI's `uv sync --locked`). The sync here is a backstop |
 | `Check the timers' time zone` | nothing: reads the `OnCalendar` lines of the timers just checked out | the timers fire in another zone than `HT_TIMEZONE` (both named) |
 | `Build .env` | nothing: the file is built on the runner | an empty required value - the step names the variable, never its value |
 | `Write .env` | `install -m 600 -o horizon -g horizon` from ssh's stdin into `.env.new`, then `mv -f` over `.env`; logs `horizon:horizon 600 .../.env` | - |
@@ -581,8 +585,10 @@ tag, and `portal-build` and `portal-deploy` publish the architecture portal to G
   timers' zone, or change both timers' `OnCalendar` (section 3.4).
 - **`Update the code` fails.** `sudo -u horizon git -C /opt/horizon-tracker status`: a
   local edit blocks the checkout. For a private repository, check the deploy key and that
-  `origin` is the SSH URL (`git remote -v`). `uv sync --locked` refuses a stale `uv.lock`:
-  fix it in the repository, not on the host.
+  `origin` is the SSH URL (`git remote -v`). A stale `uv.lock` does not reach this step:
+  `verify` refuses a lock that locks another version, and `gate` runs CI's
+  `uv sync --locked` on the tag's commit. If `uv sync --locked` still refuses here, fix the
+  lock in the repository, not on the host.
 - **`<NAME> is empty` in `Build .env`.** A required secret or variable is missing from the
   Environment.
 - **The smoke fails with `configuration error: ...`.** The named variable is wrong. A
