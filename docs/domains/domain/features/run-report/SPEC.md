@@ -1,7 +1,7 @@
 # Run report
 
-The run report as a value of closed vocabularies, and the Russian notification text
-rendered from it. No field can carry a password.
+The run report as a value of closed vocabularies, and the notification text rendered
+from it in the language the caller names. No field can carry a password.
 
 ## Source
 
@@ -25,7 +25,9 @@ off or a run started after its window names its moment as well. Only a `--force`
 leaves it `None`. `__post_init__` checks the type of every field and refuses a value
 of the wrong type with `TypeError`, rather than trusting the caller.
 
-`render(report)` builds the message text from fixed Russian phrases:
+`render(report, language)` builds the message text from the message catalogue
+([messages](../messages/SPEC.md)) in `language`. The same failure in English and in
+Russian:
 
 ```text
 Check-in failed
@@ -34,12 +36,22 @@ Calendar: the isdayoff.ru production calendar
 Reason: the desktop did not open
 ```
 
-The first line is the run kind (`Check-in` or `Check-out`) and the outcome (`succeeded`,
-`failed`, `skipped`). The time line carries the actual time with the abbreviation
-of the configured zone (`MSK` for the default `Europe/Moscow`), followed by
-`planned for HH:MM` when `planned_at` is set. The calendar line names the source: the
-isdayoff.ru calendar, the Monday-Friday fallback, or "not asked, manual run
---force". The reason line is present only when there is a reason. The screenshot never appears in
+```text
+Check-in failed
+Time: 21.10.2026 07:39:12 MSK, planned for 07:38
+Calendar: the isdayoff.ru production calendar
+Reason: the desktop did not open
+```
+
+The first line is the run kind and the outcome, one catalogue key per pair
+(`report.checkin.failed`). The time line carries the actual time with the abbreviation
+of the configured zone (`MSK` for the default `Europe/Moscow`), followed by the planned
+moment (`planned for HH:MM`, the `report.time_planned` key) when `planned_at` is set. The calendar
+line names the source: the isdayoff.ru calendar, the Monday-Friday fallback, or "not
+asked, manual run --force" for a run that asked no calendar. The reason line is present
+only when there is a reason. The two formatted times are the only values the report puts
+into the text; every word comes from the catalogue. The Russian texts are the ones the
+notification carried before the catalogue existed. The screenshot never appears in
 the text: the notifier attaches it beside the text. A failure carries the screenshot of
 the step that failed; a success carries the use case's photo of the step it completed
 (the opened desktop, the launch list without the session). Either may be `None`, and
@@ -52,7 +64,9 @@ the report then goes out as text.
 - `RunReport.at` carries a time zone; a naive `datetime` raises `ValueError`.
 - A reason is present exactly when the outcome is not `SUCCEEDED`; any other
   combination raises `ValueError`.
-- Every `Reason` has a Russian phrase; an exception message is never a reason.
+- Every `Reason` has a phrase in every language; an exception message is never a reason.
+- An English notification holds no Cyrillic letter, for every kind, outcome, source,
+  reason and planned moment.
 
 ## API
 
@@ -67,13 +81,15 @@ Module `src/horizon_tracker/domain/report.py`:
   `planned_at: time | None` is the drawn moment the run was due at, local wall time,
   set whether or not the run reached its window. It is `None` for a `--force` run. A
   value of any other type is refused with `TypeError`.
-- `render(report: RunReport) -> str` — the notification text; when `planned_at` is
-  set, the time line carries it beside the actual time:
+- `render(report: RunReport, language: Language) -> str` — the notification text in
+  `language`; there is no default, so every caller names the language it renders in.
+  When `planned_at` is set, the time line carries it beside the actual time:
   `Time: 20.10.2026 07:56:12 MSK, planned for 07:43`.
 
 ## Testing
 
-Tests: `tests/unit/domain/test_report.py`. The module is inside the mutation gate.
+Tests: `tests/unit/domain/test_report.py`, each text test in both languages. The module
+is inside the mutation gate.
 
 Scenarios:
 
@@ -87,7 +103,7 @@ Scenarios:
 
 Derived from the imports on reindex.
 
-- Depends on: `schedule`, `working-day-calendar`
+- Depends on: `messages`, `schedule`, `working-day-calendar`
 - Used by: `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `telegram-notifier`, `windowed-run`
 
 ## Parent

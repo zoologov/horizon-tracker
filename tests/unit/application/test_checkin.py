@@ -10,6 +10,7 @@ import pytest
 from horizon_tracker.application.checkin import MorningCheckin
 from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
@@ -279,7 +280,7 @@ def test_a_password_in_an_adapter_error_reaches_neither_the_report_nor_the_log(
     report = morning.run()
 
     assert report.reason is Reason.UNEXPECTED
-    assert PASSWORD not in render(report)
+    assert all(PASSWORD not in render(report, language) for language in Language)
     assert PASSWORD not in repr(report)
     assert PASSWORD not in caplog.text
 

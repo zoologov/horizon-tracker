@@ -1,7 +1,7 @@
 """Delivers run reports to the owner's Telegram chat through the Bot API.
 
 Implements the ``Notifier`` port. A report with a screenshot goes out as ``sendPhoto``
-captioned with ``render(report)``; without one, or when the photo cannot be read or is
+captioned with ``render(report, language)``; without one, or when the photo cannot be read or is
 refused, as ``sendMessage`` with the same text. A failed delivery is logged and
 swallowed: a run never fails on its notification.
 
@@ -17,6 +17,7 @@ import re
 
 import httpx
 
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.report import RunReport, render
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,8 @@ TIMEOUT_SECONDS = 20.0  # a photo upload; bounded so a hung API cannot hold the 
 _TOKEN_SHAPE = re.compile(r"\d+:[A-Za-z0-9_-]+")
 _TOKEN_IN_BOT_URL = re.compile(r"(api\.telegram\.org/bot)[^/\s\"']+")
 _MASK = "<token>"
+# The language the owner has always read; HT-007 BEAD-02 makes it a constructor argument.
+_LANGUAGE = Language.RU
 
 
 class _BotUrlTokenFilter(logging.Filter):
@@ -65,7 +68,7 @@ class TelegramNotifier:
 
     def send(self, report: RunReport) -> None:
         """Send the report; with its screenshot as a photo when one can be delivered."""
-        text = render(report)
+        text = render(report, _LANGUAGE)
         if report.screenshot is not None:
             try:
                 photo = report.screenshot.read_bytes()

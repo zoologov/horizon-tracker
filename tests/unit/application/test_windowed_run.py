@@ -10,6 +10,7 @@ import pytest
 
 from horizon_tracker.application.windowed_run import AttemptResult, FirstDecision, WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window, window_from
@@ -227,7 +228,7 @@ def test_the_notification_says_on_which_side_of_the_window_the_run_started(
 
     world.run(world.attempt(Outcome.SUCCEEDED))
 
-    text = render(world.only_report)
+    text = render(world.only_report, Language.RU)
     assert said in text
     assert not_said not in text
 
@@ -336,7 +337,7 @@ def test_an_unexpected_error_text_reaches_neither_the_notification_nor_the_log(
 
     assert "RuntimeError" in caplog.text
     assert PASSWORD not in caplog.text
-    assert PASSWORD not in render(world.only_report)
+    assert all(PASSWORD not in render(world.only_report, language) for language in Language)
 
 
 # --- --force -----------------------------------------------------------------------
@@ -568,7 +569,7 @@ def test_a_scheduled_report_names_the_drawn_moment_whatever_the_outcome(
     report = world.run(world.attempt(*attempts))
 
     assert report.planned_at == MOMENT
-    assert "назначено на 07:43" in render(world.only_report)
+    assert "назначено на 07:43" in render(world.only_report, Language.RU)
 
 
 def test_a_run_without_a_drawn_moment_names_no_planned_time() -> None:

@@ -1,10 +1,13 @@
-"""The run report as a value, and the notification text rendered from it.
+"""The run report as a value, and the notification text rendered from it in a language.
 
 A report carries no free text at all: the outcome and the reason come from closed
 vocabularies, the time is a ``datetime``, the planned moment a ``time``, and the
 screenshot is a path the notifier attaches beside the text. There is no field a
 password could travel in, so the rendered message cannot leak one -- and the report
 refuses a value of the wrong type at construction rather than trusting the caller.
+
+The words of the text come from the message catalogue (``domain.messages``) in the
+language the caller names; this module only decides which lines a report has.
 """
 
 # beadloom:domain=domain
@@ -15,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language, text
 from horizon_tracker.domain.schedule import RunKind
 
 
@@ -41,32 +45,8 @@ class Reason(StrEnum):
     UNEXPECTED = "unexpected"
 
 
-_KIND_TEXT = {RunKind.CHECKIN: "Вход", RunKind.CHECKOUT: "Выход"}
-
-_OUTCOME_TEXT = {
-    Outcome.SUCCEEDED: "выполнен",
-    Outcome.FAILED: "не удался",
-    Outcome.SKIPPED: "пропущен",
-}
-
-_SOURCE_TEXT = {
-    VerdictSource.CALENDAR: "производственный календарь isdayoff.ru",
-    VerdictSource.WEEKDAY_FALLBACK: "недоступен, решило правило пн-пт",
-    None: "не спрашивали, ручной прогон --force",
-}
-
-_REASON_TEXT = {
-    Reason.NON_WORKING_DAY: "выходной",
-    Reason.TOO_EARLY: "прогон начался до своего окна",
-    Reason.WINDOW_MISSED: "прогон начался после своего окна",
-    Reason.ALREADY_LOGGED_OFF: "сессии на столе уже нет, выходить не из чего",
-    Reason.PORTAL_UNREACHABLE: "портал Horizon недоступен",
-    Reason.LOGIN_REJECTED: "портал отклонил вход",
-    Reason.DESKTOP_NOT_FOUND: "рабочий стол не найден среди доступных",
-    Reason.DESKTOP_DID_NOT_OPEN: "рабочий стол не открылся",
-    Reason.LOGOFF_NOT_CONFIRMED: "выход из Windows не подтвердился",
-    Reason.UNEXPECTED: "непредвиденная ошибка, подробности в журнале",
-}
+# The calendar line of a --force run, which asks no calendar and so has no VerdictSource.
+_NOT_ASKED = "not_asked"
 
 _TIME_FORMAT = "%d.%m.%Y %H:%M:%S %Z"
 _PLANNED_FORMAT = "%H:%M"
@@ -109,20 +89,27 @@ class RunReport:
             raise ValueError("RunReport.reason is required for a failure or a skip, and only then")
 
 
-def render(report: RunReport) -> str:
-    """The notification text for one run: headline, time and plan, calendar source, reason."""
+def render(report: RunReport, language: Language) -> str:
+    """The notification text for one run in ``language``: headline, time, calendar, reason.
+
+    Every word comes from the message catalogue; only the two formatted times are the
+    report's own, so a field could not carry a password into the text even if it held one.
+    """
+    source = report.verdict_source or _NOT_ASKED
     lines = [
-        f"{_KIND_TEXT[report.kind]} {_OUTCOME_TEXT[report.outcome]}",
-        _time_line(report),
-        f"Календарь: {_SOURCE_TEXT[report.verdict_source]}",
+        text(f"report.{report.kind}.{report.outcome}", language),
+        _time_line(report, language),
+        text("report.calendar", language, source=text(f"report.source.{source}", language)),
     ]
     if report.reason is not None:
-        lines.append(f"Причина: {_REASON_TEXT[report.reason]}")
+        reason = text(f"reason.{report.reason}", language)
+        lines.append(text("report.reason", language, reason=reason))
     return "\n".join(lines)
 
 
-def _time_line(report: RunReport) -> str:
-    actual = f"Время: {report.at.strftime(_TIME_FORMAT)}"
+def _time_line(report: RunReport, language: Language) -> str:
+    at = report.at.strftime(_TIME_FORMAT)
     if report.planned_at is None:
-        return actual
-    return f"{actual}, назначено на {report.planned_at.strftime(_PLANNED_FORMAT)}"
+        return text("report.time", language, at=at)
+    planned = report.planned_at.strftime(_PLANNED_FORMAT)
+    return text("report.time_planned", language, at=at, planned=planned)

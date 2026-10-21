@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.ports import Notifier
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import RunKind
@@ -95,7 +96,7 @@ def test_a_report_without_a_screenshot_goes_out_as_a_text_message() -> None:
     assert request.method == "POST"
     assert str(request.url) == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     assert httpx.QueryParams(request.content.decode()) == httpx.QueryParams(
-        {"chat_id": CHAT_ID, "text": render(SUCCESS)}
+        {"chat_id": CHAT_ID, "text": render(SUCCESS, Language.RU)}
     )
 
 
@@ -115,7 +116,7 @@ def test_a_report_with_a_screenshot_goes_out_as_a_photo_captioned_with_the_text(
     body = request.content
     assert request.headers["content-type"].startswith("multipart/form-data")
     assert b'name="chat_id"\r\n\r\n' + CHAT_ID.encode() in body
-    assert b'name="caption"\r\n\r\n' + render(report).encode() in body
+    assert b'name="caption"\r\n\r\n' + render(report, Language.RU).encode() in body
     assert b'name="photo"; filename="checkin-failed.png"' in body
     assert PNG in body
 
@@ -139,7 +140,8 @@ def test_a_photo_the_bot_api_rejects_still_delivers_the_text(screenshot: Path) -
     _notifier(api).send(report)
 
     assert api.methods == ["sendPhoto", "sendMessage"]
-    assert httpx.QueryParams(api.requests[1].content.decode())["text"] == render(report)
+    sent = httpx.QueryParams(api.requests[1].content.decode())["text"]
+    assert sent == render(report, Language.RU)
 
 
 # --- the failures: logged, never raised -----------------------------------------

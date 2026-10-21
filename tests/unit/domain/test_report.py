@@ -1,6 +1,7 @@
 """Unit tests for the run report value and the notification text rendered from it."""
 
 import dataclasses
+import unicodedata
 from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -8,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import RunKind
 
@@ -31,97 +33,188 @@ def _failure(reason: Reason, screenshot: Path | None = None) -> RunReport:
 
 # --- the text -----------------------------------------------------------------
 
+RU = Language.RU
+EN = Language.EN
+
 
 @pytest.mark.parametrize(
-    ("kind", "outcome", "reason", "headline"),
+    ("language", "kind", "outcome", "reason", "headline"),
     [
-        (RunKind.CHECKIN, Outcome.SUCCEEDED, None, "Вход выполнен"),
-        (RunKind.CHECKOUT, Outcome.SUCCEEDED, None, "Выход выполнен"),
-        (RunKind.CHECKIN, Outcome.FAILED, Reason.LOGIN_REJECTED, "Вход не удался"),
-        (RunKind.CHECKOUT, Outcome.SKIPPED, Reason.ALREADY_LOGGED_OFF, "Выход пропущен"),
+        (RU, RunKind.CHECKIN, Outcome.SUCCEEDED, None, "Вход выполнен"),
+        (RU, RunKind.CHECKOUT, Outcome.SUCCEEDED, None, "Выход выполнен"),
+        (RU, RunKind.CHECKIN, Outcome.FAILED, Reason.LOGIN_REJECTED, "Вход не удался"),
+        (RU, RunKind.CHECKOUT, Outcome.SKIPPED, Reason.ALREADY_LOGGED_OFF, "Выход пропущен"),
+        (EN, RunKind.CHECKIN, Outcome.SUCCEEDED, None, "Check-in succeeded"),
+        (EN, RunKind.CHECKOUT, Outcome.SUCCEEDED, None, "Check-out succeeded"),
+        (EN, RunKind.CHECKIN, Outcome.FAILED, Reason.LOGIN_REJECTED, "Check-in failed"),
+        (EN, RunKind.CHECKOUT, Outcome.SKIPPED, Reason.ALREADY_LOGGED_OFF, "Check-out skipped"),
     ],
 )
 def test_render_opens_with_the_kind_and_the_outcome(
-    kind: RunKind, outcome: Outcome, reason: Reason | None, headline: str
+    language: Language, kind: RunKind, outcome: Outcome, reason: Reason | None, headline: str
 ) -> None:
     report = dataclasses.replace(SUCCESS, kind=kind, outcome=outcome, reason=reason)
 
-    assert render(report).splitlines()[0] == headline
-
-
-def test_render_states_the_time_in_the_reports_own_time_zone() -> None:
-    assert "Время: 20.10.2026 07:56:12 MSK" in render(SUCCESS).splitlines()
+    assert render(report, language).splitlines()[0] == headline
 
 
 @pytest.mark.parametrize(
-    ("source", "line"),
+    ("language", "line"),
+    [(RU, "Время: 20.10.2026 07:56:12 MSK"), (EN, "Time: 20.10.2026 07:56:12 MSK")],
+)
+def test_render_states_the_time_in_the_reports_own_time_zone(language: Language, line: str) -> None:
+    assert line in render(SUCCESS, language).splitlines()
+
+
+@pytest.mark.parametrize(
+    ("language", "source", "line"),
     [
-        (VerdictSource.CALENDAR, "Календарь: производственный календарь isdayoff.ru"),
-        (VerdictSource.WEEKDAY_FALLBACK, "Календарь: недоступен, решило правило пн-пт"),
-        (None, "Календарь: не спрашивали, ручной прогон --force"),
+        (RU, VerdictSource.CALENDAR, "Календарь: производственный календарь isdayoff.ru"),
+        (RU, VerdictSource.WEEKDAY_FALLBACK, "Календарь: недоступен, решило правило пн-пт"),
+        (RU, None, "Календарь: не спрашивали, ручной прогон --force"),
+        (EN, VerdictSource.CALENDAR, "Calendar: the isdayoff.ru production calendar"),
+        (EN, VerdictSource.WEEKDAY_FALLBACK, "Calendar: unreachable, the Mon-Fri rule decided"),
+        (EN, None, "Calendar: not asked, manual run --force"),
     ],
 )
 def test_render_names_which_rule_decided_the_working_day(
-    source: VerdictSource | None, line: str
+    language: Language, source: VerdictSource | None, line: str
 ) -> None:
     report = dataclasses.replace(SUCCESS, verdict_source=source)
 
-    assert line in render(report).splitlines()
+    assert line in render(report, language).splitlines()
 
 
-def test_render_puts_the_planned_moment_beside_the_actual_time() -> None:
+@pytest.mark.parametrize(
+    ("language", "line"),
+    [
+        (RU, "Время: 20.10.2026 07:56:12 MSK, назначено на 07:43"),
+        (EN, "Time: 20.10.2026 07:56:12 MSK, planned for 07:43"),
+    ],
+)
+def test_render_puts_the_planned_moment_beside_the_actual_time(
+    language: Language, line: str
+) -> None:
     report = dataclasses.replace(SUCCESS, planned_at=time(7, 43))
 
-    assert "Время: 20.10.2026 07:56:12 MSK, назначено на 07:43" in render(report).splitlines()
+    assert line in render(report, language).splitlines()
 
 
-def test_render_names_no_planned_moment_when_the_run_had_none() -> None:
+@pytest.mark.parametrize(("language", "word"), [(RU, "назначено"), (EN, "planned")])
+def test_render_names_no_planned_moment_when_the_run_had_none(
+    language: Language, word: str
+) -> None:
     # A --force run has no drawn moment: the time line stands alone.
-    assert "назначено" not in render(SUCCESS)
+    assert word not in render(SUCCESS, language)
 
 
 def test_report_keeps_the_planned_moment() -> None:
     assert dataclasses.replace(SUCCESS, planned_at=time(16, 41)).planned_at == time(16, 41)
 
 
-def test_a_success_carries_no_reason_line() -> None:
-    assert not any(line.startswith("Причина:") for line in render(SUCCESS).splitlines())
-
-
-def test_a_holiday_skip_says_it_is_a_day_off() -> None:
-    report = dataclasses.replace(SUCCESS, outcome=Outcome.SKIPPED, reason=Reason.NON_WORKING_DAY)
-
-    assert "Причина: выходной" in render(report).splitlines()
+@pytest.mark.parametrize(("language", "prefix"), [(RU, "Причина:"), (EN, "Reason:")])
+def test_a_success_carries_no_reason_line(language: Language, prefix: str) -> None:
+    assert not any(line.startswith(prefix) for line in render(SUCCESS, language).splitlines())
 
 
 @pytest.mark.parametrize(
-    ("reason", "line"),
+    ("language", "line"), [(RU, "Причина: выходной"), (EN, "Reason: a day off")]
+)
+def test_a_holiday_skip_says_it_is_a_day_off(language: Language, line: str) -> None:
+    report = dataclasses.replace(SUCCESS, outcome=Outcome.SKIPPED, reason=Reason.NON_WORKING_DAY)
+
+    assert line in render(report, language).splitlines()
+
+
+@pytest.mark.parametrize(
+    ("language", "reason", "line"),
     [
-        (Reason.TOO_EARLY, "Причина: прогон начался до своего окна"),
-        (Reason.WINDOW_MISSED, "Причина: прогон начался после своего окна"),
+        (RU, Reason.TOO_EARLY, "Причина: прогон начался до своего окна"),
+        (RU, Reason.WINDOW_MISSED, "Причина: прогон начался после своего окна"),
+        (EN, Reason.TOO_EARLY, "Reason: the run started before its window"),
+        (EN, Reason.WINDOW_MISSED, "Reason: the run started after its window"),
     ],
-    ids=["early", "late"],
+    ids=["early-ru", "late-ru", "early-en", "late-en"],
 )
 def test_a_window_skip_says_on_which_side_of_the_window_the_run_started(
-    reason: Reason, line: str
+    language: Language, reason: Reason, line: str
 ) -> None:
     report = dataclasses.replace(SUCCESS, outcome=Outcome.SKIPPED, reason=reason)
 
-    assert line in render(report).splitlines()
+    assert line in render(report, language).splitlines()
+
+
+RUSSIAN_REASONS = {
+    Reason.NON_WORKING_DAY: "выходной",
+    Reason.TOO_EARLY: "прогон начался до своего окна",
+    Reason.WINDOW_MISSED: "прогон начался после своего окна",
+    Reason.ALREADY_LOGGED_OFF: "сессии на столе уже нет, выходить не из чего",
+    Reason.PORTAL_UNREACHABLE: "портал Horizon недоступен",
+    Reason.LOGIN_REJECTED: "портал отклонил вход",
+    Reason.DESKTOP_NOT_FOUND: "рабочий стол не найден среди доступных",
+    Reason.DESKTOP_DID_NOT_OPEN: "рабочий стол не открылся",
+    Reason.LOGOFF_NOT_CONFIRMED: "выход из Windows не подтвердился",
+    Reason.UNEXPECTED: "непредвиденная ошибка, подробности в журнале",
+}
 
 
 @pytest.mark.parametrize("reason", list(Reason))
-def test_every_reason_renders_its_own_non_empty_line(reason: Reason) -> None:
-    lines = [line for line in render(_failure(reason)).splitlines() if line.startswith("Причина:")]
+def test_every_reason_reads_in_russian_as_it_did_before_the_catalogue(reason: Reason) -> None:
+    assert f"Причина: {RUSSIAN_REASONS[reason]}" in render(_failure(reason), RU).splitlines()
+
+
+@pytest.mark.parametrize(("language", "prefix"), [(RU, "Причина:"), (EN, "Reason:")])
+@pytest.mark.parametrize("reason", list(Reason))
+def test_every_reason_renders_its_own_non_empty_line(
+    reason: Reason, language: Language, prefix: str
+) -> None:
+    text = render(_failure(reason), language)
+    lines = [line for line in text.splitlines() if line.startswith(prefix)]
 
     assert len(lines) == 1
-    assert lines[0].removeprefix("Причина:").strip()
+    assert lines[0].removeprefix(prefix).strip()
 
 
-def test_every_reason_reads_differently() -> None:
-    texts = {render(_failure(reason)) for reason in Reason}
+@pytest.mark.parametrize("language", list(Language))
+def test_every_reason_reads_differently(language: Language) -> None:
+    texts = {render(_failure(reason), language) for reason in Reason}
 
     assert len(texts) == len(Reason)
+
+
+def _every_report() -> list[RunReport]:
+    """One report per kind, outcome, calendar source and planned moment, each reason once."""
+    reports = []
+    for kind in RunKind:
+        for source in [*VerdictSource, None]:
+            for planned in (None, time(7, 43)):
+                base = dataclasses.replace(
+                    SUCCESS, kind=kind, verdict_source=source, planned_at=planned
+                )
+                reports.append(base)
+                reports.extend(
+                    dataclasses.replace(base, outcome=outcome, reason=reason)
+                    for outcome in (Outcome.FAILED, Outcome.SKIPPED)
+                    for reason in Reason
+                )
+    return reports
+
+
+def _has_cyrillic(text: str) -> bool:
+    return any(unicodedata.name(letter, "").startswith("CYRILLIC") for letter in text)
+
+
+def test_an_english_notification_holds_no_russian_word() -> None:
+    # Any branch of render that skipped the catalogue would leave a Russian literal here.
+    assert not [report for report in _every_report() if _has_cyrillic(render(report, EN))]
+
+
+def test_a_russian_and_an_english_notification_differ_on_every_line() -> None:
+    for report in _every_report():
+        russian, english = render(report, RU).splitlines(), render(report, EN).splitlines()
+
+        assert len(russian) == len(english)
+        assert all(ru != en for ru, en in zip(russian, english, strict=True))
 
 
 # --- the value: well-formed by construction -------------------------------------
@@ -202,7 +295,7 @@ def test_a_password_passed_through_any_field_never_reaches_the_text(
     report = _with_field(field, carrier)
 
     if report is not None:
-        assert PASSWORD not in render(report)
+        assert all(PASSWORD not in render(report, language) for language in Language)
 
 
 def test_the_password_test_covers_the_planned_moment() -> None:
@@ -214,4 +307,4 @@ def test_the_screenshot_travels_beside_the_text_not_inside_it() -> None:
     report = _failure(Reason.DESKTOP_DID_NOT_OPEN, Path(f"/var/lib/horizon/{PASSWORD}.png"))
 
     assert report.screenshot is not None
-    assert PASSWORD not in render(report)
+    assert all(PASSWORD not in render(report, language) for language in Language)

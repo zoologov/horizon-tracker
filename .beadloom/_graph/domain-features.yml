@@ -27,10 +27,17 @@ nodes:
 
   - ref_id: run-report
     kind: feature
-    summary: "The run report as a value of closed vocabularies, and the Russian notification text rendered from it; no field can carry a password"
+    summary: "The run report as a value of closed vocabularies, and the notification text rendered from it in a language from the message catalogue; no field can carry a password"
     source: src/horizon_tracker/domain/report.py
     docs:
       - docs/domains/domain/features/run-report/SPEC.md
+
+  - ref_id: messages
+    kind: feature
+    summary: "The message catalogue: every text a person reads, keyed, in English and Russian; text(key, language, **fields) and the completeness check missing_translations()"
+    source: src/horizon_tracker/domain/messages.py
+    docs:
+      - docs/domains/domain/features/messages/SPEC.md
 
   - ref_id: ports
     kind: feature
@@ -44,4 +51,5 @@ edges:
   - { src: working-day-calendar, dst: domain, kind: part_of }
   - { src: session-state,        dst: domain, kind: part_of }
   - { src: run-report,           dst: domain, kind: part_of }
+  - { src: messages,             dst: domain, kind: part_of }
   - { src: ports,                dst: domain, kind: part_of }
