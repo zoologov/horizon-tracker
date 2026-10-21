@@ -7,15 +7,15 @@
 
 ## Current Bead
 
-**Bead:** BEAD-03 (ht-bsc) test — the four PRD scenarios instead of the stubs
-**Goal:** `language.feature` passes with real steps through `HT_LANGUAGE` in the scene's environment
-**Done when:** the four scenarios are green and bite, no SKIP stubs
+**Bead:** BEAD-04 (ht-m1h) review
+**Goal:** the verdict on BEAD-01..03 on the final tree
+**Done when:** the verdict in the bead's comments; no major, or a fix bead is opened
 
 ## Progress
 
 - [x] The documents are approved by the owner's standing decision (2026-10-20); the beads are created, parent ht-7a0
-- [x] BEAD-01, BEAD-02 (2026-10-21)
-- [ ] BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06
+- [x] BEAD-01 … BEAD-03 (2026-10-21)
+- [ ] BEAD-04 → BEAD-04 → BEAD-05 → BEAD-06
 
 ## Results
 
@@ -23,7 +23,7 @@
 |------|--------|---------|
 | BEAD-01 | Done | ht-7kx, 9070895: `domain/messages.py` (`Language`, 75 keys en/ru, `text`, `missing_translations`), `render(report, language)`; 282 tests, 1058 passed / 4 skipped, coverage 99 %, mutations 301/303 (99.3 %; the survivors — `schedule._pick`), 13 sabotages bite; a temporary constant `_LANGUAGE = RU` in the notifier until BEAD-02 |
 | BEAD-02 | Done | ht-1yu, 87b2809: `Settings.language` from `HT_LANGUAGE` (en by default, ru; anything else refused at start-up), `TelegramNotifier(..., language)`, `build_notifier`; probe/dry-run/configuration errors through `Message` and the catalogue (77 keys); a configuration error — the log in English + an echo in the reader's language to stderr; 57 tests, 1115 passed / 4 skipped, coverage 99 %, mutations 308/310, 20 sabotages bite; the deployment reads `vars.HT_LANGUAGE` |
-| BEAD-03 | Open | — |
+| BEAD-03 | Done | ht-bsc, e7aff90: the 4 PRD scenarios + 7 edge cases = 17 tests through `HT_LANGUAGE` → Settings → `build_notifier`; no stubs left in the suite; 1132 passed / 0 skipped, coverage 99 %; 16 sabotages bite |
 | BEAD-04 | Open | — |
 | BEAD-05 | Open | — |
 | BEAD-06 | Open | — |
