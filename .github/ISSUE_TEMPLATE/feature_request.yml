@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a new capability or a change to an existing one.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first and the solution second: a problem can have a better
+        answer than the first one that comes to mind.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today, or what goes wrong, and when it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What the service, the horizon command or the deploy should do instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Public surface
+      description: >-
+        What the change touches. docs/guides/releasing.md states the public surface and
+        which change raises which part of the version.
+      options:
+        - The horizon command (subcommands, options, exit codes)
+        - Environment variables (names, defaults, accepted values)
+        - The deploy contract (secrets, variables, units, host layout)
+        - The Telegram report
+        - None of these
+        - I do not know
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve the problem, and why they fall short.

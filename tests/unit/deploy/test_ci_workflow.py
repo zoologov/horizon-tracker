@@ -1,11 +1,13 @@
 """Tests for the CI workflow: three stages, early refusal, and one status that sums them.
 
-CI is the gate a pull request is read by and the gate the deploy reuses. Stage 1 holds
-the cheap static checks; stage 2 - the suite with its browser, and the Beadloom Gate -
-starts only when all of stage 1 passed, so a linter error never pays for Chromium; stage
-3 is ``ci-ok``, the one status branch protection can require. The scripts whose outcome
-is the gate's (``ci-ok``, the unit verification, the Playwright version) are executed here
-with the inputs a runner would give them, not only read.
+CI is the gate a pull request is read by and the gate the release reuses. Stage 1 holds
+the cheap static checks; stage 2 - the suite with its browser, the Beadloom Gate and, on
+a pull request, the mutation of the domain functions it touched - starts only when all of
+stage 1 passed, so a linter error never pays for Chromium; stage 3 is ``ci-ok``, the one
+status branch protection can require, and the mutation verdict is not part of it. The
+scripts whose outcome is the gate's (``ci-ok``, the unit verification, the Playwright
+version, the mutation summary) are executed here with the inputs a runner would give them,
+not only read.
 """
 
 import json
@@ -26,7 +28,10 @@ COVERAGE_FLOOR = 80
 COVERAGE_SUMMARY = "Coverage in the job summary"
 STAGE_1 = {"lint", "types", "workflow-lint"}
 STAGE_2 = {"tests", "beadloom-gate"}
+# Stage 2 as well, and informative: outside ci-ok by the owner's decision of HT-005.
+MUTATION = "mutation-per-change"
 AGGREGATE = "ci-ok"
+FLOOR_PERCENT = "85"
 PYTHONS = ["3.12", "3.13"]
 BASH = shutil.which("bash")
 JQ = shutil.which("jq")
@@ -85,11 +90,27 @@ def run_step(
 # --- triggers and concurrency ---------------------------------------------------------------
 
 
-def test_ci_runs_on_pull_requests_and_pushes_to_main_and_for_the_deploy() -> None:
+def test_ci_runs_on_pull_requests_pushes_to_main_by_hand_and_for_the_release() -> None:
     on = ci()["on"]
+    assert set(on) == {"pull_request", "push", "workflow_dispatch", "workflow_call"}
     assert on["pull_request"]["branches"] == ["main"]
-    assert on["push"]["branches"] == ["main"]
-    assert "workflow_call" in on
+    assert on["push"] == {"branches": ["main"]}
+
+
+def test_a_caller_names_the_commit_ci_checks() -> None:
+    # A redeploy by hand runs on main's head while it deploys an older tag: the release
+    # passes the tag's commit, so the gate checks what reaches the host.
+    ref = ci()["on"]["workflow_call"]["inputs"]["ref"]
+    assert ref["type"] == "string"
+    assert ref["required"] is False
+    assert ref["default"] == ""
+
+
+@pytest.mark.parametrize("name", sorted(STAGE_1 | STAGE_2 | {MUTATION}))
+def test_every_job_checks_out_the_commit_its_caller_names(name: str) -> None:
+    # Empty on a pull request, a push or a dispatch, where checkout takes the event's own
+    # commit; the release's commit under workflow_call.
+    assert steps(ci(), name)[0]["with"]["ref"] == "${{ inputs.ref }}"
 
 
 def test_only_a_pull_requests_superseded_run_is_cancelled() -> None:
@@ -102,7 +123,7 @@ def test_only_a_pull_requests_superseded_run_is_cancelled() -> None:
 
 
 def test_the_jobs_are_the_three_stages() -> None:
-    assert set(ci()["jobs"]) == STAGE_1 | STAGE_2 | {AGGREGATE}
+    assert set(ci()["jobs"]) == STAGE_1 | STAGE_2 | {MUTATION, AGGREGATE}
 
 
 @pytest.mark.parametrize("name", sorted(STAGE_1))
@@ -110,12 +131,14 @@ def test_stage_one_waits_for_nothing(name: str) -> None:
     assert needs(name) == set()
 
 
-@pytest.mark.parametrize("name", sorted(STAGE_2))
+@pytest.mark.parametrize("name", sorted(STAGE_2 | {MUTATION}))
 def test_stage_two_starts_only_after_all_of_stage_one(name: str) -> None:
     assert needs(name) == STAGE_1
 
 
-def test_ci_ok_waits_for_every_other_job_and_runs_whatever_they_did() -> None:
+def test_ci_ok_waits_for_every_blocking_job_and_runs_whatever_they_did() -> None:
+    # The mutation verdict is informative (HT-005): it is seen on the pull request and
+    # never decides ci-ok, and on a push or a release it does not run at all.
     assert needs(AGGREGATE) == STAGE_1 | STAGE_2
     # Without always() a failed need SKIPS ci-ok, and a skipped required check reads as
     # passed in branch protection.
@@ -154,17 +177,18 @@ def test_ci_ok_is_red_when_it_was_given_no_job_to_sum() -> None:
 
 
 ADAPTER = ".github/scripts/mutmut_adapter.py"
+SYNC = "uv sync --locked --extra dev"
 RUFF_CHECK = "uv run ruff check"
 RUFF_FORMAT = "uv run ruff format --check"
 MYPY = "uv run mypy"
 
 
 def test_lint_checks_the_rules_and_the_format() -> None:
-    assert_in_order("lint", ["uv sync --extra dev", RUFF_CHECK, RUFF_FORMAT])
+    assert_in_order("lint", [SYNC, RUFF_CHECK, RUFF_FORMAT])
 
 
 def test_types_checks_the_code_the_tests_and_the_ci_glue() -> None:
-    assert_in_order("types", ["uv sync --extra dev", MYPY])
+    assert_in_order("types", [SYNC, MYPY])
 
 
 def test_the_static_checks_take_their_scope_from_pyproject() -> None:
@@ -173,6 +197,21 @@ def test_the_static_checks_take_their_scope_from_pyproject() -> None:
     lines = command_lines("lint") + command_lines("types")
     tools = [line for line in lines if line.startswith(("uv run ruff", "uv run mypy"))]
     assert tools == [RUFF_CHECK, RUFF_FORMAT, MYPY]
+
+
+def pull_request_gates() -> set[str]:
+    """The commands the "Gates run" checklist of the pull request template ticks."""
+    text = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
+    section = re.search(r"^## Gates run\n(.*?)(?=^## )", text, re.DOTALL | re.MULTILINE)
+    assert section, "the pull request template has no section ## Gates run"
+    return set(re.findall(r"`([^`]+)`", section.group(1)))
+
+
+def test_the_pull_request_template_ticks_the_commands_ci_runs() -> None:
+    # A narrower command on the checklist checks less than CI does on the same change.
+    lines = command_lines("lint") + command_lines("types")
+    static = {line for line in lines if line.startswith(("uv run ruff", "uv run mypy"))}
+    assert pull_request_gates() == {"uv run pytest", *static, "beadloom ci"}
 
 
 def test_mypy_is_configured_over_the_code_the_tests_and_the_ci_glue() -> None:
@@ -265,7 +304,7 @@ def test_tests_install_the_browser_after_restoring_its_cache() -> None:
     assert names.index("Cache the Playwright browser") < names.index("Chromium for the adapters")
     assert_in_order(
         "tests",
-        ["uv sync --extra dev", "uv run playwright install --with-deps chromium", "uv run pytest"],
+        [SYNC, "uv run playwright install --with-deps chromium", "uv run pytest"],
     )
 
 
@@ -426,7 +465,7 @@ def test_the_gate_holds_the_epics_against_the_as_is_space() -> None:
 
 
 def test_no_job_runs_without_the_code_it_checks() -> None:
-    for name in STAGE_1 | STAGE_2:
+    for name in STAGE_1 | STAGE_2 | {MUTATION}:
         first = steps(ci(), name)[0]
         assert str(first.get("uses", "")).startswith("actions/checkout@"), name
         assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", first["uses"]), name
@@ -434,5 +473,84 @@ def test_no_job_runs_without_the_code_it_checks() -> None:
 
 def test_no_job_keeps_the_token_in_its_checkout() -> None:
     # No job pushes; a token left in .git/config is one a later step could read.
-    for name in STAGE_1 | STAGE_2:
+    for name in STAGE_1 | STAGE_2 | {MUTATION}:
         assert steps(ci(), name)[0].get("with", {}).get("persist-credentials") is False, name
+
+
+# --- stage 2: mutation per change -----------------------------------------------------------
+
+
+def test_the_mutation_of_a_change_runs_on_pull_requests_only() -> None:
+    # A push to main and the release's gate have no base to take a change from.
+    assert job(MUTATION)["if"] == "github.event_name == 'pull_request'"
+
+
+def test_the_mutation_job_reads_the_whole_history_for_the_merge_base() -> None:
+    checkout = steps(ci(), MUTATION)[0]
+    assert checkout["with"]["fetch-depth"] == 0
+    assert job(MUTATION)["env"]["BASE"] == "origin/${{ github.base_ref }}"
+
+
+def test_the_mutation_job_installs_the_suite_and_the_pinned_beadloom() -> None:
+    lines = command_lines(MUTATION)
+    assert SYNC in lines
+    assert "uv tool install beadloom==9.0.0" in lines
+    setup = [s for s in steps(ci(), MUTATION) if str(s.get("uses", "")).startswith("astral-sh/")]
+    assert len(setup) == 1
+    assert str(setup[0]["with"]["python-version"]) == "3.12"
+
+
+def test_the_mutation_job_runs_the_script_over_the_change() -> None:
+    expected = (
+        f'scripts/mutation.sh --changed-since "$BASE" --out "$RUNNER_TEMP/mutation" '
+        f"--min-score {FLOOR_PERCENT}"
+    )
+    assert expected in [" ".join(line.split()) for line in command_lines(MUTATION)]
+
+
+def test_the_mutation_report_and_counters_outlive_a_red_run() -> None:
+    upload = step_named(ci(), MUTATION, "Keep the plan, the counters and the survivors")
+    assert upload["if"] == "${{ !cancelled() }}"
+    assert upload["with"]["path"] == "${{ runner.temp }}/mutation"
+    assert step_named(ci(), MUTATION, "Summary")["if"] == "${{ !cancelled() }}"
+
+
+def mutation_summary(
+    tmp_path: Path, outcome: str | None
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    out = tmp_path / "mutation"
+    out.mkdir()
+    (out / "report.md").write_text("Population: empty\n", encoding="utf-8")
+    if outcome is not None:
+        (out / "outcome").write_text(f"{outcome}\n", encoding="utf-8")
+    summary = tmp_path / "summary.md"
+    script = str(step_named(ci(), MUTATION, "Summary")["run"])
+    env = {"RUNNER_TEMP": str(tmp_path), "GITHUB_STEP_SUMMARY": str(summary)}
+    result = run_step(script, env)
+    return result, summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_an_empty_change_is_announced_as_nothing_to_mutate(tmp_path: Path) -> None:
+    result, summary = mutation_summary(tmp_path, "nothing-to-mutate")
+    assert result.returncode == 0, result.stderr
+    assert "::notice title=Mutation::Nothing to mutate" in result.stdout
+    assert "Nothing to mutate" in summary
+    assert "Population: empty" in summary
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_scored_change_is_summarised_without_a_notice(tmp_path: Path) -> None:
+    result, summary = mutation_summary(tmp_path, "scored")
+    assert result.returncode == 0, result.stderr
+    assert "::notice" not in result.stdout
+    assert "Population: empty" in summary
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_mutation_run_that_reached_no_outcome_is_red_in_the_summary_too(
+    tmp_path: Path,
+) -> None:
+    result, summary = mutation_summary(tmp_path, None)
+    assert result.returncode != 0
+    assert "no verdict" in summary

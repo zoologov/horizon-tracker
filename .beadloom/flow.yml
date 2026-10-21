@@ -24,11 +24,16 @@ waves:
     decision: parallel
     reason: "disjoint files: docs of ports/horizon-playwright-client/morning-checkin/evening-checkout/telegram-notifier (ht-8i1) vs src/horizon_tracker/domain/messages.py, report.py render, their tests, run-report SPEC and domain README (ht-7kx)"
     until: "2026-11-21"
+  - beads: [ht-qdg, ht-cix]
+    decision: parallel
+    reason: "HT-008, one node (horizon-tracker), disjoint files: .github/workflows/*, tests/unit/deploy/*, src/horizon_tracker/__init__.py, pyproject.toml, .beadloom/config.yml, the regenerated .claude/CLAUDE.md (ht-qdg) vs LICENSE, CHANGELOG.md, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/*, README.md (ht-cix)"
+    until: "2026-11-21"
 
 # The declared mutation scope (HT-005). The pure domain only: no I/O, no clock, no browser,
 # so a surviving mutant is a weak assertion and not an unreachable adapter branch. The same
-# scope as [tool.mutmut] only_mutate in pyproject.toml; .github/workflows/mutation.yml reads
-# it through `beadloom mutation --changed-since` (per change) and names it in the sample.
+# scope as [tool.mutmut] only_mutate in pyproject.toml. The job mutation-per-change of
+# .github/workflows/ci.yml reads it through `beadloom mutation --changed-since` on a pull
+# request; .github/workflows/mutation.yml names it in the weekly sample.
 # The message catalogue (domain/messages.py MESSAGES) is data, not a function body: mutmut 3.8
 # generates no mutant for it, so it is outside the gate by construction and needs no
 # exclusion; its completeness is pinned by tests/unit/domain/test_messages.py instead (HT-007).

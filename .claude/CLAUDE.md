@@ -115,7 +115,7 @@ bd close <bead-id> --suggest-next
 - **Linter/formatter:** ruff (lint + format)
 - **Type checking:** mypy --strict
 - **Architecture:** DDD packages -- `application/`, `domain/`, `infrastructure/`
-- **Current version:** 0.1.0
+- **Current version:** 1.0.0
 <!-- beadloom:auto-end -->
 
 ---
@@ -474,11 +474,35 @@ is never distributed.
 
 ### Git — what actually holds `main` here
 
-The core above claims that `main` is branch-protected. For this repository that is not
-measured: for a neighbouring service on the same host the same GitHub plan answered `403 Upgrade to Pro`. Until measured,
-treat CI on a PR as **informative** and `main` as held by discipline: a branch per
-work item, one PR, re-verification of the gates on the final tree. The measurement:
-`gh api repos/:owner/:repo/branches/main/protection`.
+Trunk-based development, held by GitHub once the repository is public (HT-008; the owner
+applies it in BEAD-05):
+
+- **A branch per work item** (`features/<KEY>`), **one PR** to `main`, no direct push to
+  `main` for anyone, the owner included (`enforce_admins: true`).
+- **`ci-ok` is the one required status check, and it is strict**: a branch is up to date with
+  `main` before it merges. `ci.yml`'s `mutation-per-change` is informative and not required.
+- **0 required reviews**: the owner merges their own PR; the review is the flow's `review`
+  role, not GitHub's. Force-push to `main` and its deletion stay at GitHub's default,
+  forbidden.
+- **A release is a tag `vX.Y.Z` on `main`**, protected by two `v*` tag rulesets (a bypass
+  list applies to a whole ruleset, so the two rules take two): only the owner creates one,
+  nobody updates or deletes one. A tag starts `release.yml` (verify, CI gate,
+  deploy, GitHub Release, portal); a merge to `main` deploys nothing.
+  `docs/guides/releasing.md` is the procedure.
+- **Set with** `beadloom setup-branch-protection --repo zoologov/horizon-tracker --check ci-ok`.
+  `--check` is mandatory: the command's default contexts are Beadloom's own job names
+  (`gate`, `tests (3.10)`, `site-build`, ...), which this repository never produces, and a
+  required check that never reports makes `main` unmergeable (§6 above).
+- **Measured with** `gh api repos/zoologov/horizon-tracker/branches/main/protection` and
+  `gh api repos/zoologov/horizon-tracker/rulesets`.
+  Measured: 2026-10-21 — protection: a PR required, `ci-ok` the one required check, `strict`,
+  `enforce_admins: true`, 0 reviews, force-push and deletion forbidden; rulesets: two active
+  `tag` rulesets on `refs/tags/v*`, `creation` with the admin role's bypass, and
+  `update` + `deletion` + `non_fast_forward` with no bypass. The environments were read back
+  the same day: `horizon-vps` and `github-pages` each admit exactly `branch main` and
+  `tag v*`. A re-run of the setup command is re-measured the same way and this date moves.
+  The refusal of a direct push is what `enforce_admins: true` means in that reading; it was
+  not probed with a push.
 
 ### Language
 

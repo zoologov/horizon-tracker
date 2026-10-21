@@ -12,11 +12,13 @@
 #       Only the domain functions changed since the merge base with REF, as
 #       `beadloom mutation --changed-since` names them; judged by beadloom. A change that
 #       touches no domain function writes `nothing-to-mutate` to DIR/outcome and runs
-#       nothing. CI runs this on every pull request (.github/workflows/mutation.yml).
+#       nothing. CI runs this on every pull request (.github/workflows/ci.yml,
+#       mutation-per-change).
 #
 #   scripts/mutation.sh --sample SIZE --seed SEED --out DIR [--min-score PERCENT]
 #       A seeded random sample of SIZE mutants of the whole domain, judged by beadloom
-#       with the interval the sample supports (--sample-of). CI runs it weekly.
+#       with the interval the sample supports (--sample-of). CI runs it weekly
+#       (.github/workflows/mutation.yml).
 #
 # In the DIR modes, DIR receives the population and the score (report.md), the names run
 # (names.txt), the counters and survivors beadloom read (stats.json, survivors.json) and

@@ -1,3 +1,14 @@
+![Status: production](https://img.shields.io/badge/status-production-brightgreen)
+[![Release](https://img.shields.io/github/v/release/zoologov/horizon-tracker?sort=semver)](https://github.com/zoologov/horizon-tracker/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/zoologov/horizon-tracker/ci.yml?branch=main&label=CI)](https://github.com/zoologov/horizon-tracker/actions/workflows/ci.yml)
+![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue?logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/github/license/zoologov/horizon-tracker)](LICENSE)
+![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-D7FF64?logo=ruff&logoColor=D7FF64)
+![Type check: mypy strict](https://img.shields.io/badge/type%20check-mypy%20strict-blue)
+![Versioning: SemVer](https://img.shields.io/badge/versioning-SemVer-informational)
+[![Portal](https://img.shields.io/badge/portal-GitHub%20Pages-informational)](https://zoologov.github.io/horizon-tracker/)
+![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-blueviolet?logo=anthropic&logoColor=white)
+
 # horizon-tracker
 
 Scheduled check-in and check-out of a VMware Horizon VDI desktop, run on a Linux host
@@ -41,6 +52,51 @@ cases. Dependencies point inward only (`cli` → `infrastructure`/`application` 
 | `docs/` | AS-IS documentation held against the code by `beadloom sync-check` |
 | `.beadloom/` | architecture graph, rules and the agentic flow configuration |
 
+## Requirements
+
+To run the service, a host needs:
+
+- Ubuntu (or another apt-based distribution) with systemd, reachable over SSH: the service
+  runs as two systemd timers and their oneshot services;
+- Python 3.12 (`python3.12`, `python3.12-venv`) and `uv` at `/usr/local/bin/uv`;
+- Google Chrome at `/usr/bin/google-chrome`, installed from Google's `.deb` and not the snap
+  (another path is set with `HT_CHROME_PATH`): Playwright drives the system Chrome;
+- the system user `horizon` with the home `/opt/horizon-tracker` (`deploy/bootstrap.sh`
+  creates both);
+- outbound network to the Horizon HTML Access portal, `isdayoff.ru`, `api.telegram.org` and
+  `github.com`;
+- a Horizon (AD) account and the title of its desktop, a Telegram bot token and the chat id the
+  reports go to.
+
+The deploy also needs a GitHub repository with Actions, the Environment `horizon-vps` holding
+the secrets and variables listed in section 3 of the
+[deployment guide](docs/guides/deployment.md), and SSH access from Actions to the host
+(section 2.3 there).
+
+## Getting started
+
+**Locally**, to try the command against your portal without the timers:
+
+```bash
+git clone https://github.com/zoologov/horizon-tracker.git && cd horizon-tracker
+uv sync --all-extras
+uv run playwright install chromium    # the browser the adapter tests drive
+# export the variables of the Configuration section below; the command reads the
+# environment and loads no .env file itself (set HT_CHROME_PATH to your Chrome)
+uv run horizon probe                  # settings, portal, calendar, Chrome; never logs in
+uv run horizon checkin --dry-run      # the plan of a run, without touching the portal
+```
+
+**On a host**, each step is a section of the
+[deployment guide](docs/guides/deployment.md):
+
+1. prepare the host once with `deploy/bootstrap.sh` (section 2);
+2. create the GitHub Environment `horizon-vps` with its secrets and variables (section 3);
+3. let the first release tag deploy, which writes `.env` and installs the units (section 4.1);
+4. run `horizon probe` on the host (section 4.3), then a check-in and a check-out by hand
+   with `--force` (section 4.4);
+5. enable the timers (section 5).
+
 ## Configuration
 
 Every setting is an environment variable (in production, an `.env` file readable only by
@@ -75,21 +131,52 @@ portal.
 
 ## Development
 
-The project is developed with the beadloom agentic flow: `beadloom prime` for the
+The project is developed with the Beadloom agentic flow: `beadloom prime` for the
 architecture context, `bd` for the work items (beads), test-first changes, and the gates
-below before a change lands. See `.claude/CLAUDE.md` for the full flow.
+below before a change lands. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers the setup of a fresh
+clone, and [`.claude/CLAUDE.md`](.claude/CLAUDE.md) the full flow.
 
 ```bash
-uv sync --extra dev
+uv sync --all-extras
 uv run pytest
-uv run ruff check src/ tests/
-uv run mypy src/
+uv run ruff check                          # the whole repository, as CI runs it
+uv run ruff format --check
+uv run mypy                                # strict; the scope is [tool.mypy] files
 beadloom ci                                # architecture + documentation gate
 scripts/mutation.sh --changed-since main --out /tmp/mutation   # mutation gate, per change
 ```
 
 The mutation gate covers the pure domain only (`[tool.mutmut]` in `pyproject.toml`).
 
+Development is trunk-based: a branch per work item (`features/<KEY>`), one pull request to
+`main`, the CI check `ci-ok` required before it merges, and no direct push to `main` for
+anyone, the owner included.
+
+## Releases
+
+A release is a tag `vX.Y.Z` (strict semver, no pre-release suffix) on a commit of `main`. A
+pull request runs CI alone; nothing reaches the host before a tag. Pushing the tag starts the
+Release workflow, which runs these jobs in order, each only after the one before it passed:
+
+1. **verify**: the tag is on `main`, equals the version in `pyproject.toml` and the version
+   `uv.lock` locks, and has its section in [`CHANGELOG.md`](CHANGELOG.md). A run by hand (a
+   redeploy) started from any branch but `main` stops here;
+2. **CI** on the tagged commit;
+3. **deploy** to the host;
+4. **GitHub Release** with the changelog section as its notes and the wheel and the sdist as
+   assets;
+5. **portal**: the Beadloom architecture portal on GitHub Pages, at
+   <https://zoologov.github.io/horizon-tracker/>.
+
+What the version number promises and the release steps are in
+[`docs/guides/releasing.md`](docs/guides/releasing.md).
+
 ## Deployment
 
-See [`docs/guides/deployment.md`](docs/guides/deployment.md).
+A release tag deploys: the Release workflow updates the host, writes its `.env` from the
+GitHub Environment `horizon-vps` and ends with a `horizon probe` smoke. The first install and
+the operations are in [`docs/guides/deployment.md`](docs/guides/deployment.md).
+
+## License
+
+MIT, see [`LICENSE`](LICENSE).

@@ -1,10 +1,11 @@
 """Turns a mutation plan into mutmut's exact mutant names, and counts exactly those names.
 
 The glue between ``beadloom mutation`` and mutmut 3.8 that ``scripts/mutation.sh`` runs
-for the per-change and the sampled modes of ``.github/workflows/mutation.yml``; a
-simplified port of beadloom's own ``.github/scripts/mutmut_adapter.py``. beadloom answers
-which functions a change touched and judges the score; mutmut runs the mutants; this file
-is where the two meet:
+for the per-change mode (the ``mutation-per-change`` job of ``.github/workflows/ci.yml``)
+and the sampled mode (``.github/workflows/mutation.yml``); a simplified port of
+beadloom's own ``.github/scripts/mutmut_adapter.py``. beadloom answers which functions a
+change touched and judges the score; mutmut runs the mutants; this file is where the two
+meet:
 
 ``select``
     The exact names of the plan's functions' mutants, read from ``mutants/*.meta``.

@@ -1,8 +1,9 @@
-"""Tests for the mutation workflow, the script it runs and the adapter that meets mutmut.
+"""Tests for the mutation sample workflow, the script it runs and the adapter that meets mutmut.
 
-The workflow mutates the domain functions a pull request touched and, weekly, a seeded
-sample of the whole declared scope (the scheme of beadloom's own mutation.yml). Its
-verdicts come from ``beadloom mutation``; what the repository owns is the glue: the
+The workflow mutates, weekly and by hand, a seeded sample of the whole declared scope (the
+scheme of beadloom's own mutation.yml); the domain functions a pull request touched are
+mutated by the ``mutation-per-change`` job of CI, whose contract is test_ci_workflow.py.
+The verdicts come from ``beadloom mutation``; what the repository owns is the glue: the
 adapter that turns a plan into mutmut's exact mutant names and counts exactly those, and
 ``scripts/mutation.sh``, which orders the steps. The adapter is executed here on a
 ``mutants/`` tree in mutmut 3.8's shape; the run against the real mutmut is the script's.
@@ -24,7 +25,6 @@ from tests.support.workflows import ROOT, Mapping, load_workflow, step_named, st
 DOMAIN = "src/horizon_tracker/domain/"
 ADAPTER = ROOT / ".github" / "scripts" / "mutmut_adapter.py"
 SCRIPT = ROOT / "scripts" / "mutation.sh"
-PER_CHANGE = "mutation-per-change"
 SAMPLE = "mutation-sample"
 FLOOR_PERCENT = "85"
 BASH = shutil.which("bash")
@@ -68,52 +68,36 @@ def test_the_declared_scope_is_the_one_mutmut_mutates() -> None:
 # --- triggers and jobs ------------------------------------------------------------------
 
 
-def test_mutation_runs_per_pull_request_weekly_and_by_hand() -> None:
+def test_mutation_runs_weekly_and_by_hand_only() -> None:
+    # A pull request is CI's event: its mutation verdict is CI's mutation-per-change job.
     on = mutation()["on"]
-    assert on["pull_request"] == {"branches": ["main"]}
+    assert set(on) == {"schedule", "workflow_dispatch"}
     (cron,) = on["schedule"]
     _, _, day, month, weekday = cron["cron"].split()
     assert (day, month) == ("*", "*") and weekday.isdigit(), "not once a week"
     assert set(on["workflow_dispatch"]["inputs"]) == {"size", "seed"}
 
 
-def test_the_per_change_job_runs_on_pull_requests_and_the_sample_otherwise() -> None:
-    assert set(mutation()["jobs"]) == {PER_CHANGE, SAMPLE}
-    assert job(PER_CHANGE)["if"] == "github.event_name == 'pull_request'"
-    assert job(SAMPLE)["if"] == "github.event_name != 'pull_request'"
+def test_the_sample_is_the_only_job_and_runs_on_every_event_of_this_workflow() -> None:
+    assert set(mutation()["jobs"]) == {SAMPLE}
+    assert "if" not in job(SAMPLE)
 
 
-@pytest.mark.parametrize("name", [PER_CHANGE, SAMPLE])
-def test_no_job_keeps_the_token_in_its_checkout(name: str) -> None:
-    # Neither job pushes, and the merge base comes from the history fetched at checkout.
-    checkout = steps(mutation(), name)[0]
+def test_the_sample_job_keeps_no_token_in_its_checkout() -> None:
+    checkout = steps(mutation(), SAMPLE)[0]
     assert str(checkout["uses"]).startswith("actions/checkout@")
     assert checkout["with"]["persist-credentials"] is False
 
 
-def test_the_per_change_job_reads_the_whole_history_for_the_merge_base() -> None:
-    checkout = steps(mutation(), PER_CHANGE)[0]
-    assert checkout["with"]["fetch-depth"] == 0
-    assert job(PER_CHANGE)["env"]["BASE"] == "origin/${{ github.base_ref }}"
-
-
-@pytest.mark.parametrize("name", [PER_CHANGE, SAMPLE])
-def test_both_jobs_install_the_suite_and_the_pinned_beadloom(name: str) -> None:
-    lines = script_lines(name)
-    assert "uv sync --extra dev" in lines
+def test_the_sample_job_installs_the_suite_and_the_pinned_beadloom() -> None:
+    lines = script_lines(SAMPLE)
+    assert "uv sync --locked --extra dev" in lines
     assert "uv tool install beadloom==9.0.0" in lines
-    setup = [s for s in steps(mutation(), name) if str(s.get("uses", "")).startswith("astral-sh/")]
+    setup = [
+        s for s in steps(mutation(), SAMPLE) if str(s.get("uses", "")).startswith("astral-sh/")
+    ]
     assert len(setup) == 1
     assert str(setup[0]["with"]["python-version"]) == "3.12"
-
-
-def test_the_per_change_job_runs_the_script_over_the_change() -> None:
-    lines = script_lines(PER_CHANGE)
-    expected = (
-        f'scripts/mutation.sh --changed-since "$BASE" --out "$RUNNER_TEMP/mutation" '
-        f"--min-score {FLOOR_PERCENT}"
-    )
-    assert expected in lines
 
 
 def test_the_sample_job_runs_the_script_over_a_seeded_sample() -> None:
@@ -127,12 +111,11 @@ def test_the_sample_job_runs_the_script_over_a_seeded_sample() -> None:
     assert job(SAMPLE)["env"]["SAMPLE_SIZE"] == "${{ inputs.size || '150' }}"
 
 
-@pytest.mark.parametrize("name", [PER_CHANGE, SAMPLE])
-def test_the_report_and_the_counters_outlive_a_red_run(name: str) -> None:
-    upload = step_named(mutation(), name, "Keep the plan, the counters and the survivors")
+def test_the_report_and_the_counters_outlive_a_red_sample() -> None:
+    upload = step_named(mutation(), SAMPLE, "Keep the plan, the counters and the survivors")
     assert upload["if"] == "${{ !cancelled() }}"
     assert upload["with"]["path"] == "${{ runner.temp }}/mutation"
-    summary = step_named(mutation(), name, "Summary")
+    summary = step_named(mutation(), SAMPLE, "Summary")
     assert summary["if"] == "${{ !cancelled() }}"
 
 
@@ -142,11 +125,11 @@ def run_summary(
     assert BASH is not None
     out = tmp_path / "mutation"
     out.mkdir()
-    (out / "report.md").write_text("Population: empty\n", encoding="utf-8")
+    (out / "report.md").write_text("Sample: 150 of 243\n", encoding="utf-8")
     if outcome is not None:
         (out / "outcome").write_text(f"{outcome}\n", encoding="utf-8")
     summary = tmp_path / "summary.md"
-    step = step_named(mutation(), PER_CHANGE, "Summary")
+    step = step_named(mutation(), SAMPLE, "Summary")
     result = subprocess.run(
         [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", str(step["run"])],
         env={
@@ -162,25 +145,19 @@ def run_summary(
 
 
 @pytest.mark.skipif(BASH is None, reason="bash absent")
-def test_an_empty_change_is_announced_as_nothing_to_mutate(tmp_path: Path) -> None:
-    result, summary = run_summary(tmp_path, "nothing-to-mutate")
-    assert result.returncode == 0, result.stderr
-    assert "::notice title=Mutation::Nothing to mutate" in result.stdout
-    assert "Nothing to mutate" in summary
-    assert "Population: empty" in summary
-
-
-@pytest.mark.skipif(BASH is None, reason="bash absent")
-def test_a_scored_change_is_summarised_without_a_notice(tmp_path: Path) -> None:
+def test_a_scored_sample_is_summarised(tmp_path: Path) -> None:
     result, summary = run_summary(tmp_path, "scored")
     assert result.returncode == 0, result.stderr
-    assert "::notice" not in result.stdout
-    assert "Population: empty" in summary
+    assert "Sample: 150 of 243" in summary
 
 
 @pytest.mark.skipif(BASH is None, reason="bash absent")
-def test_a_run_that_reached_no_outcome_is_red_in_the_summary_too(tmp_path: Path) -> None:
-    result, summary = run_summary(tmp_path, None)
+@pytest.mark.parametrize("outcome", [None, "nothing-to-mutate"])
+def test_a_sample_that_reached_no_score_is_red_in_the_summary_too(
+    tmp_path: Path, outcome: str | None
+) -> None:
+    # A sample of the whole scope always has a population: no score is never a green.
+    result, summary = run_summary(tmp_path, outcome)
     assert result.returncode != 0
     assert "no verdict" in summary
 

@@ -55,3 +55,39 @@ Entry template: `## #N — short name` · **Tool** · **What happened** · **Wha
 - **What happened:** the HT-002 reviewer read the work item's ACTIVE.md before the bundle; the Results row carried the author's report, including the risk the reviewer then found alone. The withholding of `review-brief` is partly defeated by a document the reviewer is supposed to read.
 - **What was expected:** either `review-brief` warns that ACTIVE holds the author's words, or the coordinator does not put the author's narrative into ACTIVE before the review verdict (only the id, the commit, the numbers).
 - **Where:** BEAD-02 of HT-002, 2026-10-20. **Class:** process.
+
+## #10 — the one-time setup of a fresh clone is incomplete, and `prime` degrades instead of building the index
+- **Tool:** beadloom 9.0.0 (the CLAUDE.md core §0 "Setup", `prime`, `install-hooks`)
+- **What happened:** the core's one-time setup names two commands (`git config beads.role`, `beadloom install-hooks`). A fresh clone has no `.beadloom/beadloom.db`, so `beadloom prime` — the first command the core tells every session to run — printed `Warning: Database not found. Run beadloom reindex` and returned a context without nodes; `sync-check`/`lint` would have exited 2 the same way. The setup also says nothing about the bd database (see #13) nor about `uv sync` / `playwright install chromium`, which the project's own tests need. `install-hooks` installs the pre-commit hook in `warn` mode by default while the core describes it as a check; the verdict is one line (`mode: warn`) that is easy to miss.
+- **What was expected:** `prime` reindexes when the index is absent (or has `--reindex`), and the core's Setup section lists `beadloom reindex` plus the stack's dependency step composed from `flow.yml`, so that a clone is ready after the section is followed top to bottom.
+- **Where:** fresh clone on the Mac, 2026-10-21. **Class:** missing.
+
+## #11 — `beadloom ci` warns about the project layer on every run and says in the same line that no action is needed
+- **Tool:** beadloom `ci` (config-drift, section-not-in-use)
+- **What happened:** on a clean tree, rc 0, `ci` printed five `::warning::` lines: `config-drift: project layer in effect (...) this is the supported place for a standing practice and needs no action`, two `section-not-in-use` lines that say "no document is reported for it", and two `scenario-coverage` population statements. A reader who scans the Gate for warnings sees five and has to read each to learn that none asks anything of them.
+- **What was expected:** a statement that needs no action is printed as `::notice::` (or once, on first detection), and `::warning::` is reserved for a finding that names a file or a document to change.
+- **Where:** `beadloom ci` after setup, 2026-10-21. **Class:** false signal.
+
+## #12 — the porcelain row of a `scenario-coverage` warning carries no node and no message
+- **Tool:** beadloom `lint` (`--format porcelain`, the default when piped)
+- **What happened:** piped `beadloom lint --strict` printed `scenario-coverage:scenario_coverage:warn::::` twice — rule, kind, severity and four empty fields. The agent runs every command piped, so this is the form it always sees; which two nodes the rule warns about is only visible under `ci` or in the rich format.
+- **What was expected:** the porcelain row fills the node and message fields for every finding, as the rich and github formats do.
+- **Where:** post-setup gates, 2026-10-21. **Class:** friction.
+
+## #13 — a fresh clone with bd 1.0.4 embedded Dolt: `bd prime` creates an empty database, the export deletes `issues.jsonl`, and `bd init` commits to main
+- **Tool:** bd 1.0.4 (External; the SessionStart hook `bd prime` is installed by `bd init`, not by beadloom)
+- **What happened:** the SessionStart hook ran `bd prime` before anything was bootstrapped and created `.beads/embeddeddolt/ht` with no `issue_prefix`; `export.auto: true` then deleted the git-tracked `.beads/issues.jsonl` (58 issues) on every bd command. `bd import` refused ("issue_prefix config is missing"), `bd config set issue_prefix` refused, `bd bootstrap` failed on the existing directory and then on "remote contains no Dolt data", `bd init --reinit-local` refused claiming origin has `refs/dolt/data` although `git ls-remote` shows none. What worked: remove the empty directory, `BD_NON_INTERACTIVE=1 bd init --prefix ht`, `bd import` from a copy of the jsonl. `bd init` then committed on `main` ("bd init: initialize beads issue tracking") with a generic root `CLAUDE.md` and `AGENTS.md`, `.beads/hooks/`, and a reordered `.claude/settings.json`; the commit was reset and the files restored.
+- **What was expected:** `bd prime` does not create a database; a fresh clone with a tracked `issues.jsonl` and no Dolt remote is bootstrapped by `bd bootstrap` from the jsonl without a manual recipe; `bd init` never commits or writes agent instruction files unasked. For the beadloom core: the Setup section names the bootstrap step for the clone's tracker (#10).
+- **Where:** fresh clone on the Mac, 2026-10-21; the recipe is also in the agent's project memory. **Class:** external.
+
+## #14 — `setup-branch-protection` requires Beadloom's own job names by default
+- **Tool:** beadloom `setup-branch-protection` (BDL-049)
+- **What happened:** the default `DEFAULT_STATUS_CHECK_CONTEXTS` is `gate`, `tests (3.10)` … `tests (3.13)`, `tests-locale (C)`, `tests-locale (en_US.ISO-8859-1)`, `site-build`, `ai-techwriter` — the job names of Beadloom's own `ci.yml`. An adopter whose CI has other job names (here: `ci-ok`) and runs the command as the core's §6 suggests requires nine checks that never report, and `main` becomes unmergeable; the core's §6 note describes exactly this failure and still names the command without `--check`.
+- **What was expected:** no default contexts for an adopter — either `--check` required, or the contexts read from the adopter's `ci.yml` (the job that `needs:` every other, as `ci-ok` does), or the default taken from `flow.yml`.
+- **Where:** planning HT-008 (branch protection after the repository goes public), 2026-10-21. **Class:** friction (a trap).
+
+## #15 — the generated Pages workflow deploys on every push to `main` and cannot follow a release
+- **Tool:** beadloom `docs site --pages-workflow`
+- **What happened:** the generated `beadloom-portal.yml` triggers on `push: main` (+ dispatch) and refuses any ref that is not the default branch. A project that deploys on tags wants the portal to show the released tree, so the generated file cannot be used; its steps have to be copied into the release workflow by hand, and the generator's "an edited copy is never written over" protection is then lost (no file to protect). `--pages-workflow` also refuses `--out` outside the project, so reading the template means writing into the repository and cleaning up (`site/`, the workflow, and an untracked `.beadloom/metrics_history.json` that `docs site` leaves behind).
+- **What was expected:** a `--on tag|main` (or `site.deploy_on`) choice for the trigger, a dry-run or `--stdout` for the template, and `metrics_history.json` either gitignored by `beadloom init` or not written by a read-only generation.
+- **Where:** planning HT-008, 2026-10-21. **Class:** missing.

@@ -1,0 +1,49 @@
+# ACTIVE: HT-008 — Release flow on tags, one workflow per event, a protected trunk, the portal on Pages, and the repository's public face
+
+> **Last updated:** 2026-10-21 (owner pre-merge steps done; merge and v1.0.0 pending)
+> **Phase:** Development
+
+---
+
+## Current Bead
+
+**Bead:** BEAD-05 (ht-30c) — owner
+**Goal:** repository public → Pages source = Actions → environment rules (`github-pages`: `v*` tags; `horizon-vps`: `main` + `v*`, read back) → private vulnerability reporting → `beadloom setup-branch-protection --check ci-ok` + the `v*` tag ruleset, measured and dated in the project layer, `beadloom setup-agentic-flow` → merge the PR → tag `v1.0.0` → watch Release → confirm the GitHub Release, `horizon probe`, the portal → close `ht-hdv`
+**Done when:** `v1.0.0` is on the host and the portal answers
+
+## Progress
+
+- [x] BRIEF approved by the owner (2026-10-21)
+- [x] Beads created: parent ht-6hx; ht-qdg, ht-cix, ht-w52, ht-2gj, ht-30c
+- [x] Wave 1: BEAD-01 + BEAD-02 landed (3fabae9, f786296 — ids after the authorship rewrite of 2026-10-21; before it: d68369d, aeb415f); gate green on the tree (gate owner ht-qdg)
+- [x] Wave 2: BEAD-03 landed (c68f839)
+- [x] Wave 3: BEAD-04 review → ISSUES (0 critical, 1 major, 6 minor) — verdict in `bd comments ht-2gj`
+- [x] Fix wave: BEAD-06 landed (4413a32)
+- [x] BEAD-07 re-review, first pass → ISSUES (1 major: stale docs; 2 minor) — verdict in `bd comments ht-1dd`
+- [x] BEAD-08 docs fix landed (baf17d9)
+- [x] BEAD-07 re-review, second pass → OK (three coordinator minors fixed in the same commit as this line)
+- [x] PR #1 features/HT-008 → main opened; CI on the PR green (lint, types, workflow-lint, tests 3.12/3.13, beadloom-gate, mutation-per-change, ci-ok); the only workflow the PR started
+- [x] Owner, before the merge (2026-10-21): repository public; Pages build_type `workflow`; `horizon-vps` and `github-pages` each admit exactly `branch main` + `tag v*` (read back); private vulnerability reporting on; `beadloom setup-branch-protection --check ci-ok` applied and read back (`ci-ok` strict, `enforce_admins`, 0 reviews, no force-push, no deletion); two `v*` tag rulesets (25552945 creation with admin bypass; 25552946 update/deletion/non_fast_forward, no bypass); date written into the project layer, `.claude/CLAUDE.md` regenerated
+- [ ] Owner, after the merge: tag `v1.0.0` on the merge commit → Release run → GitHub Release, `horizon probe`, portal; close `ht-hdv`, `ht-30c`, `ht-6hx`
+
+## Results
+
+| Bead | Status | Details |
+|------|--------|---------|
+| BEAD-01 | Done | 3fabae9: release.yml (verify, gate, deploy, publish, portal), ci.yml + mutation-per-change + dispatch, mutation.yml sample only, deploy.yml removed, version 1.0.0 from pyproject only, site: block; 17 files; tests 1290 passed (4 known macOS failures) |
+| BEAD-02 | Done | f786296: LICENSE, CHANGELOG [1.0.0], CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, PR template, issue forms, README (badges, Requirements, Getting started, Releases, License); links to docs/guides/releasing.md dangle until BEAD-03 |
+| BEAD-03 | Done | c68f839 |
+| BEAD-04 | Done | ISSUES: Major-1 uv.lock unchecked before the host's `--locked` sync; Minor-1 PR template gates narrower than CI; Minor-2 environment tag rules not named for the owner; Minor-3 dispatch from another branch; Minor-4 TODO in the releasing guide; Minor-5 acceptance criterion 4 not met as written; Minor-6 ACTIVE named pre-rewrite commit ids. Coordinator took Minor-2, -5, -6 (this file, BRIEF, ht-30c); the rest is BEAD-06 |
+| BEAD-05 | Open | - |
+| BEAD-06 | Done | 4413a32: CI `--locked`, verify checks uv.lock and refuses a manual run off main, PR template gates = CI, the TODO resolved; 10 contract tests |
+| BEAD-07 | Done | OK on pass 2; first pass ISSUES: deployment.md 6.3/7 and README Releases stale on verify's new checks; releasing.md one-source bullet and dispatch Why; the Minor-4 wording reconciled by the coordinator (confirmed) |
+| BEAD-08 | Done | baf17d9: deployment.md 6.3/7 and section 3, README Releases, releasing.md (uv.lock bullet, what dispatch does not stop) |
+
+## Notes
+
+- Branch `features/HT-008`, one PR to `main`.
+- Owner's rulings of 2026-10-21: the repository becomes public; the portal follows releases, not pushes to `main`; branch protection with `--check ci-ok` and a `v*` tag ruleset; the first release is `1.0.0` (the service is in production).
+- `beadloom setup-branch-protection` must be run with `--check ci-ok` (its defaults are Beadloom's own job names — UX-Issues #14).
+- The HT-005 bead `ht-hdv` is closed by BEAD-05.
+- History: all commits were rewritten to the author `v.zoologov <zoologov@gmail.com>` on 2026-10-21 (owner's request); `main` was force-pushed with a lease. Commit ids older than 9186a33 changed; this file names the new ones.
+- Owner's decision of 2026-10-21 (Minor-4, confirmed in chat): the text `horizon probe` / `--dry-run` print is not promised surface; their exit codes are. The releasing guide states it as the decision.
