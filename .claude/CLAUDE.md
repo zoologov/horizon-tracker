@@ -484,8 +484,9 @@ applies it in BEAD-05):
 - **0 required reviews**: the owner merges their own PR; the review is the flow's `review`
   role, not GitHub's. Force-push to `main` and its deletion stay at GitHub's default,
   forbidden.
-- **A release is a tag `vX.Y.Z` on `main`**, protected by a `v*` tag ruleset: only the owner
-  creates one, nobody updates or deletes one. A tag starts `release.yml` (verify, CI gate,
+- **A release is a tag `vX.Y.Z` on `main`**, protected by two `v*` tag rulesets (a bypass
+  list applies to a whole ruleset, so the two rules take two): only the owner creates one,
+  nobody updates or deletes one. A tag starts `release.yml` (verify, CI gate,
   deploy, GitHub Release, portal); a merge to `main` deploys nothing.
   `docs/guides/releasing.md` is the procedure.
 - **Set with** `beadloom setup-branch-protection --repo zoologov/horizon-tracker --check ci-ok`.
@@ -494,9 +495,14 @@ applies it in BEAD-05):
   required check that never reports makes `main` unmergeable (§6 above).
 - **Measured with** `gh api repos/zoologov/horizon-tracker/branches/main/protection` and
   `gh api repos/zoologov/horizon-tracker/rulesets`.
-  Measured: <date> — pending BEAD-05. Until that line carries a date, the protection is not
-  read back, and `main` is held by discipline: CI on a PR is informative, and the gates are
-  re-run on the final tree.
+  Measured: 2026-10-21 — protection: a PR required, `ci-ok` the one required check, `strict`,
+  `enforce_admins: true`, 0 reviews, force-push and deletion forbidden; rulesets: two active
+  `tag` rulesets on `refs/tags/v*`, `creation` with the admin role's bypass, and
+  `update` + `deletion` + `non_fast_forward` with no bypass. The environments were read back
+  the same day: `horizon-vps` and `github-pages` each admit exactly `branch main` and
+  `tag v*`. A re-run of the setup command is re-measured the same way and this date moves.
+  The refusal of a direct push is what `enforce_admins: true` means in that reading; it was
+  not probed with a push.
 
 ### Language
 

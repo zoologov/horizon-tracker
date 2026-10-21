@@ -1,6 +1,6 @@
 # ACTIVE: HT-008 — Release flow on tags, one workflow per event, a protected trunk, the portal on Pages, and the repository's public face
 
-> **Last updated:** 2026-10-21 (re-review OK; PR open; owner steps pending)
+> **Last updated:** 2026-10-21 (owner pre-merge steps done; merge and v1.0.0 pending)
 > **Phase:** Development
 
 ---
@@ -22,8 +22,9 @@
 - [x] BEAD-07 re-review, first pass → ISSUES (1 major: stale docs; 2 minor) — verdict in `bd comments ht-1dd`
 - [x] BEAD-08 docs fix landed (baf17d9)
 - [x] BEAD-07 re-review, second pass → OK (three coordinator minors fixed in the same commit as this line)
-- [ ] PR features/HT-008 → main opened; CI on the PR
-- [ ] Owner: BEAD-05 (public, Pages, protection, merge, v1.0.0)
+- [x] PR #1 features/HT-008 → main opened; CI on the PR green (lint, types, workflow-lint, tests 3.12/3.13, beadloom-gate, mutation-per-change, ci-ok); the only workflow the PR started
+- [x] Owner, before the merge (2026-10-21): repository public; Pages build_type `workflow`; `horizon-vps` and `github-pages` each admit exactly `branch main` + `tag v*` (read back); private vulnerability reporting on; `beadloom setup-branch-protection --check ci-ok` applied and read back (`ci-ok` strict, `enforce_admins`, 0 reviews, no force-push, no deletion); two `v*` tag rulesets (25552945 creation with admin bypass; 25552946 update/deletion/non_fast_forward, no bypass); date written into the project layer, `.claude/CLAUDE.md` regenerated
+- [ ] Owner, after the merge: tag `v1.0.0` on the merge commit → Release run → GitHub Release, `horizon probe`, portal; close `ht-hdv`, `ht-30c`, `ht-6hx`
 
 ## Results
 
