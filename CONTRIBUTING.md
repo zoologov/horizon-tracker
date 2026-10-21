@@ -68,9 +68,9 @@ Run these before you push; CI runs the same checks on the pull request.
 
 ```bash
 uv run pytest                       # the suite; CI adds --cov and the 80 % floor
-uv run ruff check src/ tests/       # lint
-uv run ruff format --check src/ tests/
-uv run mypy src/                    # strict type check
+uv run ruff check                   # lint, the whole repository as CI runs it
+uv run ruff format --check
+uv run mypy                         # strict; the scope is [tool.mypy] files
 beadloom ci                         # architecture and documentation gate (the pre-push Gate)
 scripts/mutation.sh --changed-since main --out /tmp/mutation   # mutation gate, per change
 ```
@@ -86,7 +86,9 @@ over the service's public surface, and [`docs/guides/releasing.md`](docs/guides/
 states that surface and the full procedure. In brief:
 
 1. classify the changes since the last release by the public surface: MAJOR, MINOR or PATCH;
-2. bump `[project] version` in `pyproject.toml`;
+2. bump `[project] version` in `pyproject.toml`, then run `uv lock` (the deploy's
+   `uv sync --locked` refuses a stale lock) and `beadloom setup-agentic-flow` (the
+   `Current version` line of `.claude/CLAUDE.md`);
 3. move the `[Unreleased]` entries of [`CHANGELOG.md`](CHANGELOG.md) into a section
    `## [X.Y.Z] - YYYY-MM-DD`;
 4. open one pull request, wait for `ci-ok` and merge it;

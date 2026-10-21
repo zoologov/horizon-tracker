@@ -2,9 +2,10 @@
 
 This guide takes a host from nothing to a service that checks in to a VMware Horizon
 desktop every working morning and checks out every working evening. It covers the first
-install, which is done once by hand, and the operations after it: every later release
-reaches the host automatically, on a push to `main`, through the deploy workflow
-(`.github/workflows/deploy.yml`).
+install, which is done once by hand, and the operations after it: every release reaches the
+host automatically, when its tag `vX.Y.Z` is pushed, through the `deploy` job of the Release
+workflow (`.github/workflows/release.yml`). A push to `main` runs CI and deploys nothing.
+What a release is and how one is cut is in [`releasing.md`](releasing.md).
 
 The commands, exit codes and variables of the `horizon` CLI are specified in
 `docs/services/cli.md`; this guide quotes them where an operator needs them.
@@ -12,8 +13,8 @@ The commands, exit codes and variables of the `horizon` CLI are specified in
 The first install, in order:
 
 1. prepare the host (section 2);
-2. create the GitHub Environment `horizon-vps` and run the first deploy, which writes
-   `.env` (sections 3 and 4.1);
+2. create the GitHub Environment `horizon-vps` and deploy a release tag for the first
+   time, which writes `.env` (sections 3 and 4.1);
 3. run `horizon probe` (section 4.3);
 4. run `horizon checkin --force` and `horizon checkout --force` during working hours and
    confirm both outside the service (section 4.4);
@@ -33,7 +34,7 @@ them.
 | `uv` at `/usr/local/bin/uv` | builds the locked environment; `bootstrap.sh` installs it when missing and the deploy calls it by this path |
 | Google Chrome at `/usr/bin/google-chrome`, installed from Google's `.deb` (not the snap) | Playwright drives the system Chrome; `bootstrap.sh` checks it and never installs it |
 | A dedicated system user `horizon`, home `/opt/horizon-tracker` | the units name this user and this home; `bootstrap.sh` creates both |
-| A GitHub repository with Actions, and the rights to create an Environment | the deploy workflow reads its secrets and variables from the Environment `horizon-vps` |
+| A GitHub repository with Actions, and the rights to create an Environment | the Release workflow's `deploy` job reads its secrets and variables from the Environment `horizon-vps` |
 | Outbound network from the host to the Horizon portal, `isdayoff.ru`, `api.telegram.org` and `github.com` | the portal is the subject; the production calendar decides working days; Telegram carries the reports; GitHub serves the code |
 | A Horizon account, the title of its desktop, a Telegram bot token and a chat id | the service logs in as this account, opens this desktop and reports to this chat |
 
@@ -134,11 +135,11 @@ Every later deploy runs `git fetch` as `horizon` over this SSH origin with this 
 
 ### 2.3. The deploy's own SSH access
 
-The deploy workflow logs in to the host as `VPS_USER` with a key of its own. It installs
-units into `/etc/systemd/system`, writes `.env` owned by `horizon` and runs `systemctl`
-and `systemd-run` without `sudo`, so `VPS_USER` is `root` or an account with root's
-rights; it uses `sudo -n -u horizon` for the repository and the environment, so that
-`sudo` must not ask for a password.
+The Release workflow's `deploy` job logs in to the host as `VPS_USER` with a key of its own. It
+installs units into `/etc/systemd/system`, writes `.env` owned by `horizon` and runs
+`systemctl` and `systemd-run` without `sudo`, so `VPS_USER` is `root` or an account with root's
+rights; it uses `sudo -n -u horizon` for the repository and the environment, so that `sudo`
+must not ask for a password.
 
 ```bash
 # on your workstation: a key pair used by the deploy and nothing else
@@ -189,9 +190,11 @@ is not started before the moment.
 
 ## 3. The GitHub Environment `horizon-vps`
 
-Settings -> Environments -> New environment -> `horizon-vps`. The deploy job runs in this
-Environment and reads nothing else. Values are entered only by a person, in GitHub's
-interface or through `gh`; they never go into a chat, an issue, a commit or a log.
+Settings -> Environments -> New environment -> `horizon-vps`. The `deploy` job of
+`release.yml` runs in this Environment and reads nothing else. If the Environment restricts
+its deployments to branches, it must also allow the release tags `v*`: a release runs on a
+tag, not on a branch. Values are entered only by a person, in GitHub's interface or through
+`gh`; they never go into a chat, an issue, a commit or a log.
 
 ### 3.1. Secrets
 
@@ -312,7 +315,7 @@ The timers carry the same facts a second time, because systemd cannot read `.env
 `OnCalendar` names the start of its range and a zone. To change the schedule, change all
 of them together:
 
-- a range: `HT_CHECKIN_RANGE` / `HT_CHECKOUT_RANGE` in `deploy.yml`, the start time in the
+- a range: `HT_CHECKIN_RANGE` / `HT_CHECKOUT_RANGE` in `release.yml`, the start time in the
   matching `deploy/horizon-*.timer`, and the contract block above. The tests in
   `tests/unit/deploy` fail when the three disagree.
 - the zone: the variable `HT_TIMEZONE` and the zone at the end of both `OnCalendar`
@@ -330,9 +333,11 @@ For example, a host checking in between 08:00 and 08:40 Berlin time has
 
 ### 4.1. The first deploy
 
-Merge to `main`, or run it by hand: Actions -> Deploy -> Run workflow, on `main`. A run
-started from another branch passes the CI gate but never reaches the host. Section 6.3
-describes each step.
+Push a release tag (the steps are in [`releasing.md`](releasing.md#cutting-a-release)), or,
+when the release already exists, deploy it by hand: Actions -> Release -> Run workflow, *Use
+workflow from* `main`, and the current release tag in `tag`. A merge to `main` or a CI run
+never reaches the host, and a tag whose commit is not on `main` is refused before the deploy.
+Section 6.3 describes each step.
 
 After a green run, `.env` exists, the units are installed, and the deploy's summary shows
 the answer of `horizon probe` and the (still inactive) timers.
@@ -498,30 +503,36 @@ Use the `ht` wrapper of section 4.2: `ht probe`, `ht checkin --dry-run`,
 `ht checkin --force`, `ht checkout --force`. A scheduled run lost to a reboot during its
 wait is repeated with `--force`.
 
-### 6.3. Updating: the deploy workflow
+### 6.3. Updating: a release
 
-`.github/workflows/deploy.yml` ("Deploy") runs on every push to `main` and by hand
-(Actions -> Deploy -> Run workflow). Only `refs/heads/main` reaches the host. Two deploys
-never run at once and never cancel each other: the next one waits, and of several waiting
-runs GitHub keeps the newest.
+A release updates the host. `.github/workflows/release.yml` ("Release") starts when a tag
+`vX.Y.Z` is pushed, and by hand for an existing release tag (Actions -> Release -> Run
+workflow, section 6.4). A push to `main` deploys nothing. Two releases never run at once and
+never cancel each other: the next one waits, and of several waiting runs GitHub keeps the
+newest. Cutting the tag, and what each job checks, is in [`releasing.md`](releasing.md).
 
-1. **`gate`** - the full CI (`.github/workflows/ci.yml` through `workflow_call`): lint,
-   types and workflow lint; then the tests and the architecture gate; then `ci-ok`, red
-   unless everything before it succeeded. What reaches the host passed what a pull
-   request passes. The mutation workflow is not part of the gate.
-2. **`deploy`**, in the Environment `horizon-vps`:
+1. **`verify`** - the tag is a release tag, its commit is on `main`, `pyproject.toml` at that
+   commit declares the tag's version, and `CHANGELOG.md` holds the version's dated section. A
+   refused tag reaches nothing below.
+2. **`gate`** - the full CI (`.github/workflows/ci.yml` through `workflow_call`) on the tag's
+   commit: lint, types and workflow lint; then the tests and the architecture gate; then
+   `ci-ok`, red unless everything before it succeeded. What reaches the host passed what a
+   pull request passes. `mutation-per-change` runs on a pull request only and is skipped
+   here.
+3. **`deploy`**, in the Environment `horizon-vps`, on the tag's commit as `verify` resolved
+   it:
 
 | Step | What it does on the host | Red means |
 |------|--------------------------|-----------|
 | `Set up SSH` | nothing: key and `known_hosts` from the secrets onto the runner, alias `vps`, `StrictHostKeyChecking yes` | - |
 | `Preflight: reach the VPS` | nothing: refuses first when `HORIZON_URL` or `HORIZON_DESKTOP` is unset, then `ssh vps true`, the clone `/opt/horizon-tracker/.git` exists, `sudo -n -u horizon true` | a missing variable (named); the host unreachable, a wrong key or `known_hosts`, no clone, `sudo` asking for a password - before any change |
-| `Update the code` | `git fetch --prune origin` and `checkout --detach <the run's commit>` as `horizon`, then `uv sync --locked` as `horizon` | no access to the host or the repository; a local edit in the clone; a stale `uv.lock` |
+| `Update the code` | `git fetch --prune origin` and `checkout --detach <the tag's commit>` as `horizon`, then `uv sync --locked` as `horizon` | no access to the host or the repository; a local edit in the clone; a stale `uv.lock` |
 | `Check the timers' time zone` | nothing: reads the `OnCalendar` lines of the timers just checked out | the timers fire in another zone than `HT_TIMEZONE` (both named) |
 | `Build .env` | nothing: the file is built on the runner | an empty required value - the step names the variable, never its value |
 | `Write .env` | `install -m 600 -o horizon -g horizon` from ssh's stdin into `.env.new`, then `mv -f` over `.env`; logs `horizon:horizon 600 .../.env` | - |
 | `Install the units` | the four units into `/etc/systemd/system` (0644), `daemon-reload`, `systemctl try-restart` of the timers, `list-timers` | - |
 | `Smoke: horizon probe` | `horizon probe` as `horizon` through `systemd-run` with the `EnvironmentFile`, as in section 4.3; Chrome really starts | the probe's exit code: 1 on a configuration error or a FAILED `portal` or `chrome` |
-| `Deploy summary` | `systemctl list-timers 'horizon-*'`; the run's summary names the commit, the probe's answer (or that it did not run) and the timers; written after a red step too, not after a cancellation | no SSH to the host |
+| `Deploy summary` | `systemctl list-timers 'horizon-*'`; the run's summary names the tag, the version, the commit, the probe's answer (or that it did not run) and the timers; written after a red step too, not after a cancellation | no SSH to the host |
 
 - **Timers.** `try-restart` restarts only timers that are already enabled; a deploy never
   enables them. Before section 5, `list-timers` shows them inactive - normal.
@@ -533,16 +544,23 @@ runs GitHub keeps the newest.
 - A workflow that exists is not a deploy that happened: the proof is a real deploy after
   which `ht probe` on the host answers `settings: ok`, `portal: ok` and `chrome: ok`.
 
+After a green `deploy`, `publish` creates (or, on a redeploy, edits) the GitHub Release of the
+tag, and `portal-build` and `portal-deploy` publish the architecture portal to GitHub Pages
+([`releasing.md`](releasing.md#the-portal)). A red deploy publishes neither.
+
 ### 6.4. Rotating secrets
 
-- **Horizon password, bot token, chat id, any Environment value**: change it in
-  `horizon-vps`, then run the deploy (Actions -> Deploy -> Run workflow, on `main`); it
-  rewrites `.env`. A changed Horizon password must reach the host before the next
-  scheduled run, and only a `--force` check-in proves it.
+- **Horizon password, bot token, chat id, any Environment value**: change it in `horizon-vps`,
+  then redeploy the current release: Actions -> Release -> Run workflow, *Use workflow from*
+  `main`, and the current release tag in `tag` (from a clone,
+  `gh workflow run release.yml -f tag=vX.Y.Z`). The run rewrites `.env` without a new version.
+  A changed Horizon password must reach the host before the next scheduled run, and only a
+  `--force` check-in proves it.
 - **Horizon account**: changing `HORIZON_USERNAME` changes the seed of the daily draw and
   therefore the minutes. To keep them, set `HT_JITTER_SEED` to the previous account name.
 - **The deploy's SSH key**: add the new public key to `VPS_USER`'s `authorized_keys`,
-  replace `VPS_SSH_KEY`, run a deploy, then remove the old public key from the host.
+  replace `VPS_SSH_KEY`, redeploy the current release, then remove the old public key from
+  the host.
 - **The host's key** (a reinstall): replace `VPS_KNOWN_HOSTS` with the new `ssh-keyscan`
   line, checked by fingerprint.
 - **The repository deploy key** (private repository): generate a new pair as `horizon`
@@ -555,7 +573,7 @@ runs GitHub keeps the newest.
 ## 7. Troubleshooting
 
 - **Preflight: `HORIZON_URL is not set` / `HORIZON_DESKTOP is not set`.** Define the
-  variable in `horizon-vps` (section 3.2) and run the deploy again.
+  variable in `horizon-vps` (section 3.2) and redeploy the release (section 6.4).
 - **Preflight fails on `ssh`.** Check `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` and
   `VPS_KNOWN_HOSTS`; on the host, that the public key is in `authorized_keys`, that the
   clone exists, and that `sudo -n -u horizon true` succeeds for `VPS_USER`.
@@ -583,7 +601,7 @@ runs GitHub keeps the newest.
      services on the host use the same Chrome, check them afterwards;
   4. if it starts but Playwright cannot drive it, Chrome has moved past the Playwright
      version pinned in `uv.lock`. Do not downgrade a Chrome other services may share:
-     update Playwright in the repository, deploy, and run `ht probe` again.
+     update Playwright in the repository, release it, and run `ht probe` again.
 - **A manual run ended with exit code 120 and no output.** It ran with `--pipe` over an
   SSH connection that dropped. Use the `ht` wrapper of section 4.2, which writes to a file.
 - **A password seems mangled.** Never `source .env` in a shell; run through `systemd-run`

@@ -51,11 +51,11 @@ variables and the deploy contract) is already in use.
   deploys, publishes a GitHub Release with the version's `CHANGELOG.md` section as its notes
   and the wheel and the sdist as assets, and publishes the Beadloom architecture portal to
   GitHub Pages.
-- **Three workflows, one per event.** `ci.yml` runs on a pull request and on a push to
-  `main` (lint, types, workflow lint, tests, the architecture gate, `ci-ok`, and the
-  per-change mutation sample on a pull request); `release.yml` runs on a release tag;
-  `mutation.yml` runs the weekly mutation sample. Every action is pinned to a commit SHA,
-  and Dependabot proposes the updates weekly.
+- **Three workflows, one per event.** `ci.yml` runs on a pull request and on a push to `main`
+  (lint, types, workflow lint, tests, the architecture gate, `ci-ok`, and on a pull request the
+  mutation of the domain functions it changed); `release.yml` runs on a release tag;
+  `mutation.yml` runs the weekly mutation sample. Every action is pinned to a commit SHA, and
+  Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
 [Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.0.0...HEAD

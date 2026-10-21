@@ -139,9 +139,9 @@ clone, and [`.claude/CLAUDE.md`](.claude/CLAUDE.md) the full flow.
 ```bash
 uv sync --all-extras
 uv run pytest
-uv run ruff check src/ tests/
-uv run ruff format --check src/ tests/
-uv run mypy src/
+uv run ruff check                          # the whole repository, as CI runs it
+uv run ruff format --check
+uv run mypy                                # strict; the scope is [tool.mypy] files
 beadloom ci                                # architecture + documentation gate
 scripts/mutation.sh --changed-since main --out /tmp/mutation   # mutation gate, per change
 ```
