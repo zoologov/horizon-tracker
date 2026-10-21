@@ -105,7 +105,7 @@ The retry and calendar scenarios in `window_and_retries.feature` and
 
 Derived from the imports on reindex.
 
-- Depends on: `ports`, `run-report`, `schedule`, `session-state`, `windowed-run`
+- Depends on: `messages`, `ports`, `run-report`, `schedule`, `session-state`, `windowed-run`
 - Used by: `cli` (through the `application` package)
 
 ## Parent

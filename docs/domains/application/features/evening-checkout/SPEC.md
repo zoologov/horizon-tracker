@@ -99,7 +99,7 @@ The drawn-moment scenarios in `randomised_moments.feature` run the check-out as 
 
 Derived from the imports on reindex.
 
-- Depends on: `ports`, `run-report`, `schedule`, `session-state`, `windowed-run`
+- Depends on: `messages`, `ports`, `run-report`, `schedule`, `session-state`, `windowed-run`
 - Used by: `cli` (through the `application` package)
 
 ## Parent

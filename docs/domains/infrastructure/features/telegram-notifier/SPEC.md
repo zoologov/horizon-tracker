@@ -63,9 +63,10 @@ Tests: `tests/unit/infrastructure/test_telegram.py`, on `httpx.MockTransport`.
 
 The acceptance suite runs the real notifier over a recording Bot API
 (`tests/support/bot_api.py`), built by the CLI's own `build_notifier` from the settings
-the command loaded. The scenarios written before HT-007 quote Russian notifications, so
-their scene pins the notifier's language to `ru`. Scenarios
-(`tests/acceptance/features/notifications.feature`):
+the command loaded. Most feature files quote the notification in Russian, so the
+acceptance scene builds the notifier in `ru`. The scenarios of `language.feature` leave
+the language to `HT_LANGUAGE`, so their notifier is built the way the service builds it.
+Scenarios (`tests/acceptance/features/notifications.feature`):
 
 - `A failed run sends the reason and a screenshot`
 - `A notification never contains the password`
@@ -77,11 +78,17 @@ client:
 - `A successful check-out sends a screenshot of the launch list without a session`
 - `A check-in whose screenshot failed still reports success as text`
 
+Scenarios (`tests/acceptance/features/language.feature`):
+
+- `A notification is rendered in the configured language`
+- `The default language is English`
+- `A blank HT_LANGUAGE reads as the default English`
+
 ## Dependencies
 
 Derived from the imports on reindex.
 
-- Depends on: `run-report`
+- Depends on: `messages`, `run-report`
 - Used by: `cli`
 
 ## Parent

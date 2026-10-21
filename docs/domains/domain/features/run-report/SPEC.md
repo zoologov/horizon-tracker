@@ -50,8 +50,7 @@ moment (`planned for HH:MM`, the `report.time_planned` key) when `planned_at` is
 line names the source: the isdayoff.ru calendar, the Monday-Friday fallback, or "not
 asked, manual run --force" for a run that asked no calendar. The reason line is present
 only when there is a reason. The two formatted times are the only values the report puts
-into the text; every word comes from the catalogue. The Russian texts are the ones the
-notification carried before the catalogue existed. The screenshot never appears in
+into the text; every word comes from the catalogue. The screenshot never appears in
 the text: the notifier attaches it beside the text. A failure carries the screenshot of
 the step that failed; a success carries the use case's photo of the step it completed
 (the opened desktop, the launch list without the session). Either may be `None`, and
@@ -98,6 +97,9 @@ Scenarios:
   - `A notification never contains the password`
 - `tests/acceptance/features/morning_checkin.feature`:
   - `Morning check-in reports success with the recorded time`
+- `tests/acceptance/features/language.feature`:
+  - `A notification is rendered in the configured language`
+  - `The default language is English`
 
 ## Dependencies
 

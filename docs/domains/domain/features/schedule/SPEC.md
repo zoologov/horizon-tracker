@@ -77,7 +77,7 @@ attempts from this constant rather than from a copy of it.
   not positive, a window past midnight. Its `reason` is a `Message` (`schedule.*` keys,
   see the `messages` SPEC), so a reader gets it in their language; `str(error)` is the
   English text. A refusal only code can reach (an empty seed, a duration with seconds, a
-  negative extra, a range end with seconds) stays a plain `ValueError`.
+  negative extra, a range end with seconds) is a plain `ValueError`.
 
 ## API
 
@@ -132,12 +132,14 @@ Scenarios:
   - `The check-out moment is nine hours plus up to ten minutes after the check-in`
   - `A check-out past the end of its range is clipped to the end`
   - `The same date gives the same drawn moments in two separate runs`
+- `tests/acceptance/features/language.feature`:
+  - `A value the schedule refuses reaches a Russian reader with its reason in Russian`
 
 ## Dependencies
 
 Derived from the imports on reindex.
 
-- Depends on: `working-day-calendar`
+- Depends on: `messages`, `working-day-calendar`
 - Used by: `artifact-store`, `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `probe`, `run-report`, `settings`, `windowed-run`
 
 ## Parent

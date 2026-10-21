@@ -7,9 +7,9 @@
 
 ## Current Bead
 
-**Bead:** BEAD-05 (ht-zyh) tech-writer
-**Goal:** the SPECs of messages / run-report / settings, cli.md and the graph node describe the catalogue and the language as they are
-**Done when:** `sync-check` is clean, `docs audit` is clean
+**Bead:** BEAD-06 (ht-1rh) live check — after the merge of PR #3 and `gh variable set HT_LANGUAGE --env horizon-vps --body ru`
+**Goal:** the notification arrives at the notification bot in Russian, the log in English
+**Done when:** the owner received a Russian notification; `horizon probe` on the VPS prints `language ru`
 
 ## Progress
 
@@ -17,7 +17,8 @@
 - [x] BEAD-01 … BEAD-03 (2026-10-21)
 - [x] BEAD-04 (2026-10-21)
 - [x] fix ht-7a0.1 (2026-10-21)
-- [ ] BEAD-05 → BEAD-06
+- [x] BEAD-05 (2026-10-21)
+- [ ] BEAD-06: the live check after the merge
 
 ## Results
 
@@ -28,10 +29,11 @@
 | BEAD-03 | Done | ht-bsc, e7aff90: the 4 PRD scenarios + 7 edge cases = 17 tests through `HT_LANGUAGE` → Settings → `build_notifier`; no stubs left in the suite; 1132 passed / 0 skipped, coverage 99 %; 16 sabotages bite |
 | fix | Done | ht-7a0.1, be6754b: `ScheduleError(reason: Message)` for the five refusals reachable from the settings; `Message.in_language` renders nested messages; the catalogue at 83 keys; `Check.label`/`status_label` are built at creation; `Message.fields` read-only; 1214 passed, coverage 99 %, mutations 370/372, 14 sabotages bite |
 | BEAD-04 | Done | ht-m1h: OK — 0 critical, 0 major, 2 minor, 4 nit; minor 1 (mixed languages in domain refusals) + nits 4, 5 → ht-7a0.1; minor 2 (the reason for excluding the catalogue from mutations) recorded in flow.yml; nit 3 — a documented decision; nit 6 closed |
-| BEAD-05 | Open | — |
+| BEAD-05 | Done | ht-zyh: 13 documentation files (the SPEC of messages/run-report/schedule/probe/telegram-notifier/windowed-run/morning-checkin/evening-checkout, cli.md, architecture.md, the domain and root READMEs, the summary of the `messages` node); sync-check 34/34, docs audit clean |
 | BEAD-06 | Open | — |
 
 ## Notes
 
 - The four PRD scenarios need to be put into the suite as SKIP stubs until BEAD-03 (as with HT-003/HT-004), otherwise `scenario-coverage` keeps the gate red.
 - BEAD-02 changes the plan of the live check (BEAD-06): the deployment rewrites `/opt/horizon-tracker/.env` on every roll-out, so `HT_LANGUAGE=ru` is set not by hand in .env but as a variable of the `horizon-vps` environment: `gh variable set HT_LANGUAGE --env horizon-vps --body ru`; the workflow reads `vars.HT_LANGUAGE`.
+- For the repository clean-up (impersonalisation): `docs/services/cli.md` uses the real portal host as the `HORIZON_URL` example and names the notification bot by its real name; the telegram-notifier SPEC also names it; the `domain/messages.py` docstring says «the very strings those commands print today».

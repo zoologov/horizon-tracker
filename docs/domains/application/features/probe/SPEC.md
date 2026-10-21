@@ -64,8 +64,9 @@ the probe's line with the day's runs. The CLI prints it without a status:
 - `waits_until` is the drawn moment a run started now would sleep until first, taken from
   the same `first_decision`, and `moments` is the day's drawn pair the dry run was given.
 
-Neither the decision nor the steps are restated in this module, so a plan cannot
-describe a run that no longer exists. The dry run calls nothing on the Horizon client, so it cannot log in.
+Neither the decision nor the steps are restated in this module, so a plan cannot drift
+from the run it describes. The dry run calls nothing on the Horizon client, so it cannot
+log in.
 
 The settings are validated before either object is built: the composition root
 creates a probe or a dry run only for a configuration `Settings.from_env` accepted.
@@ -105,8 +106,7 @@ Module `src/horizon_tracker/application/probe.py`:
 - `schedule_detail(moments: DailyMoments) -> Message` — today's drawn pair, key
   `probe.schedule`: `today 07:43 / 16:52` in English.
 - `RunPlan(kind, at, forced, decision, verdict_source, steps: tuple[Message, ...],
-  waits_until: datetime |
-  None = None, moments: DailyMoments | None = None)` — frozen; `would_run -> bool` is
+  waits_until: datetime | None = None, moments: DailyMoments | None = None)` — frozen; `would_run -> bool` is
   true for `RUN` and `RETRY`. `waits_until` comes from the loop's `first_decision`;
   `moments` is the day's drawn pair as the dry run was given it, forced or not.
 - `PlannedRun` — `Protocol`: `kind` and `runner` properties, `steps() -> tuple[Message, ...]`.
@@ -133,11 +133,17 @@ Scenarios that read the `schedule:` line (`tests/acceptance/features/randomised_
 - `The same date gives the same drawn moments in two separate runs`
 - `A dry run names the drawn moment of the day`
 
+Scenarios that read the probe and the dry run in a language
+(`tests/acceptance/features/language.feature`):
+
+- `The probe reads in the configured language`
+- `A dry run reads in the configured language`
+
 ## Dependencies
 
 Derived from the imports on reindex.
 
-- Depends on: `ports`, `schedule`, `windowed-run`, `working-day-calendar`
+- Depends on: `messages`, `ports`, `schedule`, `windowed-run`, `working-day-calendar`
 - Used by: `cli`
 
 ## Parent

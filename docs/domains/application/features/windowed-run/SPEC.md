@@ -146,7 +146,7 @@ Scenarios:
 
 Derived from the imports on reindex.
 
-- Depends on: `ports`, `run-report`, `schedule`, `working-day-calendar`
+- Depends on: `messages`, `ports`, `run-report`, `schedule`, `working-day-calendar`
 - Used by: `evening-checkout`, `morning-checkin`, `probe`, `cli` (through the `application` package)
 
 ## Parent

@@ -34,7 +34,7 @@ nodes:
 
   - ref_id: messages
     kind: feature
-    summary: "The message catalogue: every text a person reads, keyed, in English and Russian; text(key, language, **fields), Message(key, fields) the use cases hand out, and the completeness check missing_translations()"
+    summary: "The message catalogue: every text a person reads, keyed, in English and Russian; text(key, language, /, **fields), Message(key, fields), which the use cases, the settings and the schedule hand out and which reads in a language, and the completeness check missing_translations()"
     source: src/horizon_tracker/domain/messages.py
     docs:
       - docs/domains/domain/features/messages/SPEC.md

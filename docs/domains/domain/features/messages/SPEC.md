@@ -46,14 +46,14 @@ place a person reads them:
 A Russian configuration error is Russian from end to end. Only what the reader types
 stays as written: the variable name, the value they gave and the language codes.
 
-The English texts of `plan.*`, `config.*` and the probe's checks are the strings those
-commands printed before HT-007, byte for byte, with three deliberate changes: the probe's
-settings line ends with `, language <code>`, a refused bot token reads
-`TELEGRAM_BOT_TOKEN: is malformed: expected <bot id>:<secret>` like every other refusal,
-and a range with an hour or a minute no clock shows reads
-`not a valid range '25:00-26:00': no such time of day` instead of Python's
-`hour must be in 0..23`. The English texts of `schedule.*` are the domain's refusals as
-they read before, so a log line of a configuration error is unchanged.
+Every refusal of a setting has the same shape, `<VARIABLE>: <problem>`, the bot token's
+included: `TELEGRAM_BOT_TOKEN: is malformed: expected <bot id>:<secret>`. A range with an
+hour or a minute no clock shows is refused with the catalogue's own reason,
+`not a valid range '25:00-26:00': no such time of day`, and never with the text of the
+exception the standard library raised. The probe's settings line names the language last
+(`, language en`). The English text of a `schedule.*` key is the `str()` of the
+`ScheduleError` that carries it, so the English log line of a configuration error and the
+domain's exception say the same thing.
 
 `text(key, language, /, **fields)` returns the text of `key` in `language` with its named
 fields filled by `str.format`; a field may carry a conversion (`{desktop!r}`). `key` and
@@ -106,12 +106,20 @@ Module `src/horizon_tracker/domain/messages.py`:
 
 ## Testing
 
-Tests: `tests/unit/domain/test_messages.py`. The functions are inside the mutation gate;
-mutmut mutates function bodies only, so the catalogue's data is outside it, and the
-render tests in `tests/unit/domain/test_report.py` pin the `report.*` and `reason.*`
-texts in both languages.
+Tests: `tests/unit/domain/test_messages.py`. The functions are inside the mutation gate.
+The catalogue's data is outside it by construction, because mutmut mutates function
+bodies only. The texts are pinned elsewhere: the render tests in
+`tests/unit/domain/test_report.py` pin `report.*` and `reason.*` in both languages, and
+`tests/unit/test_cli.py`, `tests/unit/infrastructure/test_config.py`,
+`tests/unit/domain/test_moments.py` and the language scenarios pin `plan.*`, `probe.*`,
+`config.*` and `schedule.*`.
 
-Scenarios (HT-007 BEAD-03): `tests/acceptance/features/language.feature`.
+Scenarios (`tests/acceptance/features/language.feature`):
+
+- `Every message key has a text in every supported language`
+- `A configuration error reaches a Russian reader in Russian beside the English log line`
+- `A value the schedule refuses reaches a Russian reader with its reason in Russian`
+- `A configuration error is said once to an English reader`
 
 ## Dependencies
 

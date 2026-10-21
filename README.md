@@ -15,11 +15,15 @@ and the evening run agree without sharing state. The systemd timers fire at the
 start of each range, and each run waits for its own moment before it acts. All
 wall times are in the zone set by `HT_TIMEZONE`. Each run reports to Telegram.
 
+The notification, the output of `horizon probe` and of a dry run, and a configuration
+error are written in the language `HT_LANGUAGE` names: `en` (the default) or `ru`. Any
+other value is refused at start. The logs stay English whatever the language.
+
 ## Layout
 
 | Path | What lives there |
 |------|------------------|
-| `src/horizon_tracker/domain/` | pure decision cores: the daily draw of the moments and the run windows, working-day verdicts, session state, the run report, ports |
+| `src/horizon_tracker/domain/` | pure decision cores: the daily draw of the moments and the run windows, working-day verdicts, session state, the run report, the message catalogue, ports |
 | `src/horizon_tracker/application/` | use cases: morning check-in, evening check-out, the shared run loop, the probe and the dry run |
 | `src/horizon_tracker/infrastructure/` | adapters: Playwright driver, isdayoff.ru calendar, Telegram notifier, env config |
 | `src/horizon_tracker/cli.py` | the `horizon` command, composition root |

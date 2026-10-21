@@ -19,7 +19,12 @@ deterministic and unit-tested first.
 | `messages.py` | the message catalogue: `Language` (EN, RU), `DEFAULT_LANGUAGE` (EN), `MESSAGES` (every text a person reads, keyed, in both languages), `text(key, language, /, **fields)`, `Message(key, fields)` (a text with no language yet, its fields read-only; `in_language(language)`, which reads a field that is a message in the same language), `missing_translations()` |
 | `ports.py` | the Protocols the adapters implement: `HorizonClient` (the run's `login`, `desktop_status`, `open_desktop`, `disconnect`, `log_off`, where `open_desktop` and `log_off` answer with the success screenshot's path or `None`, and the probe's `client_bundles()` and `browser_version()`), `WorkingDayCalendar`, `Notifier` (`send(report)`, the screenshot travels inside the report), `Clock`, `ArtifactStore`; `HorizonClientError(reason, screenshot)` |
 
-The whole package is the scope of the mutation gate (`scripts/mutation.sh`).
+The domain picks no language: `render(report, language)` and `Message.in_language`
+take it as an argument, and the settings read it from `HT_LANGUAGE`. The use cases and the
+schedule hand out `Message` values, and the CLI and the notifier render them.
+
+The whole package is the scope of the mutation gate (`scripts/mutation.sh`). The
+catalogue's data yields no mutants, because mutmut mutates function bodies only.
 
 ## Features
 

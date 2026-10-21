@@ -12,7 +12,7 @@ composition root.
 | `cli` | service | `src/horizon_tracker/cli.py` | the `horizon` command; wires adapters into use cases |
 | `infrastructure` | adapters | `src/horizon_tracker/infrastructure/` | Playwright driver for Horizon HTML Access, isdayoff.ru calendar, Telegram notifier, env config, system clock, artifact directory |
 | `application` | application | `src/horizon_tracker/application/` | the shared run loop, the morning check-in, the evening check-out, the probe and the dry run |
-| `domain` | domain | `src/horizon_tracker/domain/` | the daily draw of the check-in and check-out moments, the run windows built from them, working-day verdicts, session state, the run report, ports |
+| `domain` | domain | `src/horizon_tracker/domain/` | the daily draw of the check-in and check-out moments, the run windows built from them, working-day verdicts, session state, the run report, the message catalogue, ports |
 
 ## Dependency direction
 
@@ -37,24 +37,26 @@ the dependencies below are the imports the reindex derives, not authored edges.
 
 | Feature | Layer | Module | Depends on |
 |---------|-------|--------|------------|
-| [`schedule`](domains/domain/features/schedule/SPEC.md) | domain | `schedule.py` | `working-day-calendar` |
+| [`schedule`](domains/domain/features/schedule/SPEC.md) | domain | `schedule.py` | `messages`, `working-day-calendar` |
 | [`working-day-calendar`](domains/domain/features/working-day-calendar/SPEC.md) | domain | `calendar.py` | — |
 | [`session-state`](domains/domain/features/session-state/SPEC.md) | domain | `session.py` | — |
-| [`run-report`](domains/domain/features/run-report/SPEC.md) | domain | `report.py` | `schedule`, `working-day-calendar` |
+| [`run-report`](domains/domain/features/run-report/SPEC.md) | domain | `report.py` | `messages`, `schedule`, `working-day-calendar` |
+| [`messages`](domains/domain/features/messages/SPEC.md) | domain | `messages.py` | — |
 | [`ports`](domains/domain/features/ports/SPEC.md) | domain | `ports.py` | `run-report`, `schedule`, `session-state` |
-| [`windowed-run`](domains/application/features/windowed-run/SPEC.md) | application | `windowed_run.py` | `ports`, `run-report`, `schedule`, `working-day-calendar` |
-| [`morning-checkin`](domains/application/features/morning-checkin/SPEC.md) | application | `checkin.py` | `windowed-run`, `ports`, `run-report`, `schedule`, `session-state` |
-| [`evening-checkout`](domains/application/features/evening-checkout/SPEC.md) | application | `checkout.py` | `windowed-run`, `ports`, `run-report`, `schedule`, `session-state` |
-| [`probe`](domains/application/features/probe/SPEC.md) | application | `probe.py` | `windowed-run`, `ports`, `schedule`, `working-day-calendar` |
+| [`windowed-run`](domains/application/features/windowed-run/SPEC.md) | application | `windowed_run.py` | `messages`, `ports`, `run-report`, `schedule`, `working-day-calendar` |
+| [`morning-checkin`](domains/application/features/morning-checkin/SPEC.md) | application | `checkin.py` | `windowed-run`, `messages`, `ports`, `run-report`, `schedule`, `session-state` |
+| [`evening-checkout`](domains/application/features/evening-checkout/SPEC.md) | application | `checkout.py` | `windowed-run`, `messages`, `ports`, `run-report`, `schedule`, `session-state` |
+| [`probe`](domains/application/features/probe/SPEC.md) | application | `probe.py` | `windowed-run`, `messages`, `ports`, `schedule`, `working-day-calendar` |
 | [`horizon-playwright-client`](domains/infrastructure/features/horizon-playwright-client/SPEC.md) | adapters | `horizon_playwright.py` | `ports`, `run-report`, `schedule`, `session-state` |
 | [`isdayoff-calendar`](domains/infrastructure/features/isdayoff-calendar/SPEC.md) | adapters | `isdayoff.py` | — (implements `WorkingDayCalendar` structurally) |
-| [`telegram-notifier`](domains/infrastructure/features/telegram-notifier/SPEC.md) | adapters | `telegram.py` | `run-report` |
-| [`settings`](domains/infrastructure/features/settings/SPEC.md) | adapters | `config.py` | `schedule` |
+| [`telegram-notifier`](domains/infrastructure/features/telegram-notifier/SPEC.md) | adapters | `telegram.py` | `messages`, `run-report` |
+| [`settings`](domains/infrastructure/features/settings/SPEC.md) | adapters | `config.py` | `messages`, `schedule` |
 | [`artifact-store`](domains/infrastructure/features/artifact-store/SPEC.md) | adapters | `artifacts.py` | `ports`, `schedule` |
 | [`system-clock`](domains/infrastructure/features/system-clock/SPEC.md) | adapters | `clock.py` | — (implements `Clock` structurally) |
 
-`cli` imports every adapter feature, `probe`, `ports`, `schedule`, `run-report` and
-`working-day-calendar`, and the use cases through the `application` package.
+`cli` imports every adapter feature, `probe`, `messages`, `ports`, `schedule`,
+`run-report` and `working-day-calendar`, and the use cases through the `application`
+package.
 
 ## The two paths through the code
 
@@ -75,6 +77,20 @@ and the steps of the use case and the loop, names the same moments and the one t
 would wait until, and calls nothing on the Horizon client. The probe, a dry run and
 both runs of one date draw the same pair, because the draw depends only on the date and
 the seed.
+
+## The language a person reads
+
+Every text a person reads comes from the message catalogue in the domain
+([`messages`](domains/domain/features/messages/SPEC.md)), in English or Russian: the
+Telegram notification, the lines of `horizon probe` and of a dry run, and a
+configuration error. The use cases, the settings and the schedule never pick a language.
+They hand out `Message` values, a catalogue key and its fields. `HT_LANGUAGE` (`en` by
+default, `ru`) is read into `Settings.language`, and any other value stops every command
+at start. The CLI renders the probe and dry-run lines in that language and builds the
+`TelegramNotifier` with it, and the notifier renders each report with
+`render(report, language)`. A configuration error is logged in English and, when the
+configured language is another, also printed on stderr in that language. The logs are
+always English: they are the operator's, whatever language the owner reads.
 
 ## Source
 

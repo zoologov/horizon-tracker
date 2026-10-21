@@ -33,17 +33,18 @@ moment). `--dry-run` prints the plan to stdout and exits 0: it never calls login
 other Horizon method, sends no Telegram report, sleeps for nothing and prunes nothing.
 The two flags combine.
 
-A configuration error is logged on stderr as `configuration error: <VAR>:
-<problem>` without the credential's value, and every command exits 1. The log line is
-English whatever the language. When `HT_LANGUAGE` names another language, the CLI also
-prints the error in it on stderr, below the log line (the Russian `config.error` text, `<VAR>:
-<problem>` for `ru`); an English reader gets the log line once. The Russian line is
-Russian throughout, the domain's reason for refusing a range, a session length or a
-grace included; only the variable, the value given and the language codes stay as
-written. The settings did not
-load, so the language is read on its own (`language_from_env`); an unknown
-`HT_LANGUAGE` is itself the error and is named in English. The retry
-policy is a CLI constant (3 attempts, 30 s apart, still bounded by the window).
+A configuration error is logged on stderr as `configuration error: <VAR>: <problem>`
+without the credential's value, and every command exits 1. The log line is English
+whatever the language. When `HT_LANGUAGE` names another language, the CLI also prints the
+error in it on stderr, below the log line (the catalogue's `config.error` text, in Russian for
+`ru`). An English reader gets the log line once. The Russian line is Russian throughout,
+the domain's reason for refusing a range, a session length or a grace included. Only the
+variable, the value given and the language codes stay as written. The settings did not
+load, so the language is read on its own (`language_from_env`). An unknown `HT_LANGUAGE`
+is itself the error and is named in English.
+
+The retry policy is a CLI constant, `RETRY_POLICY`: 3 attempts, 30 s apart, still bounded
+by the window.
 
 Before a run that is not a dry run, the CLI removes screenshots older than 14 days
 from `HT_ARTIFACTS_DIR`. This is best-effort: an `OSError` is logged as
@@ -128,8 +129,8 @@ the retries and the one Telegram report.
 | `HT_ARTIFACTS_DIR` | where screenshots are written and pruned (older than 14 days) |
 | `HT_LANGUAGE` | the language of the notification, the probe, the dry run and a configuration error: `en` (default) or `ru`; anything else is refused at start with `configuration error: HT_LANGUAGE: expected one of en, ru, got '<value>'`. The logs stay English |
 
-`HT_CHECKIN_WINDOW` and `HT_CHECKOUT_WINDOW` are no longer read: either one present
-in the environment, even blank, makes every command exit 1 with
+`HT_CHECKIN_WINDOW` and `HT_CHECKOUT_WINDOW` are retired: either one present in the
+environment, even blank, makes every command exit 1 with
 `configuration error: HT_CHECKIN_WINDOW: ...` naming its successors.
 
 ## Source
@@ -141,7 +142,16 @@ The composition root builds the notifier with `build_notifier(settings, http)`: 
 configuration error for `TELEGRAM_BOT_TOKEN`. The acceptance suite builds its notifier
 through the same function.
 
+## Testing
+
+Tests: `tests/unit/test_cli.py`. The acceptance scenarios drive the commands through
+`CliRunner` (`tests/support/cli_world.py`). The language of the output, of the
+notification and of a configuration error is held by
+`tests/acceptance/features/language.feature`.
+
 ## Dependencies
 
-- Depends on: `application`, `infrastructure`
+- Depends on: `application`, `infrastructure`, and from the domain `messages` (the CLI
+  renders every message in `HT_LANGUAGE`), `schedule`, `ports`, `run-report` and
+  `working-day-calendar`
 - Used by: the systemd timers on the VPS
