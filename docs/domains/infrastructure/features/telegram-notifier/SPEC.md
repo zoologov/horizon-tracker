@@ -13,7 +13,8 @@ log.
 ### Purpose
 
 Every run sends one message to the owner's private chat from the service bot the notification bot.
-A failure carries its screenshot. A run must never fail because its notification
+A report that carries a screenshot, of a confirmed success or of a failure, goes out as
+that photo with the text as its caption. A run must never fail because its notification
 failed, and the bot token, which sits in the path of every Bot API URL, must not leak
 into the journal.
 
@@ -63,6 +64,13 @@ The acceptance suite runs the real notifier over a recording Bot API
 
 - `A failed run sends the reason and a screenshot`
 - `A notification never contains the password`
+
+Scenarios (`tests/acceptance/features/screenshot_preview.feature`), on a fake Horizon
+client:
+
+- `A successful check-in sends a screenshot of the opened desktop`
+- `A successful check-out sends a screenshot of the launch list without a session`
+- `A check-in whose screenshot failed still reports success as text`
 
 ## Dependencies
 

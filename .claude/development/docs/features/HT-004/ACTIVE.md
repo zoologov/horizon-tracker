@@ -7,15 +7,15 @@
 
 ## Current Bead
 
-**Bead:** BEAD-05 (ht-8i1) tech-writer; in parallel HT-007 BEAD-01 (ht-7kx)
-**Goal:** the SPECs of ports / the adapter / the use cases / telegram-notifier describe the success photo
-**Done when:** `sync-check` is clean, minors 1 and 2 of the review are closed
+**Bead:** BEAD-06 (ht-2kp) live check — after the merge of PR #3
+**Goal:** a successful check-in and check-out arrive at the notification bot as a photo with a caption
+**Done when:** two notifications with photos received by the owner, no errors in the log
 
 ## Progress
 
 - [x] The documents are approved by the owner's standing decision (2026-10-20); the beads are created, parent ht-2r9
-- [x] BEAD-01 … BEAD-04 (2026-10-20)
-- [ ] BEAD-05 → BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06
+- [x] BEAD-01 … BEAD-05 (2026-10-21)
+- [ ] BEAD-06: the live check after the merge → BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06
 
 ## Results
 
@@ -25,7 +25,7 @@
 | BEAD-02 | Done | ht-owz, f9505e9: `checkin`/`checkout` put the path on `AttemptResult.screenshot` only on success; the chain beyond it was already there (WindowedRun → RunReport → a photo with a caption); 9 tests, 6 sabotages bite; 767 passed / 7 skipped, coverage 98.8 %; the SPEC of morning-checkin/evening-checkout/run-report and the application README updated |
 | BEAD-03 | Done | ht-bm9, ef2c868: the 3 PRD scenarios with real steps + 2 edge cases (a check-in without confirmation — no photo; a check-out confirmed only by the retry — as text); both gaps of BEAD-01/02 pinned (the order of the log off photo through a spy on `Page.screenshot`, the retry without a photo); the fake got `lose_on`; 10 sabotages bite; 776 passed / 4 skipped, coverage 98.8 % |
 | BEAD-04 | Done | ht-2l1: OK — 0 critical, 0 major, 3 minor, 2 nit; 9 sabotages in a copy of HEAD bite; minor 1 and 2 → BEAD-05, minor 3 deferred (CONTEXT); the nits (the fake's path in the RFC, the CONTEXT phase) and the stale graph summary closed by the coordinator |
-| BEAD-05 | Open | — |
+| BEAD-05 | Done | ht-8i1: 5 SPECs (morning-checkin, evening-checkout, telegram-notifier, windowed-run, horizon-playwright-client); minor 1 and 2 of the review closed; sync-check 32/32 ok, docs audit clean |
 | BEAD-06 | Open | — |
 
 ## Notes

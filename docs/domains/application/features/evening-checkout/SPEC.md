@@ -38,10 +38,19 @@ The result:
 - otherwise → `FAILED` with `Reason.LOGOFF_NOT_CONFIRMED` and no screenshot, retried
   while the window allows.
 
-The state the run first saw is kept across its attempts. If a log off went through but
-its confirmation was lost, the retry finds no session and counts the run as the
-check-out it was, not as "already logged off". That retry calls no `log_off`, so its
-report carries no screenshot; the photo of the lost attempt is not kept across attempts.
+The state the run first saw is kept across its attempts. A log off can take effect on
+the broker while its attempt still fails, in two ways:
+
+- `log_off` raises `HorizonClientError` with `Reason.LOGOFF_NOT_CONFIRMED` and its
+  failure screenshot, although the session ended;
+- `log_off` answers with its success screenshot, but the state read after it raises
+  `HorizonClientError`.
+
+Either way the run loop turns the error into a failed attempt with the error's reason
+and screenshot. The retry finds no session and, because the run first saw one, counts
+the run as the check-out it was, not as "already logged off". That retry calls no
+`log_off`, so its success goes out as text: neither the lost attempt's success
+screenshot nor its failure screenshot is carried across attempts.
 
 `steps()` lists the four steps in the owner's words; `horizon checkout --dry-run`
 prints them, followed by the loop's steps.
@@ -52,8 +61,8 @@ prints them, followed by the loop's steps.
   off by this run.
 - `log_off` is called only when a session exists.
 - Only a successful report carries the success screenshot, and only the one taken in
-  the attempt that succeeded; a failed attempt reports the screenshot of its
-  `HorizonClientError`, if any, as before. A forced run behaves the same.
+  the attempt that succeeded. A failed attempt reports the screenshot of its
+  `HorizonClientError`, if any. A forced run behaves the same.
 - The memory of the first-seen state lives for one run; the next run starts fresh.
 
 ## API
@@ -76,6 +85,12 @@ Scenarios (`tests/acceptance/features/evening_checkout.feature`):
 
 - `Evening check-out logs the desktop off`
 - `Evening check-out on an already logged-off desktop reports it and stops`
+
+Scenarios (`tests/acceptance/features/screenshot_preview.feature`):
+
+- `A successful check-out sends a screenshot of the launch list without a session`
+- `A check-out confirmed only on its retry reports success as text`, with one example
+  for each way a confirmation is lost
 
 The drawn-moment scenarios in `randomised_moments.feature` run the check-out as well.
 

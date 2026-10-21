@@ -22,9 +22,9 @@ the client lets go and leaves the Windows session running until the evening chec
 [windowed run](../windowed-run/SPEC.md)). One attempt:
 
 1. `client.login()`;
-2. `client.open_desktop(desktop)`, which returns once Blast is connected and the
-   desktop is drawn, answering with the path of its screenshot of the opened desktop
-   or `None`; the time is recorded as the moment the desktop opened;
+2. `client.open_desktop(desktop)`, which answers with the path of its screenshot of
+   the opened desktop, or `None`. The time is read from `Clock.now()` right after the
+   call returns and kept as `opened_at`;
 3. `clock.sleep(hold)`, so the Windows logon completes, then reads the session state
    while the desktop is open;
 4. `client.disconnect()`, called in a `finally` block, so the client lets go even when
@@ -32,11 +32,19 @@ the client lets go and leaves the Windows session running until the evening chec
 5. `client.login()` again, because the disconnect closed the client, and reads the
    state the disconnect left.
 
+The production adapter does not return from `open_desktop` the moment the desktop is
+drawn. It first holds the page still for `HorizonTimeouts.success_settle_ms` (2 s by
+default) and writes the screenshot (see the
+[Horizon Playwright client](../../../infrastructure/features/horizon-playwright-client/SPEC.md)).
+`opened_at` is therefore about that settle later than the drawing of the desktop, and
+the desktop stays open for `hold` plus the settle and the screenshot, not for `hold`
+alone.
+
 The attempt succeeds when `checkin_succeeded(while_open, after_disconnect)` holds, that
-is the transition `CONNECTED` -> `DISCONNECTED`. The report then carries the moment the
-desktop opened and, as `screenshot`, the path `open_desktop` answered with, so the
-notifier sends the opened desktop as a photo with the text as its caption; with `None`
-the report goes out as text. Any other pair of states is `FAILED` with
+is the transition `CONNECTED` -> `DISCONNECTED`. The report then carries `opened_at`
+and, as `screenshot`, the path `open_desktop` answered with, so the notifier sends the
+opened desktop as a photo with the text as its caption; with `None` the report goes out
+as text. Any other pair of states is `FAILED` with
 `Reason.DESKTOP_DID_NOT_OPEN` and no screenshot: the photo of an opened desktop is not
 evidence for a check-in the broker did not confirm. A `HorizonClientError` from any
 step is turned into a failed attempt by the run loop and retried while the window
@@ -51,10 +59,11 @@ them, followed by the loop's steps.
 - The disconnect happens whenever the desktop was opened, even if the hold or the state
   read failed.
 - Success is decided by the domain rule on session states, never by the portal login.
-- A successful report carries the time the desktop opened, not the time the attempt
-  ended.
-- Only a successful report carries the success screenshot; a failed attempt reports the
-  screenshot of its `HorizonClientError`, if any, as before. A forced run behaves the
+- A successful report carries `opened_at`, the time `open_desktop` returned, not the
+  time the attempt ended. With the production adapter that time follows the drawing of
+  the desktop by the success settle.
+- Only a successful report carries the success screenshot. A failed attempt reports the
+  screenshot of its `HorizonClientError`, if any. A forced run behaves the
   same.
 
 ## API
@@ -77,6 +86,15 @@ Scenarios (`tests/acceptance/features/morning_checkin.feature`):
 
 - `Morning check-in opens the desktop and disconnects`
 - `Morning check-in reports success with the recorded time`
+
+Scenarios (`tests/acceptance/features/screenshot_preview.feature`):
+
+- `A successful check-in sends a screenshot of the opened desktop`
+- `A check-in whose screenshot failed still reports success as text`
+- `A check-in the broker did not confirm sends no photo of the opened desktop`
+
+The fake client has no settle, so these scenarios record the drawn moment itself and do
+not show the shift of `opened_at`.
 
 The retry and calendar scenarios in `window_and_retries.feature` and
 `production_calendar.feature`, and the drawn-moment scenarios in

@@ -40,7 +40,10 @@ holds that shared part once. The dry run reads it rather than copying it.
    → `NON_WORKING_DAY`, `SKIP_EARLY` → `TOO_EARLY`, `SKIP_LATE` → `WINDOW_MISSED`.
 5. Builds one `RunReport`, logs its outcome, sends it through the `Notifier` and
    returns it. The report's `planned_at` is the drawn moment the run was due at, set
-   whether or not the run reached its window, and `None` for a forced run.
+   whether or not the run reached its window, and `None` for a forced run. The
+   report's `screenshot` is copied from the result the run ended on: the success
+   screenshot of a confirmed attempt, the failure screenshot of the last failed one, or
+   none for a skip. The screenshots of earlier attempts do not reach the report.
 
 A failed attempt is retried while the window and the policy allow. Once they do not,
 the run reports the last failure rather than a skip, because the attempt was made. The
@@ -85,7 +88,9 @@ both.
 Module `src/horizon_tracker/application/windowed_run.py`:
 
 - `AttemptResult(outcome: Outcome, at: datetime, reason: Reason | None = None,
-  screenshot: Path | None = None)` — frozen; what one attempt observed.
+  screenshot: Path | None = None)` — frozen; what one attempt observed. `screenshot`
+  is the success screenshot of a `SUCCEEDED` result or the failure screenshot of a
+  `FAILED` one.
 - `Attempt` — `Callable[[], AttemptResult]`.
 - `FirstDecision(at: datetime, decision: Decision, verdict_source: VerdictSource |
   None, waits_until: datetime | None = None)` — frozen. `waits_until` is the drawn

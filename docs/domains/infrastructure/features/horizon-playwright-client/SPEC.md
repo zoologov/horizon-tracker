@@ -154,9 +154,10 @@ The route is read after the settle, so a page that fell back to `#/home` meanwhi
 not photographed and the answer is `None`. A Playwright error or a disk error (an
 `OSError`, for instance from writing the file) while taking the screenshot is logged as
 `Horizon screenshot failed: <Type>` and answers `None`; the step still succeeds. A
-failure screenshot is named by the run's kind, as before, and since the shared method
-catches disk errors too, a failure screenshot the disk refuses now leaves the
-`HorizonClientError` without a screenshot instead of escaping as an `OSError`.
+success screenshot is named by its step (`RunKind.CHECKIN` or `RunKind.CHECKOUT`), a
+failure screenshot by the `run_kind` the client was built with. Because the shared
+method catches disk errors too, a failure whose screenshot the disk refuses raises a
+`HorizonClientError` without a screenshot rather than an `OSError`.
 
 ### Secrets and failures
 
