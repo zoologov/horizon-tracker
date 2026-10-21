@@ -38,6 +38,8 @@ See CONTEXT HT-001/HT-003: Python 3.12, uv, ruff, mypy strict, pytest + pytest-b
 
 ## Current Phase
 
-- **Phase:** Planning
-- **Current bead:** —
-- **Blockers:** the landing of HT-003 (ht-slm) and HT-005 (ht-5ni)
+- **Phase:** Development (wave 4: documentation)
+- **Current bead:** BEAD-05 (ht-8i1)
+- **Blockers:** —
+- **Deferred from the review (minor 3):** the kind of the success photo is hard-coded in the adapter (`RunKind.CHECKIN`/`CHECKOUT` by step), while the failure photo takes `self._run_kind` — two sources of one value; the behaviour is pinned by sabotage and the SPEC, the reason is to be named in the docstring at the next touch of the adapter
+- **Decision on minor 1:** `opened_at` is read after `open_desktop` returns, that is after `success_settle_ms` and the PNG write (≈2 s after the desktop is drawn; the hold = hold + settle). The behaviour is kept, the morning-checkin SPEC refines the wording in BEAD-05

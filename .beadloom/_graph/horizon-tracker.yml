@@ -7,7 +7,7 @@
 nodes:
   - ref_id: horizon-tracker
     kind: service
-    summary: "Scheduled check-in (07:55 MSK) and check-out (17:00 MSK) of a VMware Horizon VDI session, run on a VPS"
+    summary: "Scheduled check-in and check-out of a VMware Horizon VDI session at moments drawn per date inside configured ranges, run on a VPS"
     source: src/horizon_tracker/
     tags: [layer-service]
     docs:

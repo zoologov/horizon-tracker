@@ -15,15 +15,15 @@ language: ru
 # expires: by then BEAD-12 has split the layers into feature nodes and the
 # derivation can decide this itself.
 
-# Wave override (HT-003 test bead beside HT-005 workflows bead): both declare the root
-# node horizon-tracker, but ht-slm owns tests/acceptance/** and ht-5ni owns .github/**,
-# scripts/mutation.sh, .beadloom/flow.yml (mutation.targets) and tests/unit/deploy/**.
+# Wave override (HT-004 tech-writer beside HT-007 domain bead): both touch docs of the
+# domain and application layers, but on disjoint files; the ht-slm/ht-5ni override that
+# stood here was removed once both beads closed (it had become inert).
 waves:
   overrides:
-  - beads: [ht-slm, ht-5ni]
+  - beads: [ht-8i1, ht-7kx]
     decision: parallel
-    reason: "disjoint files: tests/acceptance/** (ht-slm) vs .github/**, scripts/mutation.sh, flow.yml mutation.targets, tests/unit/deploy/** (ht-5ni)"
-    until: "2026-11-20"
+    reason: "disjoint files: docs of ports/horizon-playwright-client/morning-checkin/evening-checkout/telegram-notifier (ht-8i1) vs src/horizon_tracker/domain/messages.py, report.py render, their tests, run-report SPEC and domain README (ht-7kx)"
+    until: "2026-11-21"
 
 # The declared mutation scope (HT-005). The pure domain only: no I/O, no clock, no browser,
 # so a surviving mutant is a weak assertion and not an unreachable adapter branch. The same

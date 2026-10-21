@@ -77,7 +77,7 @@ node owns that the derivation could not read; a count there is a question to ans
 | `src/horizon_tracker/domain/ports.py` | `open_desktop(name) -> Path \| None`, `log_off(name) -> Path \| None`: the path to the success screenshot or `None` |
 | `src/horizon_tracker/infrastructure/horizon_playwright.py` | after the desktop is drawn and after the list is reloaded — `_screenshot(kind)` through `ArtifactStore`; a failure → `None` and a log line by type |
 | `src/horizon_tracker/application/checkin.py`, `checkout.py` | the path → `RunReport.screenshot` on `SUCCEEDED` |
-| `tests/unit/fakes.py`, the use case and adapter tests, BDD | the three PRD scenarios |
+| `tests/support/fakes.py`, the use case and adapter tests, BDD | the three PRD scenarios |
 | `docs/domains/**/SPEC.md` of the ports, the adapter, the use cases | API |
 
 ### API Changes
