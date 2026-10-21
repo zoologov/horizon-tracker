@@ -1,6 +1,6 @@
 # CONTEXT: HT-007 — Language of the notifications and the CLI output (i18n)
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 > **Last updated:** 2026-10-21
 
@@ -62,7 +62,7 @@ All human-readable texts come from the domain catalogue, the language by `HT_LAN
 
 ## Current Phase
 
-- **Phase:** Development (waiting for the merge of PR #3 and the live check)
+- **Phase:** Done
 - **Current bead:** BEAD-06 (ht-1rh)
 - **Blockers:** —
 - **BEAD-01 departures from the documents:** the catalogue in `domain`, not in `infrastructure` (the RFC outranks CONTEXT); `text()` raises `KeyError` on an unknown key rather than returning the key with a log line (a test/production switch and logging in the domain are not needed — the completeness tests make the case unreachable); `render(report, language)` without a default value, so a forgotten argument does not silently give English

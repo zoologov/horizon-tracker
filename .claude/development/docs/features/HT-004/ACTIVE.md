@@ -1,13 +1,13 @@
 # ACTIVE: HT-004 — Screenshot in the notification
 
-> **Last updated:** 2026-10-20
-> **Phase:** Development
+> **Last updated:** 2026-10-21
+> **Phase:** Completed
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-06 (ht-2kp) live check — after the merge of PR #3
+**Bead:** none — the work item is closed (BEAD-06 live check passed 2026-10-21)
 **Goal:** a successful check-in and check-out arrive at the notification bot as a photo with a caption
 **Done when:** two notifications with photos received by the owner, no errors in the log
 
@@ -15,7 +15,7 @@
 
 - [x] The documents are approved by the owner's standing decision (2026-10-20); the beads are created, parent ht-2r9
 - [x] BEAD-01 … BEAD-05 (2026-10-21)
-- [ ] BEAD-06: the live check after the merge → BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06
+- [x] BEAD-06: the live check after the merge → BEAD-03 → BEAD-04 → BEAD-05 → BEAD-06 — ht-2kp closed 2026-10-21: the check-out photo received (the desktop list, no session); the check-in photo is first observed on 2026-10-22, the morning run predated the deploy
 
 ## Results
 
@@ -26,7 +26,7 @@
 | BEAD-03 | Done | ht-bm9, ef2c868: the 3 PRD scenarios with real steps + 2 edge cases (a check-in without confirmation — no photo; a check-out confirmed only by the retry — as text); both gaps of BEAD-01/02 pinned (the order of the log off photo through a spy on `Page.screenshot`, the retry without a photo); the fake got `lose_on`; 10 sabotages bite; 776 passed / 4 skipped, coverage 98.8 % |
 | BEAD-04 | Done | ht-2l1: OK — 0 critical, 0 major, 3 minor, 2 nit; 9 sabotages in a copy of HEAD bite; minor 1 and 2 → BEAD-05, minor 3 deferred (CONTEXT); the nits (the fake's path in the RFC, the CONTEXT phase) and the stale graph summary closed by the coordinator |
 | BEAD-05 | Done | ht-8i1: 5 SPECs (morning-checkin, evening-checkout, telegram-notifier, windowed-run, horizon-playwright-client); minor 1 and 2 of the review closed; sync-check 32/32 ok, docs audit clean |
-| BEAD-06 | Open | — |
+| BEAD-06 | Done | ht-2kp: the check-out notification of 2026-10-21 17:08 arrived as a photo of the launch list with the caption; the check-in photo follows on the next working day (the owner's decision to close) |
 
 ## Notes
 

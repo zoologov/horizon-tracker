@@ -1,6 +1,6 @@
 # CONTEXT: HT-004 — Screenshot in the notification of a successful check-in and check-out
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 > **Last updated:** 2026-10-20
 
@@ -38,7 +38,7 @@ See CONTEXT HT-001/HT-003: Python 3.12, uv, ruff, mypy strict, pytest + pytest-b
 
 ## Current Phase
 
-- **Phase:** Development (waiting for the merge of PR #3 and the live check)
+- **Phase:** Done
 - **Current bead:** BEAD-06 (ht-2kp)
 - **Blockers:** —
 - **Deferred from the review (minor 3):** the kind of the success photo is hard-coded in the adapter (`RunKind.CHECKIN`/`CHECKOUT` by step), while the failure photo takes `self._run_kind` — two sources of one value; the behaviour is pinned by sabotage and the SPEC, the reason is to be named in the docstring at the next touch of the adapter

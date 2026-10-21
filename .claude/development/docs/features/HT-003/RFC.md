@@ -1,6 +1,6 @@
 # RFC: HT-003 — Random check-in and check-out moments inside ranges
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---

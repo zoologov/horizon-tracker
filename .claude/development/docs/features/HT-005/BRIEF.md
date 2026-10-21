@@ -1,7 +1,7 @@
 # BRIEF: HT-005 — GitHub Actions by best practice: stages, pins, Dependabot, nightly mutations
 
 > **Type:** chore
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---
@@ -107,11 +107,11 @@ Order: BEAD-01 starts after BEAD-05 of HT-003 (`ht-978`), which changes the `.en
 
 ## Acceptance Criteria
 
-- [ ] CI on a PR shows three stages and the `ci-ok` status; a `ruff` error stops the run before Chromium and the tests — non-behavioural: a property of the workflow, checked by the contract test and by a live run on a PR
-- [ ] Every `uses:` is pinned to a SHA; Dependabot opens PRs for updates — non-behavioural: a property of the repository
-- [ ] `mutation-per-change` on a PR mutates only the touched functions and names their count; `mutation-sample` ran by button with a sample stride — non-behavioural: observation in Actions
-- [ ] The deploy on merge is green with preflight and summary — non-behavioural: a Deploy run
-- [ ] Branch protection is set or its unavailability is recorded — non-behavioural: a GitHub setting
+- [x] CI on a PR shows three stages and the `ci-ok` status; a `ruff` error stops the run before Chromium and the tests — non-behavioural: a property of the workflow, checked by the contract test and by a live run on a PR (PR #1 of HT-008, 2026-10-21)
+- [x] Every `uses:` is pinned to a SHA; Dependabot opens PRs for updates — non-behavioural: a property of the repository (`.github/dependabot.yml`; the pins held by the contract tests)
+- [x] `mutation-per-change` on a PR mutates only the touched functions and names their count; `mutation-sample` ran by button with a sample stride — non-behavioural: observation in Actions (per change: PR #1 of HT-008; the sample by button: run 39620334071, 2026-10-21, success)
+- [x] The deploy on merge is green with preflight and summary — non-behavioural: a Deploy run (the last deploy on merge: 2026-10-21; since HT-008 the deploy runs on a release tag, v1.0.0 green)
+- [x] Branch protection is set or its unavailability is recorded — non-behavioural: a GitHub setting (set and measured 2026-10-21, HT-008 BEAD-05)
 
 ## Non-behavioural declaration
 

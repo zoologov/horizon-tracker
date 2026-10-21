@@ -149,5 +149,5 @@ a stated decision rather than a gap:
       only by running the workflow against the live VPS, the suite does not hold it.
 - [ ] There are no secrets in the repository — non-behavioural: a property of the tree, checked by
       `git grep` and GitHub secret scanning.
-- [ ] The first live check-in and check-out are confirmed by the owner from the Horizon journal or from the accounting
+- [x] The first live check-in and check-out are confirmed by the owner from the Horizon journal or from the accounting (live 2026-10-21: check-in 07:55:15 MSK and check-out 17:08:27 MSK reported to Telegram)
       system — non-behavioural: the observer is outside our system.

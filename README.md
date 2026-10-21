@@ -14,6 +14,15 @@
 Scheduled check-in and check-out of a VMware Horizon VDI desktop, run on a Linux host
 under systemd timers.
 
+> **An experiment in developing with Beadloom.** This repository is a proving ground for
+> the [Beadloom](https://github.com/zoologov/beadloom) agentic flow: every work item here
+> went through its documents, beads, waves and gates, and the rough edges found along the
+> way are fed back to Beadloom. The service itself is real and runs in production.
+>
+> **Architecture portal:** <https://zoologov.github.io/horizon-tracker/> — the graph,
+> the nodes and the documents of this repository, built by `beadloom docs site` on every
+> release.
+
 ## What it does
 
 - **Morning check-in.** The service opens the configured desktop through Horizon HTML

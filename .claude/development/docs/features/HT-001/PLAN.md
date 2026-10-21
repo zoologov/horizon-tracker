@@ -327,9 +327,9 @@ passes; from the VPS: `horizon probe`, then `horizon checkin --force` and `horiz
 was not confirmed). The timers are enabled after the confirmation.
 
 **Done when:**
-- [ ] `probe` on the VPS answers with the portal version and "config valid"
-- [ ] the check-in and the check-out are confirmed by the owner outside our system
-- [ ] the timers are enabled, the first scheduled run reported to Telegram
+- [x] `probe` on the VPS answers with the portal version and "config valid" (deploy summaries since 2026-10-20)
+- [x] the check-in and the check-out are confirmed by the owner outside our system (2026-10-20, ht-28a; the scheduled cycle of 2026-10-21 in Telegram)
+- [x] the timers are enabled, the first scheduled run reported to Telegram (live 2026-10-21: check-in 07:55:15 MSK and check-out 17:08:27 MSK reported to Telegram)
 
 ### BEAD-14: Domain: a reason for a start before the window (fix)
 

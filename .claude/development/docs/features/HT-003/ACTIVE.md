@@ -1,13 +1,13 @@
 # ACTIVE: HT-003 — Random check-in and check-out moments
 
-> **Last updated:** 2026-10-20
-> **Phase:** Development
+> **Last updated:** 2026-10-21
+> **Phase:** Completed
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-09 (ht-02r) live check — after the owner merges PR #3
+**Bead:** none — the work item is closed (BEAD-09 live check passed 2026-10-21)
 **Goal:** deploy to the VPS, `horizon probe` prints `schedule: today HH:MM / HH:MM`, the timers 07:30/16:30
 **Done when:** the first scheduled runs (check-in and check-out) happened at random moments and the notifications arrived
 
@@ -19,7 +19,7 @@
 - [x] Wave 3: BEAD-04 (2026-10-20)
 - [x] Wave 4: BEAD-05 (2026-10-20)
 - [x] Wave 5: BEAD-06 → BEAD-07 → BEAD-08 (2026-10-20)
-- [ ] BEAD-09: live check after the merge
+- [x] BEAD-09: live check after the merge — ht-02r closed 2026-10-21: the check-out ran at the drawn moment 17:08 ('назначено на 17:08'); the probe prints `расписание: сегодня 08:05 / 17:08`
 
 ## Results
 
@@ -33,7 +33,7 @@
 | BEAD-06 | Done | ht-slm, cfaaca3: the 7 scenarios are real (9 cases), 733/733, coverage 98.7 %, mutations 241/243 (2 equivalent) |
 | BEAD-07 | Done | ht-evj: OK — 0 critical, 0 major, 4 minor, 1 nit; 11 sabotages of the core and 4 of the deploy bite; minor 1 and 3 → BEAD-08, minor 2 and 4 — deferred (see CONTEXT) |
 | BEAD-08 | Done | ht-6l0, 7fc6e94: 12 documentation files; the stale list from the review closed; sync-check clean on a clean index |
-| BEAD-09 | Open | — |
+| BEAD-09 | Done | ht-02r: the first scheduled check-out at the drawn moment 17:08:27 MSK (2026-10-21); the morning of that day still ran on the fixed timer of the previous build — the first drawn morning and a second day with other minutes are observed from 2026-10-22 on |
 
 ## Notes
 

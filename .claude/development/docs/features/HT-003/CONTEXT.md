@@ -1,6 +1,6 @@
 # CONTEXT: HT-003 — Random check-in and check-out moments inside ranges
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 > **Last updated:** 2026-10-20
 
@@ -82,7 +82,7 @@ the timers fire at the start of the ranges, the service waits for its moment ins
 
 ## Current Phase
 
-- **Phase:** Development (wave 5: documentation)
+- **Phase:** Done
 - **Current bead:** BEAD-08 (ht-6l0)
 - **Blockers:** —
 - **Deferred from review (minor):** the pair of optional `moment`/`range_start` in `WindowedRun` (fold into one value object) and the `schedule` special case in `_probe_line` (carry the moments on `ProbeReport`) — they do not change behaviour, to be filed as a separate work item at the next touch of these modules

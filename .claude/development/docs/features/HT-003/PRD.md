@@ -1,6 +1,6 @@
 # PRD: HT-003 — Random check-in and check-out moments inside ranges
 
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---
@@ -96,7 +96,7 @@ them by name. `beadloom lint` reports a referenced scenario the suite does not c
 **Non-behavioural criteria** stay checkboxes and are labelled, so the absence of a scenario is
 a stated decision rather than a gap:
 
-- [ ] The timers are moved to 07:30 and 16:30, `TimeoutStartSec` covers the range plus the window —
+- [x] The timers are moved to 07:30 and 16:30, `TimeoutStartSec` covers the range plus the window — (the v1.0.0 deploy summary lists the timers; the 17:08 run of 2026-10-21 waited for its drawn moment)
       non-behavioural: a property of the units, checked by the unit-parsing test and a live run.
 - [ ] The first week of scheduled runs shows different check-in and check-out minutes in Telegram —
       non-behavioural: the owner's observation.

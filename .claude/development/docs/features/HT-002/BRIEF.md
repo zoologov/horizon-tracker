@@ -154,6 +154,6 @@ created, and then the id the tracker answered.
 - [ ] Scenario: `Morning check-in opens the desktop and disconnects`
 - [ ] Scenario: `Evening check-out logs the desktop off`
 - [ ] Scenario: `Evening check-out on an already logged-off desktop reports it and stops`
-- [ ] Live `checkin --force` from the VPS: exit 0, in an external Horizon client "DEV desktop" has a disconnected session — non-behavioural: the observer is outside our system
-- [ ] Live `checkout --force`: exit 0, no session — non-behavioural: the observer is outside our system
-- [ ] Live measurements (review ht-75w item c, ht-tvn.2 minor 2): reloading the list keeps the web session; the `kill-session` request goes out and gets its answer before the reload (per the log); in an external Horizon client there is no session after the check-out and a disconnected one after the check-in — non-behavioural: the observer is outside our system
+- [x] Live `checkin --force` from the VPS: exit 0, in an external Horizon client "DEV desktop" has a disconnected session — non-behavioural: the observer is outside our system (ht-28a, 2026-10-20)
+- [x] Live `checkout --force`: exit 0, no session — non-behavioural: the observer is outside our system (ht-28a, 2026-10-20)
+- [x] Live measurements (review ht-75w item c, ht-tvn.2 minor 2): reloading the list keeps the web session; the `kill-session` request goes out and gets its answer before the reload (per the log); in an external Horizon client there is no session after the check-out and a disconnected one after the check-in — non-behavioural: the observer is outside our system (ht-28a: kill-session 200 in 446 ms, the broker confirmed after 14 s)

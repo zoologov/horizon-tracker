@@ -23,7 +23,7 @@
 - [x] BEAD-07 re-review (ht-tvn.4) OK
 - [x] BEAD-08 fix (ht-tvn.5)
 - [x] PR #2 → main → deploy (run 2, success)
-- [ ] PR → main → deploy
+- [x] PR → main → deploy (the same PR #2 as the line above; kept for the record)
 - [x] BEAD-03 live check (2026-10-20), timers enabled: NEXT 07:55 and 17:00 in the configured time zone
 
 ## Results
