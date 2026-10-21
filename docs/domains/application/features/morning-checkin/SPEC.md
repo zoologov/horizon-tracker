@@ -50,8 +50,9 @@ evidence for a check-in the broker did not confirm. A `HorizonClientError` from 
 step is turned into a failed attempt by the run loop and retried while the window
 allows.
 
-`steps()` lists the five steps in the owner's words; `horizon checkin --dry-run` prints
-them, followed by the loop's steps.
+`steps()` lists the five steps as `Message`s (keys `plan.step.login` and
+`plan.step.checkin.*`); `horizon checkin --dry-run` prints them in the configured
+language, followed by the loop's steps.
 
 ## Invariants
 
@@ -74,7 +75,7 @@ Module `src/horizon_tracker/application/checkin.py`:
   str, hold: timedelta)` — frozen:
   - `kind -> RunKind` — property, `RunKind.CHECKIN`;
   - `run(*, force: bool = False) -> RunReport`;
-  - `steps() -> tuple[str, ...]`.
+  - `steps() -> tuple[Message, ...]`.
 
 The CLI builds it with `HORIZON_DESKTOP` and `HT_HOLD_SECONDS` (120 by default).
 

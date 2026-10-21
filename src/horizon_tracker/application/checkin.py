@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from horizon_tracker.application.windowed_run import AttemptResult, WindowedRun, in_seconds
+from horizon_tracker.domain.messages import Message
 from horizon_tracker.domain.ports import Clock, HorizonClient
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
 from horizon_tracker.domain.schedule import RunKind
@@ -39,14 +40,14 @@ class MorningCheckin:
         """Check in as the window allows and send the run's one report."""
         return self.runner.run(self.kind, self._attempt, force=force)
 
-    def steps(self) -> tuple[str, ...]:
-        """What ``_attempt`` does, in the owner's words; the dry run prints them."""
+    def steps(self) -> tuple[Message, ...]:
+        """What ``_attempt`` does, as messages; the dry run prints them in the owner's language."""
         return (
-            "log in to the Horizon portal",
-            f"open desktop {self.desktop!r} and wait for the Blast connection and a drawn desktop",
-            f"hold the desktop open for {in_seconds(self.hold)} s so the Windows logon completes",
-            "read the session state, then disconnect (the Windows session keeps running)",
-            "log in again and confirm the session is DISCONNECTED",
+            Message("plan.step.login"),
+            Message("plan.step.checkin.open", {"desktop": self.desktop}),
+            Message("plan.step.checkin.hold", {"seconds": in_seconds(self.hold)}),
+            Message("plan.step.checkin.disconnect"),
+            Message("plan.step.checkin.confirm"),
         )
 
     def _attempt(self) -> AttemptResult:

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.infrastructure.config import Settings
 from tests.support.systemd_env import parse_env_file
 from tests.support.workflows import (
@@ -44,6 +45,10 @@ SECRETS = {
 # undefined secret evaluates to the empty string, and Settings then seeds the draw
 # from HORIZON_USERNAME (RFC HT-003, "API Changes").
 OPTIONAL_SECRETS = {"HT_JITTER_SEED"}
+# Not secret, so an environment variable rather than a secret, and optional the same way:
+# undefined, it is left out of .env and the service speaks English (RFC HT-007). The owner
+# defines HT_LANGUAGE=ru in horizon-vps; a hand edit of .env would not survive a deploy.
+OPTIONAL_VARIABLES = {"HT_LANGUAGE"}
 # The schedule values of RFC HT-003 "API Changes", pinned here rather than read back
 # from the workflow or the RUNBOOK, which the contract test only holds equal.
 SCHEDULE = {
@@ -79,6 +84,7 @@ STAND_INS = {
     "TELEGRAM_CHAT_ID": "-1001234567890",
 }
 SECRET_EXPRESSION = re.compile(r"^\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}$")
+VARIABLE_EXPRESSION = re.compile(r"^\$\{\{\s*vars\.([A-Z_]+)\s*\}\}$")
 BASH = shutil.which("bash")
 
 
@@ -103,14 +109,18 @@ def build_env(
 ) -> subprocess.CompletedProcess[str]:
     """Run the build step as the runner would: its env, stand-ins in place of secrets.
 
-    An optional secret is left undefined, as in the horizon-vps environment today, so it
-    reaches the step as the empty string; ``overrides`` defines it.
+    An optional secret or variable is left undefined, as in the horizon-vps environment
+    today, so it reaches the step as the empty string; ``overrides`` defines it.
     """
     assert BASH is not None
     env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(tmp_path)}
     for key, value in step_named(deploy(), "deploy", BUILD_ENV)["env"].items():
         secret = SECRET_EXPRESSION.match(str(value))
-        if secret is None:
+        variable = VARIABLE_EXPRESSION.match(str(value))
+        if variable is not None:
+            assert variable.group(1) in OPTIONAL_VARIABLES, variable.group(1)
+            env[key] = ""
+        elif secret is None:
             env[key] = str(value)
         elif secret.group(1) in OPTIONAL_SECRETS:
             env[key] = ""
@@ -169,6 +179,11 @@ def test_every_secret_of_the_environment_is_used_and_no_other() -> None:
         m.group(1) for s in all_strings(deploy()) for m in re.finditer(r"secrets\.([A-Z_]+)", s)
     }
     assert named == SECRETS | OPTIONAL_SECRETS
+
+
+def test_every_variable_of_the_environment_is_used_and_no_other() -> None:
+    named = {m.group(1) for s in all_strings(deploy()) for m in re.finditer(r"vars\.([A-Z_]+)", s)}
+    assert named == OPTIONAL_VARIABLES
 
 
 def test_no_secret_is_echoed_to_the_log() -> None:
@@ -252,6 +267,24 @@ def test_a_defined_seed_secret_arrives_literally_and_unprinted(tmp_path: Path) -
     values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
     assert values["HT_JITTER_SEED"] == SEED_STAND_IN
     assert Settings.from_env(values).jitter_seed == SEED_STAND_IN.encode("utf-8")
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_an_undefined_language_variable_leaves_the_service_in_english(tmp_path: Path) -> None:
+    result = build_env(tmp_path)
+    assert result.returncode == 0, result.stderr
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    assert "HT_LANGUAGE" not in values
+    assert Settings.from_env(values).language is Language.EN
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_defined_language_variable_reaches_the_settings(tmp_path: Path) -> None:
+    result = build_env(tmp_path, {"HT_LANGUAGE": "ru"})
+    assert result.returncode == 0, result.stderr
+    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    assert values["HT_LANGUAGE"] == "ru"
+    assert Settings.from_env(values).language is Language.RU
 
 
 @pytest.mark.skipif(BASH is None, reason="bash absent")

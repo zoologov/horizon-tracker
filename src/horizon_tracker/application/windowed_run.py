@@ -31,6 +31,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from horizon_tracker.domain.calendar import VerdictSource, WorkingDayVerdict, resolve
+from horizon_tracker.domain.messages import Message
 from horizon_tracker.domain.ports import Clock, HorizonClientError, Notifier, WorkingDayCalendar
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
 from horizon_tracker.domain.schedule import (
@@ -151,18 +152,23 @@ class WindowedRun:
         decision = self._decide_at(decided_at, FIRST_ATTEMPT, verdict)
         return FirstDecision(now, decision, _source(verdict), waits_until)
 
-    def steps(self) -> tuple[str, ...]:
-        """What the loop adds around the attempts, in the owner's words."""
+    def steps(self) -> tuple[Message, ...]:
+        """What the loop adds around the attempts, as messages for the dry run."""
         retries = (
-            f"retry a failed attempt, up to {self.policy.max_attempts} attempts "
-            f"{in_seconds(self.policy.backoff)} s apart, while the window allows",
-            "send one report to Telegram",
+            Message(
+                "plan.step.retry",
+                {
+                    "attempts": self.policy.max_attempts,
+                    "seconds": in_seconds(self.policy.backoff),
+                },
+            ),
+            Message("plan.step.report"),
         )
         if self.moment is None or self.range_start is None:
             return retries
-        wait = (
-            f"wait until the drawn moment {self.moment:%H:%M} if started from "
-            f"{self.range_start:%H:%M}; earlier is skipped as too early"
+        wait = Message(
+            "plan.step.wait",
+            {"moment": f"{self.moment:%H:%M}", "start": f"{self.range_start:%H:%M}"},
         )
         return (wait, *retries)
 

@@ -27,6 +27,10 @@ All human-readable texts come from the domain catalogue, the language by `HT_LAN
 | 2026-10-20 | The use cases hand out keys, the CLI/notifier translates | the domain and application do not know the output language |
 | 2026-10-20 | The logs are not translated | the operator reads them, not the owner |
 | 2026-10-20 | Approved by the owner's standing decision («carry the tasks on yourself») | the owner delegated running the tasks to the coordinator; no separate «Approved» is required |
+| 2026-10-21 | BEAD-02: the use cases and the settings hand out a `Message(key, fields)` from `domain/messages.py`, not a string; the CLI picks the language | so application and `Settings` do not know the output language (Q2 of the RFC), and a typo in a key fails when the message is created, not when it is printed |
+| 2026-10-21 | BEAD-02: a configuration error is always an English log line, plus an echo to stderr in the reader's language, only if it is not English | the PRD requires English logs, the RFC requires `ConfigError` to be translated; an echo under `en` would duplicate the log line. The language is read separately (`language_from_env`), because `Settings` did not load |
+| 2026-10-21 | BEAD-02: `HT_LANGUAGE` in the deployment is an optional variable of the `horizon-vps` environment (`vars.HT_LANGUAGE`), not a secret and not a manual edit of `.env` | the deployment rewrites `.env` on every roll-out, a manual edit would live until the next push to `main`; without the variable the service speaks English |
+| 2026-10-21 | BEAD-02: the acceptance scenes from before HT-007 pin the notification language `ru`, the CLI output follows `HT_LANGUAGE` (`en`) | the scenario «A check-out past the end of its range is clipped» checks a Russian notification and English output in one run; one setting cannot express both. The scene with `notification_language=None` builds the notifier from `HT_LANGUAGE` through `cli.build_notifier` — for the BEAD-03 scenarios |
 
 ## Code Standards
 

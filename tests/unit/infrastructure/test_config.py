@@ -8,8 +8,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.schedule import TimeRange, Window
-from horizon_tracker.infrastructure.config import ConfigError, Settings
+from horizon_tracker.infrastructure.config import ConfigError, Settings, language_from_env
 
 PASSWORD = "S3cret-Pa55word!"
 TOKEN = "123456:AAH-bot-token-value"
@@ -41,6 +42,7 @@ FULL = {
     "HT_HOLD_SECONDS": "300",
     "HT_CHROME_PATH": "/opt/chrome/chrome",
     "HT_ARTIFACTS_DIR": "/var/tmp/horizon-artifacts",
+    "HT_LANGUAGE": "ru",
 }
 
 
@@ -77,6 +79,7 @@ def test_every_variable_is_read_into_its_field() -> None:
     assert settings.hold_seconds == 300
     assert settings.chrome_path == Path("/opt/chrome/chrome")
     assert settings.artifacts_dir == Path("/var/tmp/horizon-artifacts")
+    assert settings.language is Language.RU
 
 
 def test_unset_optional_variables_take_the_documented_defaults() -> None:
@@ -92,10 +95,11 @@ def test_unset_optional_variables_take_the_documented_defaults() -> None:
     assert settings.hold_seconds == 120
     assert settings.chrome_path == Path("/usr/bin/google-chrome")
     assert settings.artifacts_dir == Path("/opt/horizon-tracker/artifacts")
+    assert settings.language is Language.EN
 
 
 def test_unset_or_blank_optional_durations_and_ranges_take_their_defaults() -> None:
-    blank = dict.fromkeys((*RANGES, *MINUTES), "  ")
+    blank = dict.fromkeys((*RANGES, *MINUTES, "HT_LANGUAGE"), "  ")
 
     assert Settings.from_env(_env(**blank)) == Settings.from_env(REQUIRED)
 
@@ -370,6 +374,8 @@ def test_the_rendering_still_names_the_masked_fields_and_shows_the_rest() -> Non
     assert "telegram_token='***'" in text
     assert "QA desktop" in text
     assert "Asia/Tokyo" in text
+    assert "language=" in text
+    assert "'ru'" in text
 
 
 def test_a_config_error_never_echoes_a_secret_value() -> None:
@@ -379,3 +385,68 @@ def test_a_config_error_never_echoes_a_secret_value() -> None:
         Settings.from_env(environ)
 
     assert PASSWORD not in str(caught.value)
+
+
+# --- the language of the messages -----------------------------------------------
+
+
+@pytest.mark.parametrize(("value", "language"), [("en", Language.EN), ("ru", Language.RU)])
+def test_the_language_is_read_from_its_code(value: str, language: Language) -> None:
+    assert Settings.from_env(_env(HT_LANGUAGE=value)).language is language
+
+
+@pytest.mark.parametrize("value", ["de", "RU", "russian", "en,ru"])
+def test_an_unknown_language_is_refused_by_name_with_the_accepted_codes(value: str) -> None:
+    with pytest.raises(ConfigError) as caught:
+        Settings.from_env(_env(HT_LANGUAGE=value))
+
+    assert caught.value.variable == "HT_LANGUAGE"
+    assert str(caught.value) == f"HT_LANGUAGE: expected one of en, ru, got {value!r}"
+
+
+def test_the_language_is_read_on_its_own_when_the_rest_of_the_settings_is_incomplete() -> None:
+    # The CLI names a configuration error in the configured language, so it reads the
+    # language even when another variable is what stopped the settings.
+    assert language_from_env({"HT_LANGUAGE": "ru"}) is Language.RU
+    assert language_from_env({}) is Language.EN
+    assert language_from_env({"HT_LANGUAGE": " "}) is Language.EN
+
+
+def test_reading_the_language_on_its_own_refuses_what_the_settings_refuse() -> None:
+    with pytest.raises(ConfigError) as caught:
+        language_from_env({"HT_LANGUAGE": "de"})
+
+    assert caught.value.variable == "HT_LANGUAGE"
+
+
+# --- a refusal reads in any language --------------------------------------------
+
+
+REFUSALS = {
+    "missing": (_env(HORIZON_URL=None), "HORIZON_URL: обязательна и не задана"),
+    "language": (_env(HT_LANGUAGE="de"), "HT_LANGUAGE: ожидается одно из en, ru, получено 'de'"),
+    "time-zone": (_env(HT_TIMEZONE="Mars/Base"), "HT_TIMEZONE: неизвестный часовой пояс"),
+    "retired": (_env(HT_CHECKIN_WINDOW=""), "HT_CHECKIN_WINDOW: больше не читается"),
+    "range": (_env(HT_CHECKIN_RANGE="8am"), "HT_CHECKIN_RANGE: ожидается HH:MM-HH:MM"),
+    "minutes": (_env(HT_WINDOW_GRACE_MINUTES="x"), "HT_WINDOW_GRACE_MINUTES: ожидается целое"),
+    "seconds": (_env(HT_HOLD_SECONDS="x"), "HT_HOLD_SECONDS: ожидается целое число секунд"),
+    "order": (
+        _env(HT_CHECKOUT_RANGE="08:00-17:10"),
+        "HT_CHECKOUT_RANGE: должен начинаться после конца HT_CHECKIN_RANGE: ",
+    ),
+    "session": (_env(HT_SESSION_LENGTH_MINUTES="0"), "HT_SESSION_LENGTH_MINUTES: непригодная"),
+    "grace": (_env(HT_WINDOW_GRACE_MINUTES="0"), "HT_WINDOW_GRACE_MINUTES: непригодный запас"),
+}
+
+
+@pytest.mark.parametrize(("environ", "russian"), REFUSALS.values(), ids=REFUSALS.keys())
+def test_every_refusal_reads_in_russian_and_logs_in_english(
+    environ: dict[str, str], russian: str
+) -> None:
+    with pytest.raises(ConfigError) as caught:
+        Settings.from_env(environ)
+
+    error = caught.value
+    assert error.in_language(Language.RU).startswith(russian)
+    assert str(error) == error.in_language(Language.EN)
+    assert str(error).startswith(f"{error.variable}: ")

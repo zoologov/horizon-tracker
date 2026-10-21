@@ -6,7 +6,7 @@ back: the Horizon calls, the calendar questions, the reports sent, the prunes.
 """
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -46,11 +46,17 @@ class FakeArtifacts:
         return []
 
 
+# Builds the notifier a command delivers through from the settings that command loaded,
+# as the composition root does: the language of the notification is the configured one.
+Delivery = Callable[[Settings], Notifier]
+
+
 class World:
     """The fakes behind one CLI invocation, and the factory that hands them out.
 
-    ``delivery`` replaces the recording notifier with a real one; ``notifier`` then
-    stays empty and the test reads what the real notifier delivered instead.
+    ``delivery`` replaces the recording notifier with a real one, built from the settings
+    the command loaded; ``notifier`` then stays empty and the test reads what the real
+    notifier delivered instead.
     """
 
     def __init__(
@@ -59,14 +65,14 @@ class World:
         calendar_answer: bool | None = True,
         state: SessionState = SessionState.NO_SESSION,
         desktop: str = DESKTOP,
-        delivery: Notifier | None = None,
+        delivery: Delivery | None = None,
     ) -> None:
         self.clock = FakeClock(now)
         self.calendar = FakeCalendar(calendar_answer)
         self.notifier = FakeNotifier()
         # What the command delivers through; the recording fake unless a test hands in
-        # a real notifier (the acceptance suite drives the Telegram adapter).
-        self.delivery: Notifier = self.notifier if delivery is None else delivery
+        # a way to build a real notifier (the acceptance suite drives the Telegram adapter).
+        self.delivery = delivery
         self.client = FakeHorizonClient(desktop=desktop, state=state, clock=self.clock)
         self.artifacts = FakeArtifacts()
         self.opened: list[tuple[Settings, RunKind]] = []
@@ -75,11 +81,12 @@ class World:
     @contextmanager
     def factory(self, settings: Settings, kind: RunKind) -> Iterator[Adapters]:
         self.opened.append((settings, kind))
+        notifier = self.notifier if self.delivery is None else self.delivery(settings)
         try:
             yield Adapters(
                 clock=self.clock,
                 calendar=self.calendar,
-                notifier=self.delivery,
+                notifier=notifier,
                 horizon=self.client,
                 artifacts=self.artifacts,
             )

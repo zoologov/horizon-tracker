@@ -16,7 +16,10 @@ it owns no transport and no browser detail.
 | `windowed_run.py` | drives one daily run through its window: waits through `Clock.sleep` from the start of the range until the day's drawn moment, where the window opens, then decides each attempt with the domain, retries failures and sends exactly one report (`WindowedRun(calendar, clock, notifier, window, policy, moment, range_start)` with `run()`, `first_decision()` and `steps()`). A start before the range is reported as `Reason.TOO_EARLY` and a start after the window as `WINDOW_MISSED`. The report names the drawn moment as `planned_at`. |
 | `probe.py` | checks whether the service could run without ever logging in: `Probe` (portal client bundles via `client_bundles()`, the calendar, Chrome found and started via `browser_version()`; an unreachable calendar is DEGRADED, not FAILED; given the day's drawn moments, a last `schedule` check names them) and `DryRun(use_case, moments)` (plans the use case a run would execute from `WindowedRun.first_decision()`, including the moment it would wait until, and the steps of the use case and the loop; names the day's drawn moments; never touches the Horizon client) |
 
-The use cases call the ports only. Waiting goes through `Clock.sleep`. A failure
+The use cases call the ports only. Waiting goes through `Clock.sleep`. What a person
+reads is handed out as `Message`s (a catalogue key and its fields, `domain/messages.py`):
+`steps()` of each use case and of the loop, and the detail of every probe check. The
+application never picks a language; the CLI renders the messages in `HT_LANGUAGE`. A failure
 screenshot travels inside the adapter's error and from there into the `RunReport`; a
 success screenshot is the path `open_desktop` or `log_off` answers with, and the use
 case puts it into the report of a confirmed run.

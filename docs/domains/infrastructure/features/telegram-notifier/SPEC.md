@@ -20,7 +20,9 @@ into the journal.
 
 ### How it works
 
-`send(report)` renders the text with `render(report, language)` from the domain (the language is a module constant, Russian, until HT-007 BEAD-02 makes it a constructor argument fed from `HT_LANGUAGE`) and then:
+`send(report)` renders the text with `render(report, language)` from the domain, in the
+language the notifier was built with (the CLI passes `Settings.language`, read from
+`HT_LANGUAGE`, English by default), and then:
 
 1. if the report has a screenshot, reads it and posts `sendPhoto` with the text as the
    caption;
@@ -49,8 +51,9 @@ the token in any Bot API URL a log record mentions, so httpx's own request lines
 
 Module `src/horizon_tracker/infrastructure/telegram.py`:
 
-- `TelegramNotifier(token: str, chat_id: str, client: httpx.Client)` — implements
-  `Notifier`; `send(report: RunReport) -> None`.
+- `TelegramNotifier(token: str, chat_id: str, client: httpx.Client, language: Language)`
+  — implements `Notifier`; `send(report: RunReport) -> None`. The language has no default,
+  so no caller gets English by forgetting it.
 - `BOT_API_URL` — `"https://api.telegram.org/bot{token}/{method}"`.
 - `TIMEOUT_SECONDS` — `20.0`.
 
@@ -59,7 +62,9 @@ Module `src/horizon_tracker/infrastructure/telegram.py`:
 Tests: `tests/unit/infrastructure/test_telegram.py`, on `httpx.MockTransport`.
 
 The acceptance suite runs the real notifier over a recording Bot API
-(`tests/support/bot_api.py`). Scenarios
+(`tests/support/bot_api.py`), built by the CLI's own `build_notifier` from the settings
+the command loaded. The scenarios written before HT-007 quote Russian notifications, so
+their scene pins the notifier's language to `ru`. Scenarios
 (`tests/acceptance/features/notifications.feature`):
 
 - `A failed run sends the reason and a screenshot`

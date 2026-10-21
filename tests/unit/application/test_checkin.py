@@ -293,7 +293,7 @@ def test_the_checkin_is_a_run_of_the_checkin_kind() -> None:
 
 
 def test_the_checkin_names_the_steps_of_one_attempt_in_order() -> None:
-    text = "\n".join(Morning().checkin.steps())
+    text = "\n".join(step.in_language(Language.EN) for step in Morning().checkin.steps())
 
     assert text.index("log in") < text.index("open desktop") < text.index("hold")
     assert text.index("hold") < text.index("disconnect") < text.index("DISCONNECTED")

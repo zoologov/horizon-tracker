@@ -16,6 +16,7 @@ print today, so routing them through here changes no English output.
 # beadloom:feature=messages
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Final
 
@@ -101,11 +102,11 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "probe.settings.ok": {
         _EN: (
             "settings: ok - portal {url}, desktop {desktop!r}, check-in {checkin}, "
-            "check-out {checkout}, {timezone}"
+            "check-out {checkout}, {timezone}, language {language}"
         ),
         _RU: (
             "настройки: в порядке - портал {url}, стол {desktop!r}, вход {checkin}, "
-            "выход {checkout}, {timezone}"
+            "выход {checkout}, {timezone}, язык {language}"
         ),
     },
     "probe.check.portal": {_EN: "portal", _RU: "портал"},
@@ -226,7 +227,8 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "send one report to Telegram",
         _RU: "отправить один отчёт в Telegram",
     },
-    # --- configuration errors: the problem after "<VARIABLE>: " ---------------------
+    # --- configuration errors: the line a reader gets, then the problem after "<VARIABLE>: "
+    "config.error": {_EN: "configuration error: {error}", _RU: "ошибка настройки: {error}"},
     "config.required": {_EN: "is required and not set", _RU: "обязательна и не задана"},
     "config.retired.checkin_window": {
         _EN: (
@@ -275,25 +277,54 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _RU: "ожидается целое число секунд, получено {text!r}",
     },
     "config.checkout_after_checkin": {
-        _EN: "must start after {checkin_range} ends",
-        _RU: "должен начинаться после конца {checkin_range}",
+        _EN: "must start after {checkin_range} ends: {error}",
+        _RU: "должен начинаться после конца {checkin_range}: {error}",
     },
     "config.unusable_session_length": {
-        _EN: "not a usable session length",
-        _RU: "непригодная длина сессии",
+        _EN: "not a usable session length: {error}",
+        _RU: "непригодная длина сессии: {error}",
     },
-    "config.unusable_grace": {_EN: "not a usable grace", _RU: "непригодный запас окна"},
+    "config.malformed_token": {
+        _EN: "is malformed: expected <bot id>:<secret>",
+        _RU: "искажён: ожидается <bot id>:<secret>",
+    },
+    "config.unusable_grace": {
+        _EN: "not a usable grace: {error}",
+        _RU: "непригодный запас окна: {error}",
+    },
 }
 
 
-def text(key: str, language: Language, **fields: object) -> str:
+def text(key: str, language: Language, /, **fields: object) -> str:
     """The text of ``key`` in ``language`` with its named ``fields`` filled in.
 
     An unknown key or a field the text names but the caller did not pass raises
     ``KeyError`` naming it: both are a programming error the tests catch, not a state
-    production should paper over with a half-rendered message.
+    production should paper over with a half-rendered message. ``key`` and ``language``
+    are positional, so a text may name a field ``language`` (the probe's settings line).
     """
     return MESSAGES[key][language].format(**fields)
+
+
+@dataclass(frozen=True)
+class Message:
+    """A message key with the values of its fields: a text that has no language yet.
+
+    The use cases hand these out; whoever shows them to a person picks the language with
+    ``in_language``. An unknown key is refused when the message is made, so a typo fails
+    where it is written rather than when the text is first shown.
+    """
+
+    key: str
+    fields: Mapping[str, object] = field(default_factory=dict, hash=False)
+
+    def __post_init__(self) -> None:
+        if self.key not in MESSAGES:
+            raise KeyError(self.key)
+
+    def in_language(self, language: Language) -> str:
+        """The message's text in ``language`` with its fields filled in."""
+        return text(self.key, language, **self.fields)
 
 
 def missing_translations(

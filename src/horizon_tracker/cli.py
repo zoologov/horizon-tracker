@@ -8,7 +8,10 @@ names the plan and the day's moments and never logs in. ``horizon probe`` asks e
 dependency whether a run could go ahead and names the day's moments last.
 
 Settings come from the environment; a missing or malformed variable is named on stderr
-and the command exits 1 before anything is built. A run exits 1 only when it failed: a
+and the command exits 1 before anything is built. What a person reads -- the plan, the
+probe, a configuration error -- is in the language ``HT_LANGUAGE`` names (English by
+default); the log stays English, and a configuration error is said in the reader's
+language beside its English log line when the two differ. A run exits 1 only when it failed: a
 success and a deliberate skip both exit 0, so systemd marks a unit ``failed`` exactly when
 the owner has something to look at. Diagnostics go to stderr through ``logging``; command
 output (the plan, the probe) goes to stdout. No credential is ever logged or printed.
@@ -43,6 +46,7 @@ from horizon_tracker.application.probe import (
     schedule_detail,
 )
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import DEFAULT_LANGUAGE, Language, Message, text
 from horizon_tracker.domain.ports import (
     ArtifactStore,
     Clock,
@@ -61,7 +65,7 @@ from horizon_tracker.domain.schedule import (
 )
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
-from horizon_tracker.infrastructure.config import ConfigError, Settings
+from horizon_tracker.infrastructure.config import ConfigError, Settings, language_from_env
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
@@ -85,10 +89,13 @@ _PACKAGE_LOGGER = "horizon_tracker"
 # The probe's check that names the day's drawn moments; the dry run prints the same line.
 _SCHEDULE = "schedule"
 
-_SOURCE_TEXT = {
-    VerdictSource.CALENDAR: "isdayoff.ru",
-    VerdictSource.WEEKDAY_FALLBACK: "isdayoff.ru unreachable, Mon-Fri rule",
-    None: "not asked (forced)",
+# The log is read by the operator and stays in English whatever the owner reads.
+_LOG_LANGUAGE = Language.EN
+
+_SOURCE_KEY = {
+    VerdictSource.CALENDAR: "plan.source.calendar",
+    VerdictSource.WEEKDAY_FALLBACK: "plan.source.weekday_fallback",
+    None: "plan.source.not_asked",
 }
 
 
@@ -124,7 +131,7 @@ def open_adapters(settings: Settings, kind: RunKind) -> Iterator[Adapters]:
     clock = SystemClock(settings.timezone)
     artifacts = DirectoryArtifactStore(settings.artifacts_dir, clock)
     with httpx.Client() as http:
-        notifier = _notifier(settings, http)
+        notifier = build_notifier(settings, http)
         horizon = PlaywrightHorizonClient(
             horizon_url=settings.horizon_url,
             username=settings.username,
@@ -137,14 +144,16 @@ def open_adapters(settings: Settings, kind: RunKind) -> Iterator[Adapters]:
             yield Adapters(clock, IsDayOffCalendar(http), notifier, horizon, artifacts)
 
 
-def _notifier(settings: Settings, http: httpx.Client) -> TelegramNotifier:
-    """The Telegram notifier; a token it refuses is a configuration error, not a crash."""
+def build_notifier(settings: Settings, http: httpx.Client) -> TelegramNotifier:
+    """The Telegram notifier, in the configured language; a refused token is a config error."""
     try:
-        return TelegramNotifier(settings.telegram_token, settings.telegram_chat_id, http)
+        return TelegramNotifier(
+            settings.telegram_token, settings.telegram_chat_id, http, settings.language
+        )
     except ValueError as error:
         # The adapter's message never echoes the token; Settings has already refused a
         # blank chat id, so the token is the only value this constructor can refuse.
-        raise ConfigError("TELEGRAM_BOT_TOKEN", str(error)) from error
+        raise ConfigError("TELEGRAM_BOT_TOKEN", Message("config.malformed_token")) from error
 
 
 @click.group()
@@ -196,7 +205,23 @@ def _guarded(command: Callable[[], int]) -> int:
         return command()
     except ConfigError as error:
         logger.error("configuration error: %s", error)
+        _say_in_the_readers_language(error)
         return EXIT_FAILED
+
+
+def _say_in_the_readers_language(error: ConfigError) -> None:
+    """Echo ``error`` to stderr in the reader's language, unless the log line already is.
+
+    The settings did not load, so the language is read on its own; an ``HT_LANGUAGE``
+    that cannot be read leaves the default, and that refusal is the error being named.
+    """
+    try:
+        language = language_from_env(os.environ)
+    except ConfigError:
+        language = DEFAULT_LANGUAGE
+    if language is _LOG_LANGUAGE:
+        return
+    click.echo(text("config.error", language, error=error.in_language(language)), err=True)
 
 
 def _run(factory: AdapterFactory, kind: RunKind, *, dry_run: bool, force: bool) -> int:
@@ -205,7 +230,7 @@ def _run(factory: AdapterFactory, kind: RunKind, *, dry_run: bool, force: bool) 
         moments = _todays_moments(settings, adapters.clock)
         use_case = _use_case(adapters, settings, kind, moments)
         if dry_run:
-            _echo_plan(DryRun(use_case, moments).plan(force=force))
+            _echo_plan(DryRun(use_case, moments).plan(force=force), settings.language)
             return EXIT_OK
         _prune(adapters.artifacts)
         report = use_case.run(force=force)
@@ -288,38 +313,53 @@ def _span(span: TimeRange) -> str:
     return f"{span.start:%H:%M}-{span.end:%H:%M}"
 
 
-def _echo_plan(plan: RunPlan) -> None:
-    verdict = "yes" if plan.would_run else "no"
-    forced = ", forced: window and calendar ignored" if plan.forced else ""
-    click.echo(f"dry run: {plan.kind} at {plan.at:%Y-%m-%d %H:%M:%S %Z}")
-    click.echo(f"would run now: {verdict} ({plan.decision}{forced})")
+def _echo_plan(plan: RunPlan, language: Language) -> None:
+    verdict = text("plan.verdict.yes" if plan.would_run else "plan.verdict.no", language)
+    forced = text("plan.forced", language) if plan.forced else ""
+    at = f"{plan.at:%Y-%m-%d %H:%M:%S %Z}"
+    click.echo(text("plan.header", language, kind=plan.kind, at=at))
+    click.echo(
+        text("plan.would_run", language, verdict=verdict, decision=plan.decision, forced=forced)
+    )
     if plan.waits_until is not None:
-        click.echo(f"would wait until: {plan.waits_until:%H:%M}")
-    click.echo(f"calendar: {_SOURCE_TEXT[plan.verdict_source]}")
+        click.echo(text("plan.waits_until", language, moment=f"{plan.waits_until:%H:%M}"))
+    source = text(_SOURCE_KEY[plan.verdict_source], language)
+    click.echo(text("plan.calendar", language, source=source))
     if plan.moments is not None:
-        click.echo(f"{_SCHEDULE}: {schedule_detail(plan.moments)}")
-    click.echo("steps of one attempt:")
+        detail = schedule_detail(plan.moments).in_language(language)
+        click.echo(text("plan.schedule", language, detail=detail))
+    click.echo(text("plan.steps", language))
     for number, step in enumerate(plan.steps, start=1):
-        click.echo(f"  {number}. {step}")
+        click.echo(f"  {number}. {step.in_language(language)}")
 
 
 def _echo_probe(settings: Settings, report: ProbeReport) -> None:
     # Reaching this line means Settings.from_env accepted every variable. Only values
     # that are not credentials are named.
+    language = settings.language
     click.echo(
-        f"settings: ok - portal {settings.horizon_url}, desktop {settings.desktop!r}, "
-        f"check-in {_span(settings.checkin_range)}, "
-        f"check-out {_span(settings.checkout_range)}, {settings.timezone.key}"
+        text(
+            "probe.settings.ok",
+            language,
+            url=settings.horizon_url,
+            desktop=settings.desktop,
+            checkin=_span(settings.checkin_range),
+            checkout=_span(settings.checkout_range),
+            timezone=settings.timezone.key,
+            language=language,
+        )
     )
     for item in report.checks:
-        click.echo(_probe_line(item))
+        click.echo(_probe_line(item, language))
 
 
-def _probe_line(item: Check) -> str:
+def _probe_line(item: Check, language: Language) -> str:
+    name = text(f"probe.check.{item.name}", language)
+    detail = item.detail.in_language(language)
     # The day's moments are a fact to read, not a dependency's health: no status.
     if item.name == _SCHEDULE:
-        return f"{item.name}: {item.detail}"
-    return f"{item.name}: {item.status} - {item.detail}"
+        return f"{name}: {detail}"
+    return f"{name}: {text(f'probe.status.{item.status}', language)} - {detail}"
 
 
 def _configure_logging() -> None:

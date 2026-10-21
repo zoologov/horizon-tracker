@@ -1,8 +1,9 @@
 """Delivers run reports to the owner's Telegram chat through the Bot API.
 
 Implements the ``Notifier`` port. A report with a screenshot goes out as ``sendPhoto``
-captioned with ``render(report, language)``; without one, or when the photo cannot be read or is
-refused, as ``sendMessage`` with the same text. A failed delivery is logged and
+captioned with ``render(report, language)`` in the language the notifier was built with;
+without one, or when the photo cannot be read or is refused, as ``sendMessage`` with the
+same text. A failed delivery is logged and
 swallowed: a run never fails on its notification.
 
 The bot token sits in the path of every Bot API URL, so it is kept out of the log on
@@ -28,8 +29,6 @@ TIMEOUT_SECONDS = 20.0  # a photo upload; bounded so a hung API cannot hold the 
 _TOKEN_SHAPE = re.compile(r"\d+:[A-Za-z0-9_-]+")
 _TOKEN_IN_BOT_URL = re.compile(r"(api\.telegram\.org/bot)[^/\s\"']+")
 _MASK = "<token>"
-# The language the owner has always read; HT-007 BEAD-02 makes it a constructor argument.
-_LANGUAGE = Language.RU
 
 
 class _BotUrlTokenFilter(logging.Filter):
@@ -54,9 +53,9 @@ def _mask_httpx_request_lines() -> None:
 
 
 class TelegramNotifier:
-    """Sends each run report to one chat as the bot whose token it was built with."""
+    """Sends each run report to one chat as the bot it was built with, in its language."""
 
-    def __init__(self, token: str, chat_id: str, client: httpx.Client) -> None:
+    def __init__(self, token: str, chat_id: str, client: httpx.Client, language: Language) -> None:
         if not _TOKEN_SHAPE.fullmatch(token):
             raise ValueError("Telegram bot token is malformed: expected <bot id>:<secret>")
         if not chat_id.strip():
@@ -64,11 +63,12 @@ class TelegramNotifier:
         self._token = token
         self._chat_id = chat_id
         self._client = client
+        self._language = language
         _mask_httpx_request_lines()
 
     def send(self, report: RunReport) -> None:
         """Send the report; with its screenshot as a photo when one can be delivered."""
-        text = render(report, _LANGUAGE)
+        text = render(report, self._language)
         if report.screenshot is not None:
             try:
                 photo = report.screenshot.read_bytes()

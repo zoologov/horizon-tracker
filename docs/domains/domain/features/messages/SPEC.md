@@ -1,7 +1,8 @@
 # Messages
 
-The message catalogue: every text a person reads, keyed, in English and Russian, and the
-lookup that fills a text's named fields.
+The message catalogue: every text a person reads, keyed, in English and Russian, the
+lookup that fills a text's named fields, and `Message`, a key with its fields that has no
+language yet.
 
 ## Source
 
@@ -15,7 +16,7 @@ The owner reads the notifications and the output of `horizon probe` and `--dry-r
 chooses the language they are written in. One catalogue in the domain holds every such
 text in every supported language, so no text is a literal inside the logic that decides
 when to show it, and a missing translation is found by a test rather than by the owner at
-07:43. The catalogue is plain data in code: two languages and 75 keys do not earn gettext.
+07:43. The catalogue is plain data in code: two languages and 77 keys do not earn gettext.
 
 ### How it works
 
@@ -30,16 +31,25 @@ place a person reads them:
   and what each check answers;
 - `plan.*` - the dry-run plan: its header, verdict, calendar sources and the steps of
   one attempt;
-- `config.*` - the problem a configuration error names after `<VARIABLE>: `.
+- `config.*` - the line a reader gets for a configuration error (`config.error`) and the
+  problem it names after `<VARIABLE>: `; a problem the domain's own check refused carries
+  the domain's English reason as its `{error}` field.
 
-The English texts of `probe.*`, `plan.*` and `config.*` are the strings those commands
-print today, byte for byte, so routing a command through the catalogue changes no
-English output.
+The English texts of `plan.*`, `config.*` and the probe's checks are the strings those
+commands printed before HT-007, byte for byte, with two deliberate changes: the probe's
+settings line ends with `, language <code>`, and a refused bot token reads
+`TELEGRAM_BOT_TOKEN: is malformed: expected <bot id>:<secret>` like every other refusal.
 
-`text(key, language, **fields)` returns the text of `key` in `language` with its named
-fields filled by `str.format`; a field may carry a conversion (`{desktop!r}`). A text is
-always formatted, so a text with a field the caller did not pass is never returned
-half-filled.
+`text(key, language, /, **fields)` returns the text of `key` in `language` with its named
+fields filled by `str.format`; a field may carry a conversion (`{desktop!r}`). `key` and
+`language` are positional, so a text may name a field `language` (the probe's settings
+line does). A text is always formatted, so a text with a field the caller did not pass is
+never returned half-filled.
+
+`Message(key, fields)` is what the use cases and the settings hand out instead of a
+string: the probe's check details, the steps of a dry run, the problem of a configuration
+error. Whoever shows it to a person calls `in_language(language)`. A key the catalogue
+does not hold is refused when the message is made, so a typo fails where it is written.
 
 `missing_translations(catalogue=MESSAGES)` returns every `(key, language)` pair whose text
 is absent or blank, sorted by key and then in `Language` order. For the shipped catalogue
@@ -55,7 +65,8 @@ language the owner reads.
   in one language only.
 - No English text contains a Cyrillic letter, and every Russian text contains one: a
   Russian entry copied from English is caught.
-- An unknown key and an unfilled field raise `KeyError` naming the key or the field.
+- An unknown key and an unfilled field raise `KeyError` naming the key or the field; a
+  `Message` with an unknown key is refused when it is made.
 - The module performs no I/O and imports nothing outside the standard library.
 
 ## API
@@ -65,7 +76,9 @@ Module `src/horizon_tracker/domain/messages.py`:
 - `Language` - `StrEnum`: `EN = "en"`, `RU = "ru"`; `Language("de")` raises `ValueError`.
 - `DEFAULT_LANGUAGE` - `Language.EN`.
 - `MESSAGES: Mapping[str, Mapping[Language, str]]` - the catalogue.
-- `text(key: str, language: Language, **fields: object) -> str` - the filled text.
+- `text(key: str, language: Language, /, **fields: object) -> str` - the filled text.
+- `Message(key: str, fields: Mapping[str, object] = {})` - frozen; `in_language(language)
+  -> str`. Equal messages hash alike (the hash reads the key only).
 - `missing_translations(catalogue=MESSAGES) -> list[tuple[str, Language]]` - the pairs
   without a text.
 
@@ -83,7 +96,8 @@ Scenarios (HT-007 BEAD-03): `tests/acceptance/features/language.feature`.
 Derived from the imports on reindex.
 
 - Depends on: (none)
-- Used by: `run-report`
+- Used by: `run-report`, `morning-checkin`, `evening-checkout`, `windowed-run`, `probe`,
+  `settings`, `telegram-notifier`, `cli`
 
 ## Parent
 

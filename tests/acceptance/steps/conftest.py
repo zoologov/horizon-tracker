@@ -2,7 +2,8 @@
 
 A scenario builds a ``Scene`` in its Given steps and runs one ``horizon`` command in its
 When step, through ``CliRunner`` with the adapter factory replaced: the Horizon client,
-the calendar and the clock are fakes, and the notifier is the real Telegram adapter
+the calendar and the clock are fakes, and the notifier is the real Telegram adapter, built
+by the composition root's own ``build_notifier`` from the settings the command loaded and
 posting to a recording Bot API. The Then steps read only what an observer outside the
 service could see: the command's exit code and output, the service log, the messages
 that reached the chat, and the state of the desktop as the broker shows it.
@@ -10,7 +11,7 @@ that reached the chat, and the state of the desktop as the broker shows it.
 
 import subprocess
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -19,8 +20,11 @@ import pytest
 from click.testing import Result
 from pytest_bdd import given, parsers, then, when
 
+from horizon_tracker.cli import build_notifier
+from horizon_tracker.domain.messages import Language
+from horizon_tracker.domain.ports import Notifier
 from horizon_tracker.domain.session import SessionState
-from horizon_tracker.infrastructure.telegram import TelegramNotifier
+from horizon_tracker.infrastructure.config import Settings
 from tests.support.bot_api import RecordingBotApi, SentMessage
 from tests.support.cli_world import World, cli_log_handlers_restored
 
@@ -31,6 +35,11 @@ TOKEN = "123456789:AAH-acceptance_token"
 CHAT_ID = "424242"
 
 COMMANDS = {"check-in": "checkin", "check-out": "checkout"}
+
+# The features written before HT-007 quote the Russian notifications the owner has always
+# read, beside English command output; a scene pins the notification to that language.
+# A scene with no pin builds the notifier in the language HT_LANGUAGE names, as the service.
+OWNERS_NOTIFICATION_LANGUAGE = Language.RU
 
 # The schedule every scene runs under: the deployed ranges and day length (RUNBOOK §2.2)
 # under a seed of the suite's own, so each feature can name the moments a date draws. They
@@ -62,13 +71,16 @@ class Scene:
     keep every command of the scenario in order, for the scenarios that run one each day.
     The bot is shared, so ``bot.messages`` holds every message of the scenario.
     ``processes`` holds the commands a scenario ran in an interpreter of their own.
+    ``notification_language`` pins the language the notifier is built in; ``None`` leaves
+    it to ``HT_LANGUAGE``. ``env_overrides`` may map a variable to ``None`` to unset it.
     """
 
     root: Path
     desktop: str = "DEV desktop"
     calendar_answer: bool | None = True
     state: SessionState = SessionState.NO_SESSION
-    env_overrides: dict[str, str] = field(default_factory=dict)
+    env_overrides: dict[str, str | None] = field(default_factory=dict)
+    notification_language: Language | None = OWNERS_NOTIFICATION_LANGUAGE
     scripts: list[Script] = field(default_factory=list)
     bot: RecordingBotApi = field(default_factory=RecordingBotApi)
     world: World | None = None
@@ -93,17 +105,24 @@ class Scene:
             "HT_HOLD_SECONDS": "120",
             "HT_CHROME_PATH": str(chrome),
             "HT_ARTIFACTS_DIR": str(self.root / "artifacts"),
+            # Unset whatever the host exports: command output is in the default language.
+            "HT_LANGUAGE": None,
             **self.env_overrides,
         }
 
+    def deliver(self, settings: Settings) -> Notifier:
+        """The notifier the command delivers through, built as the composition root builds it."""
+        if self.notification_language is not None:
+            settings = replace(settings, language=self.notification_language)
+        return build_notifier(settings, self.bot.client())
+
     def run(self, args: list[str], now: datetime) -> None:
-        notifier = TelegramNotifier(TOKEN, CHAT_ID, self.bot.client())
         world = World(
             now,
             calendar_answer=self.calendar_answer,
             state=self.state,
             desktop=self.desktop,
-            delivery=notifier,
+            delivery=self.deliver,
         )
         for script in self.scripts:
             script(world)

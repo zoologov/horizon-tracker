@@ -7,6 +7,10 @@ so a bad ``.env`` fails at start rather than at 07:30. A variable this service n
 reads (``HT_CHECKIN_WINDOW``, ``HT_CHECKOUT_WINDOW``) is refused by name, so a stale
 ``.env`` cannot keep running as before unnoticed. A ``Settings`` never renders a
 credential or the seed of the draw: ``repr``/``str`` show ``'***'`` in their place.
+
+``HT_LANGUAGE`` picks the language of what a person reads (``en`` by default, ``ru``).
+A refusal carries its problem as a message key, so the CLI can show it in that language;
+its ``str`` is the English text the log carries.
 """
 
 # beadloom:domain=infrastructure
@@ -18,6 +22,7 @@ from datetime import date, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from horizon_tracker.domain.messages import DEFAULT_LANGUAGE, Language, Message
 from horizon_tracker.domain.schedule import TimeRange, draw_moments, window_from
 
 MASK = "***"
@@ -28,6 +33,7 @@ SESSION_LENGTH = "HT_SESSION_LENGTH_MINUTES"
 SESSION_EXTRA_MAX = "HT_SESSION_EXTRA_MAX_MINUTES"
 WINDOW_GRACE = "HT_WINDOW_GRACE_MINUTES"
 JITTER_SEED = "HT_JITTER_SEED"
+LANGUAGE = "HT_LANGUAGE"
 
 DEFAULT_DESKTOP = "DEV desktop"
 DEFAULT_TIMEZONE = "Europe/Moscow"
@@ -42,14 +48,18 @@ DEFAULT_ARTIFACTS_DIR = "/opt/horizon-tracker/artifacts"
 
 # Variables an older release read, and the hint that replaces each.
 _RETIRED = {
-    "HT_CHECKIN_WINDOW": (
-        f"is no longer read: the check-in moment is drawn daily from {CHECKIN_RANGE} and "
-        f"its window lasts {WINDOW_GRACE}; remove HT_CHECKIN_WINDOW from the environment"
+    "HT_CHECKIN_WINDOW": Message(
+        "config.retired.checkin_window",
+        {"checkin_range": CHECKIN_RANGE, "grace": WINDOW_GRACE},
     ),
-    "HT_CHECKOUT_WINDOW": (
-        f"is no longer read: the check-out moment is drawn daily from {CHECKOUT_RANGE} "
-        f"({SESSION_LENGTH} plus up to {SESSION_EXTRA_MAX} after the check-in) and its "
-        f"window lasts {WINDOW_GRACE}; remove HT_CHECKOUT_WINDOW from the environment"
+    "HT_CHECKOUT_WINDOW": Message(
+        "config.retired.checkout_window",
+        {
+            "checkout_range": CHECKOUT_RANGE,
+            "session_length": SESSION_LENGTH,
+            "extra_max": SESSION_EXTRA_MAX,
+            "grace": WINDOW_GRACE,
+        },
     ),
 }
 
@@ -68,11 +78,19 @@ _MASKED = frozenset({"username", "password", "telegram_token", "telegram_chat_id
 
 
 class ConfigError(Exception):
-    """A configuration variable is missing or malformed; names the variable, not a secret."""
+    """A configuration variable is missing or malformed; names the variable, not a secret.
 
-    def __init__(self, variable: str, problem: str) -> None:
-        super().__init__(f"{variable}: {problem}")
+    ``problem`` is a message, so the refusal reads in any language; ``str`` is English.
+    """
+
+    def __init__(self, variable: str, problem: Message) -> None:
         self.variable = variable
+        self.problem = problem
+        super().__init__(self.in_language(Language.EN))
+
+    def in_language(self, language: Language) -> str:
+        """``<VARIABLE>: <problem>`` with the problem in ``language``."""
+        return f"{self.variable}: {self.problem.in_language(language)}"
 
 
 @dataclass(frozen=True, repr=False)
@@ -95,6 +113,7 @@ class Settings:
     hold_seconds: int
     chrome_path: Path
     artifacts_dir: Path
+    language: Language
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "Settings":
@@ -127,6 +146,7 @@ class Settings:
             hold_seconds=_hold_seconds(environ, "HT_HOLD_SECONDS"),
             chrome_path=Path(_optional(environ, "HT_CHROME_PATH", DEFAULT_CHROME_PATH)),
             artifacts_dir=Path(_optional(environ, "HT_ARTIFACTS_DIR", DEFAULT_ARTIFACTS_DIR)),
+            language=language_from_env(environ),
         )
 
     def __repr__(self) -> str:
@@ -135,6 +155,21 @@ class Settings:
             for field in fields(self)
         )
         return f"{type(self).__name__}({', '.join(shown)})"
+
+
+def language_from_env(environ: Mapping[str, str]) -> Language:
+    """The language ``HT_LANGUAGE`` names, ``en`` when unset or blank; read on its own.
+
+    ``Settings.from_env`` reads it like any other variable; the CLI also reads it alone,
+    to name a configuration error in the configured language when the settings fail.
+    """
+    code = _optional(environ, LANGUAGE, DEFAULT_LANGUAGE.value)
+    try:
+        return Language(code)
+    except ValueError as error:
+        choices = ", ".join(language.value for language in Language)
+        problem = Message("config.unknown_language", {"choices": choices, "text": code})
+        raise ConfigError(LANGUAGE, problem) from error
 
 
 def _refuse_retired(environ: Mapping[str, str]) -> None:
@@ -146,7 +181,7 @@ def _refuse_retired(environ: Mapping[str, str]) -> None:
 def _required(environ: Mapping[str, str], name: str) -> str:
     value = environ.get(name, "")
     if not value.strip():
-        raise ConfigError(name, "is required and not set")
+        raise ConfigError(name, Message("config.required"))
     return value
 
 
@@ -160,27 +195,27 @@ def _timezone(environ: Mapping[str, str], name: str) -> ZoneInfo:
     try:
         return ZoneInfo(key)
     except (ZoneInfoNotFoundError, ValueError) as error:
-        raise ConfigError(name, f"unknown time zone {key!r}") from error
+        raise ConfigError(name, Message("config.unknown_time_zone", {"key": key})) from error
 
 
 def _time_range(environ: Mapping[str, str], name: str, default: str) -> TimeRange:
     text = _optional(environ, name, default)
     match = _RANGE_FORMAT.fullmatch(text)
     if match is None:
-        raise ConfigError(name, f"expected HH:MM-HH:MM, got {text!r}")
+        raise ConfigError(name, Message("config.expected_range", {"text": text}))
     start_hour, start_minute, end_hour, end_minute = (int(part) for part in match.groups())
     try:
         return TimeRange(time(start_hour, start_minute), time(end_hour, end_minute))
     except ValueError as error:
-        raise ConfigError(name, f"not a valid range {text!r}: {error}") from error
+        problem = Message("config.invalid_range", {"text": text, "error": error})
+        raise ConfigError(name, problem) from error
 
 
 def _minutes(environ: Mapping[str, str], name: str, default: str) -> timedelta:
     text = _optional(environ, name, default)
     if _WHOLE_NUMBER.fullmatch(text) is None or int(text) > _MINUTES_PER_DAY:
-        raise ConfigError(
-            name, f"expected a whole number of minutes from 0 to {_MINUTES_PER_DAY}, got {text!r}"
-        )
+        problem = Message("config.expected_minutes", {"limit": _MINUTES_PER_DAY, "text": text})
+        raise ConfigError(name, problem)
     return timedelta(minutes=int(text))
 
 
@@ -206,14 +241,14 @@ def _check_the_draw(
     """
     _domain_check(
         CHECKOUT_RANGE,
-        f"must start after {CHECKIN_RANGE} ends",
+        Message("config.checkout_after_checkin", {"checkin_range": CHECKIN_RANGE}),
         lambda: draw_moments(
             _PROBE_DAY, seed, checkin_range, _SHORTEST_SESSION, extra_max, checkout_range
         ),
     )
     _domain_check(
         SESSION_LENGTH,
-        "not a usable session length",
+        Message("config.unusable_session_length"),
         lambda: draw_moments(
             _PROBE_DAY, seed, checkin_range, session_length, extra_max, checkout_range
         ),
@@ -221,20 +256,21 @@ def _check_the_draw(
     # The latest moment the draw can name is the end of the check-out range.
     _domain_check(
         WINDOW_GRACE,
-        "not a usable grace",
+        Message("config.unusable_grace"),
         lambda: window_from(checkout_range.end, grace),
     )
 
 
-def _domain_check(name: str, problem: str, check: Callable[[], object]) -> None:
+def _domain_check(name: str, problem: Message, check: Callable[[], object]) -> None:
+    """Run ``check``; the domain's refusal becomes ``problem``'s ``error`` field."""
     try:
         check()
     except ValueError as error:
-        raise ConfigError(name, f"{problem}: {error}") from error
+        raise ConfigError(name, Message(problem.key, {**problem.fields, "error": error})) from error
 
 
 def _hold_seconds(environ: Mapping[str, str], name: str) -> int:
     text = _optional(environ, name, DEFAULT_HOLD_SECONDS)
     if _WHOLE_NUMBER.fullmatch(text) is None:
-        raise ConfigError(name, f"expected a whole number of seconds, got {text!r}")
+        raise ConfigError(name, Message("config.expected_seconds", {"text": text}))
     return int(text)

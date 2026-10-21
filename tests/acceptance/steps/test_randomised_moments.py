@@ -181,11 +181,10 @@ def owner_runs_every_day(
 def owner_runs_in_a_process(scene: Scene, args: str, clock: str, weekday: str, day: str) -> None:
     """Run the command in a fresh interpreter whose string-hash salt differs from every other."""
     salt = str(len(scene.processes) + 1)
-    env = {
-        **os.environ,
-        **{name: value for name, value in scene.env().items() if value is not None},
-        "PYTHONHASHSEED": salt,
-    }
+    # A variable the scene maps to None is left out, not inherited from the host.
+    merged: dict[str, str | None] = {**os.environ, **scene.env()}
+    env = {name: value for name, value in merged.items() if value is not None}
+    env["PYTHONHASHSEED"] = salt
     at = moment(clock, weekday, day).isoformat()
     scene.processes.append(
         subprocess.run(

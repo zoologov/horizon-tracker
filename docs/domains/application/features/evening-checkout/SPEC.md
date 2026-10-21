@@ -52,8 +52,9 @@ the run as the check-out it was, not as "already logged off". That retry calls n
 `log_off`, so its success goes out as text: neither the lost attempt's success
 screenshot nor its failure screenshot is carried across attempts.
 
-`steps()` lists the four steps in the owner's words; `horizon checkout --dry-run`
-prints them, followed by the loop's steps.
+`steps()` lists the four steps as `Message`s (keys `plan.step.login` and
+`plan.step.checkout.*`); `horizon checkout --dry-run` prints them in the configured
+language, followed by the loop's steps.
 
 ## Invariants
 
@@ -73,7 +74,7 @@ Module `src/horizon_tracker/application/checkout.py`:
   str)` — frozen:
   - `kind -> RunKind` — property, `RunKind.CHECKOUT`;
   - `run(*, force: bool = False) -> RunReport`;
-  - `steps() -> tuple[str, ...]`.
+  - `steps() -> tuple[Message, ...]`.
 
 `_CheckoutAttempt` is internal: the attempt callable that remembers the first-seen state.
 

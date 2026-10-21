@@ -51,8 +51,9 @@ class BotApi:
         return [request.url.path.rsplit("/", 1)[-1] for request in self.requests]
 
 
-def _notifier(api: BotApi) -> TelegramNotifier:
-    return TelegramNotifier(TOKEN, CHAT_ID, httpx.Client(transport=httpx.MockTransport(api)))
+def _notifier(api: BotApi, language: Language = Language.RU) -> TelegramNotifier:
+    client = httpx.Client(transport=httpx.MockTransport(api))
+    return TelegramNotifier(TOKEN, CHAT_ID, client, language)
 
 
 def _failure_with_screenshot(path: Path) -> RunReport:
@@ -98,6 +99,20 @@ def test_a_report_without_a_screenshot_goes_out_as_a_text_message() -> None:
     assert httpx.QueryParams(request.content.decode()) == httpx.QueryParams(
         {"chat_id": CHAT_ID, "text": render(SUCCESS, Language.RU)}
     )
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_the_text_is_rendered_in_the_language_the_notifier_was_built_with(
+    language: Language,
+) -> None:
+    api = BotApi()
+
+    _notifier(api, language).send(SUCCESS)
+
+    [request] = api.requests
+    sent = httpx.QueryParams(request.content.decode())["text"]
+    assert sent == render(SUCCESS, language)
+    assert sent != render(SUCCESS, *(other for other in Language if other is not language))
 
 
 # --- the photo ------------------------------------------------------------------
@@ -189,7 +204,7 @@ def test_the_notifier_gives_the_bot_api_a_bounded_time() -> None:
 
     # The client itself never times out: the bound must come from the adapter.
     client = httpx.Client(transport=httpx.MockTransport(handler), timeout=None)
-    TelegramNotifier(TOKEN, CHAT_ID, client).send(SUCCESS)
+    TelegramNotifier(TOKEN, CHAT_ID, client, Language.EN).send(SUCCESS)
 
     [timeout] = timeouts
     assert all(value is not None and 0 < value <= 30 for value in timeout.values())
@@ -252,7 +267,7 @@ def test_httpx_request_lines_still_name_the_bot_method(caplog: pytest.LogCapture
 )
 def test_a_malformed_token_is_refused_without_echoing_it(token: str) -> None:
     with pytest.raises(ValueError, match="token") as refused:
-        TelegramNotifier(token, CHAT_ID, httpx.Client())
+        TelegramNotifier(token, CHAT_ID, httpx.Client(), Language.EN)
 
     if token.strip():
         assert token.strip() not in str(refused.value)
@@ -260,7 +275,7 @@ def test_a_malformed_token_is_refused_without_echoing_it(token: str) -> None:
 
 def test_an_empty_chat_id_is_refused() -> None:
     with pytest.raises(ValueError, match="chat"):
-        TelegramNotifier(TOKEN, "", httpx.Client())
+        TelegramNotifier(TOKEN, "", httpx.Client(), Language.EN)
 
 
 def test_the_adapter_satisfies_the_notifier_port() -> None:

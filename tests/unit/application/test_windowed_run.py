@@ -10,7 +10,7 @@ import pytest
 
 from horizon_tracker.application.windowed_run import AttemptResult, FirstDecision, WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
-from horizon_tracker.domain.messages import Language
+from horizon_tracker.domain.messages import Language, Message
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window, window_from
@@ -428,13 +428,17 @@ def test_a_forced_first_decision_runs_and_asks_no_calendar() -> None:
 
 
 def test_the_loop_names_its_retries_and_its_one_report() -> None:
-    assert World(at(WEDNESDAY, 7, 55)).runner.steps() == (
+    assert english(World(at(WEDNESDAY, 7, 55)).runner.steps()) == (
         "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
         "send one report to Telegram",
     )
 
 
 # --- the drawn moment: wait for it inside the process -----------------------------------
+
+
+def english(steps: tuple[Message, ...]) -> tuple[str, ...]:
+    return tuple(step.in_language(Language.EN) for step in steps)
 
 
 def seconds(hours: int = 0, minutes: int = 0, secs: int = 0) -> float:
@@ -613,7 +617,7 @@ def test_a_forced_first_decision_does_not_wait() -> None:
 
 
 def test_a_scheduled_loop_names_its_wait_before_its_retries() -> None:
-    assert World.drawn(at(WEDNESDAY, 7, 30)).runner.steps() == (
+    assert english(World.drawn(at(WEDNESDAY, 7, 30)).runner.steps()) == (
         "wait until the drawn moment 07:43 if started from 07:30; earlier is skipped as too early",
         "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
         "send one report to Telegram",

@@ -68,8 +68,9 @@ attempt, with the time it was asked, the calendar source and the moment the run 
 first wait until. When the run would wait, the decision is the one taken at that
 moment. It never sleeps, makes no attempt and sends nothing, but it does ask the
 calendar unless the run is forced. `steps()` names what the
-loop adds around the attempts, in the owner's words. The dry run in `probe.py` prints
-both.
+loop adds around the attempts, as `Message`s (catalogue keys `plan.step.wait`,
+`plan.step.retry`, `plan.step.report`). The dry run in `probe.py` plans both and the CLI
+prints them in the configured language.
 
 ## Invariants
 
@@ -109,7 +110,7 @@ Module `src/horizon_tracker/application/windowed_run.py`:
     wait. A non-working day and a forced run never wait. The report's `planned_at` is
     `moment` for every non-forced run, `None` for a forced one or a run without a moment;
   - `first_decision(*, force: bool = False) -> FirstDecision` — never sleeps;
-  - `steps() -> tuple[str, ...]` — a scheduled loop names its wait first:
+  - `steps() -> tuple[Message, ...]` — a scheduled loop names its wait first, in English
     `wait until the drawn moment HH:MM if started from HH:MM; earlier is skipped as too
     early`.
 - `in_seconds(span: timedelta) -> str` — a span as a bare number of seconds (`120`,

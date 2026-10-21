@@ -6,6 +6,7 @@ real factory exercise only the paths that open no connection.
 """
 
 import logging
+import re
 from collections.abc import Iterator
 from datetime import datetime, time
 from functools import partial
@@ -17,8 +18,8 @@ import pytest
 from click.testing import CliRunner
 
 from horizon_tracker import __version__
-from horizon_tracker.cli import main, open_adapters
-from horizon_tracker.domain.ports import HorizonClientError
+from horizon_tracker.cli import build_notifier, main, open_adapters
+from horizon_tracker.domain.ports import HorizonClientError, Notifier
 from horizon_tracker.domain.report import Outcome, Reason
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import SessionState
@@ -28,6 +29,7 @@ from horizon_tracker.infrastructure.config import ConfigError, Settings
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
+from tests.support.bot_api import RecordingBotApi
 from tests.support.cli_world import DESKTOP, World, cli_log_handlers_restored
 
 MSK = ZoneInfo("Europe/Moscow")
@@ -46,6 +48,7 @@ SEED = "horizon-test-seed"
 CHECK_IN = (7, 41)
 CHECK_OUT = (16, 43)
 HOLD_SECONDS = 120.0
+CYRILLIC = re.compile("[\u0400-\u04ff]")
 
 
 def at(hour: int, minute: int, day: int = 21) -> datetime:
@@ -86,6 +89,8 @@ def env(tmp_path: Path) -> dict[str, str | None]:
         "HT_HOLD_SECONDS": "120",
         "HT_CHROME_PATH": str(chrome),
         "HT_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
+        # Unset whatever the host exports: the default language is what these tests read.
+        "HT_LANGUAGE": None,
     }
 
 
@@ -723,3 +728,182 @@ def test_the_default_wiring_runs_a_forced_dry_run_offline(
     assert "dry run: checkout" in result.stdout
     assert "calendar: not asked" in result.stdout
     assert requests_sent == []
+
+
+# --- the language of what a person reads ------------------------------------------------
+
+
+def russian(env: dict[str, str | None]) -> dict[str, str | None]:
+    return {**env, "HT_LANGUAGE": "ru"}
+
+
+def test_the_probe_names_the_language_among_the_settings(env: dict[str, str | None]) -> None:
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    assert result.stdout.splitlines()[0].endswith(", Europe/Moscow, language en")
+
+
+def test_the_probe_reads_in_the_configured_language(env: dict[str, str | None]) -> None:
+    result = World(at(12, 0)).invoke(["probe"], russian(env))
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert lines[0].startswith("настройки: в порядке - портал ")
+    assert lines[0].endswith(", Europe/Moscow, язык ru")
+    assert lines[1] == "портал: в порядке - бандлы клиента: app-htmlaccess.fake-2312.js"
+    assert lines[2] == "календарь: в порядке - isdayoff.ru: 2026-10-21 - рабочий день"
+    assert lines[3] == (
+        f"браузер chrome: в порядке - Chrome 131.0.6778.85 запущен из {env['HT_CHROME_PATH']}"
+    )
+    assert lines[4] == "расписание: сегодня 07:41 / 16:43"
+
+
+def test_a_failed_probe_check_reads_in_the_configured_language(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(12, 0), calendar_answer=None)
+    world.client.fail_on("client_bundles", HorizonClientError(Reason.PORTAL_UNREACHABLE))
+
+    result = world.invoke(["probe"], russian(env))
+
+    assert result.exit_code == 1
+    assert "портал: сбой - нет ответа: portal_unreachable" in result.stdout
+    assert "календарь: частично - isdayoff.ru не ответил за 2026-10-21" in result.stdout
+
+
+def test_a_dry_run_reads_in_the_configured_language(env: dict[str, str | None]) -> None:
+    result = World(at(7, 30)).invoke(["checkin", "--dry-run"], russian(env))
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        "пробный прогон: checkin в 2026-10-21 07:30:00 MSK",
+        "запустился бы сейчас: да (run)",
+        "ждал бы до: 07:41",
+        "календарь: календарь isdayoff.ru",
+        "расписание: сегодня 07:41 / 16:43",
+        "шаги одной попытки:",
+        "  1. войти на портал Horizon",
+        "  2. открыть стол 'DEV desktop' и дождаться Blast-соединения и прорисованного стола",
+        "  3. держать стол открытым 120 секунд, чтобы завершился вход в Windows",
+        "  4. прочитать состояние сессии, затем отключиться (сессия Windows продолжает работать)",
+        "  5. войти снова и убедиться, что сессия в состоянии DISCONNECTED",
+        "  6. ждать разыгранного момента 07:41, если запуск начат от 07:30; "
+        "более ранний запуск пропускается как слишком ранний",
+        "  7. повторять неудачную попытку, до 3 попыток через 30 секунд, пока позволяет окно",
+        "  8. отправить один отчёт в Telegram",
+    ]
+
+
+def test_a_forced_dry_run_names_the_force_in_the_configured_language(
+    env: dict[str, str | None],
+) -> None:
+    result = World(at(12, 0)).invoke(["checkout", "--dry-run", "--force"], russian(env))
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert "запустился бы сейчас: да (run, принудительно: окно и календарь не учитываются)" in lines
+    assert "календарь: не спрашивали (принудительно)" in lines
+
+
+def test_a_dry_run_on_a_day_the_calendar_could_not_answer_names_the_fallback(
+    env: dict[str, str | None],
+) -> None:
+    result = World(at(*CHECK_IN), calendar_answer=None).invoke(["checkin", "--dry-run"], env)
+
+    assert "calendar: isdayoff.ru unreachable, Mon-Fri rule" in result.stdout.splitlines()
+
+
+@pytest.mark.parametrize(
+    "args", [["probe"], ["checkin", "--dry-run"], ["checkout", "--dry-run", "--force"]]
+)
+def test_no_line_of_the_output_falls_into_the_other_language(
+    args: list[str], env: dict[str, str | None]
+) -> None:
+    english = World(at(7, 30)).invoke(args, env).stdout.splitlines()
+    russian_lines = World(at(7, 30)).invoke(args, russian(env)).stdout.splitlines()
+
+    assert english
+    assert not [line for line in english if CYRILLIC.search(line)]
+    assert len(russian_lines) == len(english)
+    assert not [line for line in russian_lines if not CYRILLIC.search(line)]
+
+
+def test_the_log_stays_english_whatever_the_language(env: dict[str, str | None]) -> None:
+    result = World(at(*CHECK_IN)).invoke(["checkin"], russian(env))
+
+    assert result.exit_code == 0, result.output
+    assert "checkin run succeeded" in result.stderr
+    assert not CYRILLIC.search(result.stderr)
+
+
+def test_a_configuration_error_is_said_once_to_an_english_reader(
+    env: dict[str, str | None],
+) -> None:
+    result = World(at(7, 55)).invoke(["checkin"], {**env, "HORIZON_URL": None})
+
+    assert result.exit_code == 1
+    assert result.stderr.count("HORIZON_URL") == 1
+    assert not CYRILLIC.search(result.stderr)
+
+
+def test_a_configuration_error_reaches_a_russian_reader_in_russian_beside_the_english_log(
+    env: dict[str, str | None],
+) -> None:
+    result = World(at(7, 55)).invoke(["probe"], {**russian(env), "HORIZON_URL": None})
+
+    assert result.exit_code == 1
+    lines = result.stderr.splitlines()
+    assert any(
+        line.endswith("configuration error: HORIZON_URL: is required and not set") for line in lines
+    )
+    assert "ошибка настройки: HORIZON_URL: обязательна и не задана" in lines
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("value", ["de", "RU"])
+def test_an_unknown_language_is_refused_at_start_naming_the_accepted_codes(
+    value: str, env: dict[str, str | None]
+) -> None:
+    world = World(at(7, 55))
+
+    result = world.invoke(["checkin"], {**env, "HT_LANGUAGE": value})
+
+    assert result.exit_code == 1
+    assert f"configuration error: HT_LANGUAGE: expected one of en, ru, got {value!r}" in (
+        result.stderr
+    )
+    assert not CYRILLIC.search(result.stderr)
+    assert world.opened == []
+
+
+def test_a_refused_token_reaches_a_russian_reader_in_russian(
+    env: dict[str, str | None], requests_sent: list[httpx.Request]
+) -> None:
+    result = CliRunner().invoke(
+        main, ["checkin"], env={**russian(env), "TELEGRAM_BOT_TOKEN": "nonsense"}
+    )
+
+    assert result.exit_code == 1
+    assert "ошибка настройки: TELEGRAM_BOT_TOKEN: искажён" in result.stderr
+    assert "nonsense" not in result.output
+
+
+@pytest.mark.parametrize(
+    ("language", "headline"), [(None, "Check-in succeeded"), ("ru", "Вход выполнен")]
+)
+def test_the_notification_is_built_in_the_configured_language(
+    language: str | None, headline: str, env: dict[str, str | None]
+) -> None:
+    # The notifier is built the production way, from the settings the command loaded.
+    bot = RecordingBotApi()
+
+    def deliver(settings: Settings) -> Notifier:
+        return build_notifier(settings, bot.client())
+
+    world = World(at(*CHECK_IN), delivery=deliver)
+
+    result = world.invoke(["checkin"], {**env, "HT_LANGUAGE": language})
+
+    assert result.exit_code == 0, result.output
+    [message] = bot.messages
+    assert message.text.splitlines()[0] == headline

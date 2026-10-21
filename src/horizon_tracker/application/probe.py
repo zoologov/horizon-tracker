@@ -30,6 +30,7 @@ from typing import Protocol
 
 from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Message
 from horizon_tracker.domain.ports import (
     Clock,
     HorizonClient,
@@ -51,11 +52,14 @@ class CheckStatus(StrEnum):
 
 @dataclass(frozen=True)
 class Check:
-    """One dependency's answer: its name, its status and what it said."""
+    """One dependency's answer: its name, its status and what it said, as a message.
+
+    ``name`` and ``status`` are identifiers; whoever shows the check translates them.
+    """
 
     name: str
     status: CheckStatus
-    detail: str
+    detail: Message
 
 
 @dataclass(frozen=True)
@@ -96,29 +100,36 @@ class Probe:
         try:
             bundles = self.client.client_bundles()
         except HorizonClientError as error:
-            return Check("portal", CheckStatus.FAILED, f"no answer: {error.reason.value}")
-        return Check("portal", CheckStatus.OK, "client bundles: " + ", ".join(bundles))
+            detail = Message("probe.portal.no_answer", {"reason": error.reason.value})
+            return Check("portal", CheckStatus.FAILED, detail)
+        detail = Message("probe.portal.bundles", {"bundles": ", ".join(bundles)})
+        return Check("portal", CheckStatus.OK, detail)
 
     def _calendar(self) -> Check:
         today = self.clock.now().date()
         answer = self.calendar.is_working_day(today)
         if answer is None:
-            detail = f"isdayoff.ru did not answer for {today}; runs fall back to the Mon-Fri rule"
+            detail = Message("probe.calendar.no_answer", {"day": today})
             return Check("calendar", CheckStatus.DEGRADED, detail)
-        day = "a working day" if answer else "a day off"
-        return Check("calendar", CheckStatus.OK, f"isdayoff.ru: {today} is {day}")
+        key = "probe.calendar.working_day" if answer else "probe.calendar.day_off"
+        return Check("calendar", CheckStatus.OK, Message(key, {"day": today}))
 
     def _chrome(self) -> Check:
         """Chrome is found at its path, then started to name its version: the deploy smoke."""
         where = self.chrome_path
         if not self.file_exists(where):
-            return Check("chrome", CheckStatus.FAILED, f"not found at {where}")
+            return Check(
+                "chrome", CheckStatus.FAILED, Message("probe.chrome.not_found", {"path": where})
+            )
         try:
             version = self.client.browser_version()
         except HorizonClientError as error:
-            detail = f"found at {where} but did not start: {error.reason.value}"
+            detail = Message(
+                "probe.chrome.did_not_start", {"path": where, "reason": error.reason.value}
+            )
             return Check("chrome", CheckStatus.FAILED, detail)
-        return Check("chrome", CheckStatus.OK, f"Chrome {version} started from {where}")
+        detail = Message("probe.chrome.started", {"version": version, "path": where})
+        return Check("chrome", CheckStatus.OK, detail)
 
 
 @dataclass(frozen=True)
@@ -135,7 +146,7 @@ class RunPlan:
     forced: bool
     decision: Decision
     verdict_source: VerdictSource | None
-    steps: tuple[str, ...]
+    steps: tuple[Message, ...]
     waits_until: datetime | None = None
     moments: DailyMoments | None = None
 
@@ -158,8 +169,8 @@ class PlannedRun(Protocol):
         """The loop that decides, retries and reports."""
         ...
 
-    def steps(self) -> tuple[str, ...]:
-        """What one attempt does, in the owner's words."""
+    def steps(self) -> tuple[Message, ...]:
+        """What one attempt does, as messages the owner reads in their language."""
         ...
 
 
@@ -189,6 +200,9 @@ class DryRun:
         )
 
 
-def schedule_detail(moments: DailyMoments) -> str:
-    """Today's drawn check-in and check-out as the owner reads them: ``today 07:43 / 16:52``."""
-    return f"today {moments.check_in:%H:%M} / {moments.check_out:%H:%M}"
+def schedule_detail(moments: DailyMoments) -> Message:
+    """Today's drawn check-in and check-out as a message: ``today 07:43 / 16:52`` in English."""
+    return Message(
+        "probe.schedule",
+        {"check_in": f"{moments.check_in:%H:%M}", "check_out": f"{moments.check_out:%H:%M}"},
+    )

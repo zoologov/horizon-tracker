@@ -34,7 +34,12 @@ other Horizon method, sends no Telegram report, sleeps for nothing and prunes no
 The two flags combine.
 
 A configuration error is logged on stderr as `configuration error: <VAR>:
-<problem>` without the credential's value, and every command exits 1. The retry
+<problem>` without the credential's value, and every command exits 1. The log line is
+English whatever the language. When `HT_LANGUAGE` names another language, the CLI also
+prints the error in it on stderr, below the log line (the Russian `config.error` text, `<VAR>:
+<problem>` for `ru`); an English reader gets the log line once. The settings did not
+load, so the language is read on its own (`language_from_env`); an unknown
+`HT_LANGUAGE` is itself the error and is named in English. The retry
 policy is a CLI constant (3 attempts, 30 s apart, still bounded by the window).
 
 Before a run that is not a dry run, the CLI removes screenshots older than 14 days
@@ -48,9 +53,16 @@ The use cases, the probe and the dry run are specified in
 
 ## Output
 
-- stdout: only the dry-run plan and the probe lines.
-- stderr: logging at INFO on the `horizon_tracker` logger; under systemd the
-  journal captures it, so there is no log file and no rotation code.
+- stdout: only the dry-run plan and the probe lines, in the language `HT_LANGUAGE` names
+  (`en` by default, `ru`). Every text comes from the message catalogue
+  (`domain/messages.py`); the use cases hand out keys, the CLI translates them. The
+  English lines are shown below; `HT_LANGUAGE=ru` renders the same catalogue keys
+  (`probe.settings.ok`, `plan.header`, `plan.steps`, …) in Russian. Identifiers stay as
+  they are in both languages: the run kind (`checkin`), the decision (`run`,
+  `skip_late`, …) and a failure reason (`portal_unreachable`). `horizon --help` is
+  click's and stays English.
+- stderr: logging at INFO on the `horizon_tracker` logger, always in English; under
+  systemd the journal captures it, so there is no log file and no rotation code.
 
 ### `horizon probe`
 
@@ -61,7 +73,7 @@ the VPS without a login):
 
 | Line | `ok` | Otherwise |
 |------|------|-----------|
-| `settings:` | `ok - portal <HORIZON_URL>, desktop '<HORIZON_DESKTOP>', check-in <HT_CHECKIN_RANGE>, check-out <HT_CHECKOUT_RANGE>, <zone>`; no credential and no seed is named | no probe lines; `configuration error: ...` on stderr, exit 1 |
+| `settings:` | `ok - portal <HORIZON_URL>, desktop '<HORIZON_DESKTOP>', check-in <HT_CHECKIN_RANGE>, check-out <HT_CHECKOUT_RANGE>, <zone>, language <HT_LANGUAGE>`; no credential and no seed is named | no probe lines; `configuration error: ...` on stderr, exit 1 |
 | `portal:` | `ok - client bundles: <file names>` | `failed - no answer: portal_unreachable` (no answer, or a status other than 200) or `failed - no answer: unexpected` (no bundle named) |
 | `calendar:` | `ok - isdayoff.ru: <date> is a working day` or `... is a day off` | `degraded - isdayoff.ru did not answer for <date>; runs fall back to the Mon-Fri rule` |
 | `chrome:` | `ok - Chrome <version> started from <path>` | `failed - not found at <path>` (nothing is started) or `failed - found at <path> but did not start: unexpected` |
@@ -110,6 +122,7 @@ the retries and the one Telegram report.
 | `HT_HOLD_SECONDS` | how long the opened desktop is held in the morning, default `120` |
 | `HT_CHROME_PATH` | the Chrome binary, `/usr/bin/google-chrome` on the VPS |
 | `HT_ARTIFACTS_DIR` | where screenshots are written and pruned (older than 14 days) |
+| `HT_LANGUAGE` | the language of the notification, the probe, the dry run and a configuration error: `en` (default) or `ru`; anything else is refused at start with `configuration error: HT_LANGUAGE: expected one of en, ru, got '<value>'`. The logs stay English |
 
 `HT_CHECKIN_WINDOW` and `HT_CHECKOUT_WINDOW` are no longer read: either one present
 in the environment, even blank, makes every command exit 1 with
@@ -118,6 +131,11 @@ in the environment, even blank, makes every command exit 1 with
 ## Source
 
 `src/horizon_tracker/cli.py`
+
+The composition root builds the notifier with `build_notifier(settings, http)`: a
+`TelegramNotifier` in `settings.language`, and a token the adapter refuses becomes a
+configuration error for `TELEGRAM_BOT_TOKEN`. The acceptance suite builds its notifier
+through the same function.
 
 ## Dependencies
 

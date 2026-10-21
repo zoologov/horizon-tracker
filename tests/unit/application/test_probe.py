@@ -19,6 +19,7 @@ from horizon_tracker.application.probe import (
 )
 from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language, Message
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Reason
 from horizon_tracker.domain.schedule import (
@@ -43,10 +44,15 @@ HOLD = timedelta(seconds=120)
 MOMENTS = DailyMoments(check_in=time(7, 43), check_out=time(16, 52))
 RANGE_STARTS = {RunKind.CHECKIN: time(7, 30), RunKind.CHECKOUT: time(16, 30)}
 GRACE = timedelta(minutes=5)
+ANY_DETAIL = Message("probe.status.ok")
 
 
 def at(day: date, hour: int, minute: int) -> datetime:
     return datetime(day.year, day.month, day.day, hour, minute, tzinfo=MSK)
+
+
+def english(message: Message) -> str:
+    return message.in_language(Language.EN)
 
 
 # --- Probe ---------------------------------------------------------------------------
@@ -111,7 +117,10 @@ def test_the_portal_check_names_the_client_bundles_it_read() -> None:
 
     report = probing.run()
 
-    assert check(report, "portal").detail == "client bundles: app-htmlaccess.a1.js, vendor.b2.js"
+    assert (
+        english(check(report, "portal").detail)
+        == "client bundles: app-htmlaccess.a1.js, vendor.b2.js"
+    )
 
 
 def test_an_unreachable_portal_fails_the_probe_and_names_the_reason() -> None:
@@ -122,7 +131,7 @@ def test_an_unreachable_portal_fails_the_probe_and_names_the_reason() -> None:
 
     portal = check(report, "portal")
     assert portal.status is CheckStatus.FAILED
-    assert Reason.PORTAL_UNREACHABLE.value in portal.detail
+    assert english(portal.detail) == "no answer: portal_unreachable"
     assert check(report, "chrome").status is CheckStatus.OK
     assert not report.ok
 
@@ -133,7 +142,7 @@ def test_the_calendar_is_asked_about_today() -> None:
     report = probing.run()
 
     assert probing.calendar.asked == [WEDNESDAY]
-    assert "working day" in check(report, "calendar").detail
+    assert english(check(report, "calendar").detail) == "isdayoff.ru: 2026-10-21 is a working day"
 
 
 def test_the_calendar_names_a_day_off() -> None:
@@ -141,7 +150,7 @@ def test_the_calendar_names_a_day_off() -> None:
 
     calendar = check(report, "calendar")
     assert calendar.status is CheckStatus.OK
-    assert "day off" in calendar.detail
+    assert english(calendar.detail) == "isdayoff.ru: 2026-10-21 is a day off"
 
 
 def test_an_unreachable_calendar_degrades_the_probe_without_failing_it() -> None:
@@ -149,7 +158,7 @@ def test_an_unreachable_calendar_degrades_the_probe_without_failing_it() -> None
 
     calendar = check(report, "calendar")
     assert calendar.status is CheckStatus.DEGRADED
-    assert "Mon-Fri" in calendar.detail
+    assert "Mon-Fri" in english(calendar.detail)
     assert report.ok
 
 
@@ -161,7 +170,7 @@ def test_chrome_is_started_from_the_configured_path_and_its_version_named() -> N
     assert probing.looked_for == [CHROME]
     chrome = check(report, "chrome")
     assert chrome.status is CheckStatus.OK
-    assert chrome.detail == f"Chrome 131.0.6778.85 started from {CHROME}"
+    assert english(chrome.detail) == f"Chrome 131.0.6778.85 started from {CHROME}"
 
 
 def test_a_missing_chrome_fails_the_probe_without_starting_anything() -> None:
@@ -171,7 +180,7 @@ def test_a_missing_chrome_fails_the_probe_without_starting_anything() -> None:
 
     chrome = check(report, "chrome")
     assert chrome.status is CheckStatus.FAILED
-    assert chrome.detail == f"not found at {CHROME}"
+    assert english(chrome.detail) == f"not found at {CHROME}"
     assert "browser_version" not in probing.client.calls
     assert not report.ok
 
@@ -184,15 +193,24 @@ def test_a_chrome_that_does_not_start_fails_the_probe_and_names_the_reason() -> 
 
     chrome = check(report, "chrome")
     assert chrome.status is CheckStatus.FAILED
-    assert chrome.detail == f"found at {CHROME} but did not start: {Reason.UNEXPECTED.value}"
+    assert (
+        english(chrome.detail) == f"found at {CHROME} but did not start: {Reason.UNEXPECTED.value}"
+    )
     assert check(report, "portal").status is CheckStatus.OK
     assert not report.ok
 
 
+def test_a_check_names_what_it_found_in_any_language_it_is_shown_in() -> None:
+    # The probe hands out keys and values; the language is the reader's, not the probe's.
+    chrome = check(Probing().run(), "chrome")
+
+    assert chrome.detail.in_language(Language.RU) == f"Chrome 131.0.6778.85 запущен из {CHROME}"
+
+
 def test_a_probe_report_is_ok_unless_a_check_failed() -> None:
-    ok = Check("a", CheckStatus.OK, "")
-    degraded = Check("b", CheckStatus.DEGRADED, "")
-    failed = Check("c", CheckStatus.FAILED, "")
+    ok = Check("a", CheckStatus.OK, ANY_DETAIL)
+    degraded = Check("b", CheckStatus.DEGRADED, ANY_DETAIL)
+    failed = Check("c", CheckStatus.FAILED, ANY_DETAIL)
 
     assert ProbeReport((ok, degraded)).ok
     assert not ProbeReport((ok, failed, degraded)).ok
@@ -251,6 +269,14 @@ def test_a_plan_lists_the_use_cases_steps_then_the_loops(kind: RunKind) -> None:
 
     assert plan.kind is kind
     assert plan.steps == (*planning.use_case.steps(), *planning.runner.steps())
+
+
+@pytest.mark.parametrize("kind", list(RunKind))
+@pytest.mark.parametrize("language", list(Language))
+def test_every_step_of_a_plan_reads_in_every_language(kind: RunKind, language: Language) -> None:
+    plan = Planning(at(WEDNESDAY, 7, 30), kind, moments=MOMENTS).plan()
+
+    assert all(step.in_language(language).strip() for step in plan.steps)
 
 
 @pytest.mark.parametrize("kind", list(RunKind))
@@ -345,8 +371,8 @@ def test_a_run_plan_would_run_only_on_run_or_retry() -> None:
 
 
 def test_the_schedule_detail_names_both_moments_of_today() -> None:
-    assert schedule_detail(MOMENTS) == "today 07:43 / 16:52"
-    assert schedule_detail(DailyMoments(time(8, 5), time(17, 10))) == "today 08:05 / 17:10"
+    assert english(schedule_detail(MOMENTS)) == "today 07:43 / 16:52"
+    assert english(schedule_detail(DailyMoments(time(8, 5), time(17, 10)))) == "today 08:05 / 17:10"
 
 
 def test_a_probe_given_the_days_moments_names_them_last() -> None:
@@ -357,7 +383,7 @@ def test_a_probe_given_the_days_moments_names_them_last() -> None:
     assert [item.name for item in report.checks] == ["portal", "calendar", "chrome", "schedule"]
     schedule = check(report, "schedule")
     assert schedule.status is CheckStatus.OK
-    assert schedule.detail == "today 07:43 / 16:52"
+    assert english(schedule.detail) == "today 07:43 / 16:52"
     assert probing.client.calls == ["client_bundles", "browser_version"]
     assert report.ok
 
@@ -389,7 +415,7 @@ def test_a_checkin_plan_from_the_range_start_waits_for_its_moment_then_runs() ->
     assert plan.decision is Decision.RUN
     assert plan.would_run
     assert planning.clock.sleeps == []
-    assert plan.steps[len(planning.use_case.steps())] == (
+    assert english(plan.steps[len(planning.use_case.steps())]) == (
         "wait until the drawn moment 07:43 if started from 07:30; earlier is skipped as too early"
     )
 

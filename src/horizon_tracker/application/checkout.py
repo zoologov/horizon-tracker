@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from horizon_tracker.application.windowed_run import AttemptResult, WindowedRun
+from horizon_tracker.domain.messages import Message
 from horizon_tracker.domain.ports import Clock, HorizonClient
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
 from horizon_tracker.domain.schedule import RunKind
@@ -42,13 +43,13 @@ class EveningCheckout:
         attempt = _CheckoutAttempt(self.client, self.clock, self.desktop)
         return self.runner.run(self.kind, attempt, force=force)
 
-    def steps(self) -> tuple[str, ...]:
-        """What one ``_CheckoutAttempt`` does, in the owner's words; the dry run prints them."""
+    def steps(self) -> tuple[Message, ...]:
+        """What one ``_CheckoutAttempt`` does, as messages; the dry run prints them."""
         return (
-            "log in to the Horizon portal",
-            f"read the session state of desktop {self.desktop!r}; stop if there is no session",
-            "log off from the tile menu and confirm the dialog",
-            "confirm the session is gone (NO_SESSION)",
+            Message("plan.step.login"),
+            Message("plan.step.checkout.read", {"desktop": self.desktop}),
+            Message("plan.step.checkout.logoff"),
+            Message("plan.step.checkout.confirm"),
         )
 
 

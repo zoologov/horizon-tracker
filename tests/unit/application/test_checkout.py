@@ -10,6 +10,7 @@ import pytest
 from horizon_tracker.application.checkout import EveningCheckout
 from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.calendar import VerdictSource
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
@@ -299,7 +300,7 @@ def test_the_checkout_is_a_run_of_the_checkout_kind() -> None:
 
 
 def test_the_checkout_names_the_steps_of_one_attempt_and_never_holds() -> None:
-    text = "\n".join(Evening().checkout.steps())
+    text = "\n".join(step.in_language(Language.EN) for step in Evening().checkout.steps())
 
     assert text.index("log in") < text.index("log off") < text.index("NO_SESSION")
     assert repr(DESKTOP) in text

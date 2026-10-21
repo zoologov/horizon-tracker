@@ -100,6 +100,8 @@ jobs:
         # retired and must never be written: Settings refuses them, so the smoke would fail.
         # HT_JITTER_SEED is optional: an undefined secret is empty, and an empty optional
         # value is left out, so the draw is seeded from HORIZON_USERNAME.
+        # HT_LANGUAGE is optional the same way, read from an environment variable (it is no
+        # secret): left out, the service speaks English (RFC HT-007); the owner sets ru there.
         env:
           HORIZON_URL: https://horizon.example.com/portal/webclient/
           HORIZON_USERNAME: ${{ secrets.HORIZON_USERNAME }}
@@ -117,6 +119,7 @@ jobs:
           HT_HOLD_SECONDS: "120"
           HT_CHROME_PATH: /usr/bin/google-chrome
           HT_ARTIFACTS_DIR: /opt/horizon-tracker/artifacts
+          HT_LANGUAGE: ${{ vars.HT_LANGUAGE }}
         run: |
           set -euo pipefail
           umask 077
@@ -124,7 +127,7 @@ jobs:
                  TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID HT_TIMEZONE HT_CHECKIN_RANGE
                  HT_CHECKOUT_RANGE HT_SESSION_LENGTH_MINUTES HT_SESSION_EXTRA_MAX_MINUTES
                  HT_WINDOW_GRACE_MINUTES HT_HOLD_SECONDS HT_CHROME_PATH HT_ARTIFACTS_DIR)
-          optional=(HT_JITTER_SEED)
+          optional=(HT_JITTER_SEED HT_LANGUAGE)
           for name in "${names[@]}"; do
             if [ -z "${!name:-}" ]; then
               echo "::error title=.env::$name is empty - set it in the horizon-vps environment"

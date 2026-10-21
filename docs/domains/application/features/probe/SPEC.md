@@ -19,7 +19,10 @@ smoke test and the first command on a new VPS. `horizon checkin --dry-run` and
 
 ### What the probe measures
 
-The probe asks each dependency the one question it can answer without credentials:
+The probe asks each dependency the one question it can answer without credentials. Each
+check's detail is a `Message` (a catalogue key and its fields, `domain/messages.py`); the
+CLI shows it, the check's name and its status in the language `HT_LANGUAGE` names. The
+English texts:
 
 | Check | Question | `ok` | Otherwise |
 |-------|----------|------|-----------|
@@ -47,7 +50,7 @@ The `schedule` check is a fact to read, not a dependency's health, so it is alwa
 It comes last and only when the probe is given the day's moments. The composition root
 draws them with the same `draw_moments` call a run makes today, so the owner can compare
 the probe's line with the day's runs. The CLI prints it without a status:
-`schedule: today 07:38 / 16:39`.
+`schedule: today 07:38 / 16:39` (the `probe.schedule` key, rendered in Russian under `HT_LANGUAGE=ru`).
 
 ### How the dry run works
 
@@ -56,7 +59,8 @@ the probe's line with the day's runs. The CLI prints it without a status:
 - the decision is `use_case.runner.first_decision(force=...)`, the decision the run
   loop would take on its first attempt: now, or at the drawn moment when the run would
   wait for it first (this asks the calendar unless forced);
-- the steps are `use_case.steps()` followed by `use_case.runner.steps()`;
+- the steps are `use_case.steps()` followed by `use_case.runner.steps()`, each a
+  `Message` the CLI prints in the configured language;
 - `waits_until` is the drawn moment a run started now would sleep until first, taken from
   the same `first_decision`, and `moments` is the day's drawn pair the dry run was given.
 
@@ -77,13 +81,17 @@ creates a probe or a dry run only for a configuration `Settings.from_env` accept
   composition root drew, so they cannot disagree with a run of the same day.
 - The dry run sends no report and reads its decision and steps from the use case and its
   run loop.
+- Neither the probe nor the dry run picks a language: every text they hand out is a
+  `Message`, so the same plan reads in English or Russian without a second code path.
 
 ## API
 
 Module `src/horizon_tracker/application/probe.py`:
 
 - `CheckStatus` — `StrEnum`: `OK`, `DEGRADED`, `FAILED`.
-- `Check(name: str, status: CheckStatus, detail: str)` — frozen.
+- `Check(name: str, status: CheckStatus, detail: Message)` — frozen. `name` and `status`
+  are identifiers; the CLI translates them through the keys `probe.check.<name>` and
+  `probe.status.<status>`.
 - `ProbeReport(checks: tuple[Check, ...])` — frozen; `ok -> bool` property.
 - `Probe(client: HorizonClient, calendar: WorkingDayCalendar, clock: Clock, chrome_path:
   Path, file_exists: Callable[[Path], bool], moments: DailyMoments | None = None)` —
@@ -91,13 +99,14 @@ Module `src/horizon_tracker/application/probe.py`:
   order, then, when `moments` is given, `schedule` (`ok`, detail
   `schedule_detail(moments)`). The probe never draws the moments; the composition root
   does.
-- `schedule_detail(moments: DailyMoments) -> str` — today's drawn pair as the owner reads
-  it: `today 07:43 / 16:52`.
-- `RunPlan(kind, at, forced, decision, verdict_source, steps, waits_until: datetime |
+- `schedule_detail(moments: DailyMoments) -> Message` — today's drawn pair, key
+  `probe.schedule`: `today 07:43 / 16:52` in English.
+- `RunPlan(kind, at, forced, decision, verdict_source, steps: tuple[Message, ...],
+  waits_until: datetime |
   None = None, moments: DailyMoments | None = None)` — frozen; `would_run -> bool` is
   true for `RUN` and `RETRY`. `waits_until` comes from the loop's `first_decision`;
   `moments` is the day's drawn pair as the dry run was given it, forced or not.
-- `PlannedRun` — `Protocol`: `kind` and `runner` properties, `steps()`.
+- `PlannedRun` — `Protocol`: `kind` and `runner` properties, `steps() -> tuple[Message, ...]`.
   `MorningCheckin` and `EveningCheckout` satisfy it.
 - `DryRun(use_case: PlannedRun, moments: DailyMoments | None = None)` — frozen;
   `plan(*, force: bool = False) -> RunPlan`.
