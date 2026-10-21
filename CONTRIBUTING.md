@@ -86,9 +86,9 @@ over the service's public surface, and [`docs/guides/releasing.md`](docs/guides/
 states that surface and the full procedure. In brief:
 
 1. classify the changes since the last release by the public surface: MAJOR, MINOR or PATCH;
-2. bump `[project] version` in `pyproject.toml`, then run `uv lock` (the deploy's
-   `uv sync --locked` refuses a stale lock) and `beadloom setup-agentic-flow` (the
-   `Current version` line of `.claude/CLAUDE.md`);
+2. bump `[project] version` in `pyproject.toml`, then run `uv lock` (CI syncs `--locked`,
+   and the Release's `verify` refuses a tag whose `uv.lock` names another version) and
+   `beadloom setup-agentic-flow` (the `Current version` line of `.claude/CLAUDE.md`);
 3. move the `[Unreleased]` entries of [`CHANGELOG.md`](CHANGELOG.md) into a section
    `## [X.Y.Z] - YYYY-MM-DD`;
 4. open one pull request, wait for `ci-ok` and merge it;

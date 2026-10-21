@@ -1,15 +1,15 @@
 # ACTIVE: HT-008 — Release flow on tags, one workflow per event, a protected trunk, the portal on Pages, and the repository's public face
 
-> **Last updated:** 2026-10-21 (re-review: ISSUES on docs; docs fix running)
+> **Last updated:** 2026-10-21 (re-review OK; PR open; owner steps pending)
 > **Phase:** Development
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-08 (ht-6hx.1) — docs after the fix, tech-writer
-**Goal:** deployment guide 6.3 and 7, README Releases and the releasing guide describe `verify`'s lock check and the main-only manual run; the dispatch "Why" names what `verify` does not stop
-**Done when:** `beadloom ci` green; then BEAD-07 re-review runs again
+**Bead:** BEAD-05 (ht-30c) — owner
+**Goal:** repository public → Pages source = Actions → environment rules (`github-pages`: `v*` tags; `horizon-vps`: `main` + `v*`, read back) → private vulnerability reporting → `beadloom setup-branch-protection --check ci-ok` + the `v*` tag ruleset, measured and dated in the project layer, `beadloom setup-agentic-flow` → merge the PR → tag `v1.0.0` → watch Release → confirm the GitHub Release, `horizon probe`, the portal → close `ht-hdv`
+**Done when:** `v1.0.0` is on the host and the portal answers
 
 ## Progress
 
@@ -20,7 +20,9 @@
 - [x] Wave 3: BEAD-04 review → ISSUES (0 critical, 1 major, 6 minor) — verdict in `bd comments ht-2gj`
 - [x] Fix wave: BEAD-06 landed (4413a32)
 - [x] BEAD-07 re-review, first pass → ISSUES (1 major: stale docs; 2 minor) — verdict in `bd comments ht-1dd`
-- [ ] BEAD-08 docs fix (ht-6hx.1) → BEAD-07 re-review, second pass
+- [x] BEAD-08 docs fix landed (baf17d9)
+- [x] BEAD-07 re-review, second pass → OK (three coordinator minors fixed in the same commit as this line)
+- [ ] PR features/HT-008 → main opened; CI on the PR
 - [ ] Owner: BEAD-05 (public, Pages, protection, merge, v1.0.0)
 
 ## Results
@@ -33,8 +35,8 @@
 | BEAD-04 | Done | ISSUES: Major-1 uv.lock unchecked before the host's `--locked` sync; Minor-1 PR template gates narrower than CI; Minor-2 environment tag rules not named for the owner; Minor-3 dispatch from another branch; Minor-4 TODO in the releasing guide; Minor-5 acceptance criterion 4 not met as written; Minor-6 ACTIVE named pre-rewrite commit ids. Coordinator took Minor-2, -5, -6 (this file, BRIEF, ht-30c); the rest is BEAD-06 |
 | BEAD-05 | Open | - |
 | BEAD-06 | Done | 4413a32: CI `--locked`, verify checks uv.lock and refuses a manual run off main, PR template gates = CI, the TODO resolved; 10 contract tests |
-| BEAD-07 | In Progress | first pass ISSUES: deployment.md 6.3/7 and README Releases stale on verify's new checks; releasing.md one-source bullet and dispatch Why; the Minor-4 wording reconciled by the coordinator (confirmed) |
-| BEAD-08 | Open | docs after the fix (ht-6hx.1) |
+| BEAD-07 | Done | OK on pass 2; first pass ISSUES: deployment.md 6.3/7 and README Releases stale on verify's new checks; releasing.md one-source bullet and dispatch Why; the Minor-4 wording reconciled by the coordinator (confirmed) |
+| BEAD-08 | Done | baf17d9: deployment.md 6.3/7 and section 3, README Releases, releasing.md (uv.lock bullet, what dispatch does not stop) |
 
 ## Notes
 

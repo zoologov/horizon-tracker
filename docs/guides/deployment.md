@@ -228,7 +228,19 @@ host, so they are not literals of the workflow.
 With `gh`, from a clone of the repository:
 
 ```bash
-gh api -X PUT "repos/<owner>/<repo>/environments/horizon-vps" >/dev/null
+# the environment, with a deployment rule that admits only main and the release tags:
+# a manual Release run started from another branch would execute that branch's
+# release.yml, and this rule is what stops it (section 6.3)
+gh api -X PUT "repos/<owner>/<repo>/environments/horizon-vps" \
+  -F "deployment_branch_policy[protected_branches]=false" \
+  -F "deployment_branch_policy[custom_branch_policies]=true" >/dev/null
+gh api -X POST "repos/<owner>/<repo>/environments/horizon-vps/deployment-branch-policies" \
+  -f name=main -f type=branch >/dev/null
+gh api -X POST "repos/<owner>/<repo>/environments/horizon-vps/deployment-branch-policies" \
+  -f name='v*' -f type=tag >/dev/null
+# read the rule back: exactly these two entries, nothing else
+gh api "repos/<owner>/<repo>/environments/horizon-vps/deployment-branch-policies" \
+  --jq '.branch_policies[] | "\(.type) \(.name)"'
 
 gh secret set VPS_HOST --env horizon-vps            # prompts for the value
 gh secret set VPS_USER --env horizon-vps
