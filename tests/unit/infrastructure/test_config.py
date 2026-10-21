@@ -1,5 +1,6 @@
 """Tests for the settings read from the environment: required secrets, defaults, masking."""
 
+import re
 from collections.abc import Callable
 from dataclasses import fields
 from datetime import time, timedelta
@@ -427,7 +428,7 @@ REFUSALS = {
     "language": (_env(HT_LANGUAGE="de"), "HT_LANGUAGE: ожидается одно из en, ru, получено 'de'"),
     "time-zone": (_env(HT_TIMEZONE="Mars/Base"), "HT_TIMEZONE: неизвестный часовой пояс"),
     "retired": (_env(HT_CHECKIN_WINDOW=""), "HT_CHECKIN_WINDOW: больше не читается"),
-    "range": (_env(HT_CHECKIN_RANGE="8am"), "HT_CHECKIN_RANGE: ожидается HH:MM-HH:MM"),
+    "range": (_env(HT_CHECKIN_RANGE="8am"), "HT_CHECKIN_RANGE: ожидается чч:мм-чч:мм"),
     "minutes": (_env(HT_WINDOW_GRACE_MINUTES="x"), "HT_WINDOW_GRACE_MINUTES: ожидается целое"),
     "seconds": (_env(HT_HOLD_SECONDS="x"), "HT_HOLD_SECONDS: ожидается целое число секунд"),
     "order": (
@@ -436,6 +437,20 @@ REFUSALS = {
     ),
     "session": (_env(HT_SESSION_LENGTH_MINUTES="0"), "HT_SESSION_LENGTH_MINUTES: непригодная"),
     "grace": (_env(HT_WINDOW_GRACE_MINUTES="0"), "HT_WINDOW_GRACE_MINUTES: непригодный запас"),
+    "range-order": (
+        _env(HT_CHECKIN_RANGE="08:10-07:30"),
+        "HT_CHECKIN_RANGE: недопустимый диапазон '08:10-07:30': начало диапазона 08:10:00 "
+        "должно быть раньше конца 07:30:00",
+    ),
+    "range-clock": (
+        _env(HT_CHECKOUT_RANGE="25:00-26:00"),
+        "HT_CHECKOUT_RANGE: недопустимый диапазон '25:00-26:00': такого времени суток нет",
+    ),
+    "midnight": (
+        _env(HT_CHECKOUT_RANGE="23:00-23:58", HT_WINDOW_GRACE_MINUTES="2"),
+        "HT_WINDOW_GRACE_MINUTES: непригодный запас окна: окно от 23:58:00 при запасе 0:02:00 "
+        "переходит через полночь",
+    ),
 }
 
 
@@ -450,3 +465,21 @@ def test_every_refusal_reads_in_russian_and_logs_in_english(
     assert error.in_language(Language.RU).startswith(russian)
     assert str(error) == error.in_language(Language.EN)
     assert str(error).startswith(f"{error.variable}: ")
+
+
+# An environment variable, a language code or a quoted value is what the reader types;
+# it stays as written.
+_CODES = "|".join(language.value for language in Language)
+_TYPED = re.compile(rf"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b(?:{_CODES})\b|'[^']*'")
+
+
+@pytest.mark.parametrize(
+    "environ", [environ for environ, _ in REFUSALS.values()], ids=REFUSALS.keys()
+)
+def test_no_refusal_falls_into_english_for_a_russian_reader(environ: dict[str, str]) -> None:
+    # PRD US-2: the domain's own reason is said in Russian too, not passed on in English.
+    with pytest.raises(ConfigError) as caught:
+        Settings.from_env(environ)
+
+    russian = _TYPED.sub("", caught.value.in_language(Language.RU))
+    assert not [letter for letter in russian if letter.isascii() and letter.isalpha()], russian

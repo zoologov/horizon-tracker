@@ -37,7 +37,10 @@ A configuration error is logged on stderr as `configuration error: <VAR>:
 <problem>` without the credential's value, and every command exits 1. The log line is
 English whatever the language. When `HT_LANGUAGE` names another language, the CLI also
 prints the error in it on stderr, below the log line (the Russian `config.error` text, `<VAR>:
-<problem>` for `ru`); an English reader gets the log line once. The settings did not
+<problem>` for `ru`); an English reader gets the log line once. The Russian line is
+Russian throughout, the domain's reason for refusing a range, a session length or a
+grace included; only the variable, the value given and the language codes stay as
+written. The settings did not
 load, so the language is read on its own (`language_from_env`); an unknown
 `HT_LANGUAGE` is itself the error and is named in English. The retry
 policy is a CLI constant (3 attempts, 30 s apart, still bounded by the window).
@@ -57,8 +60,9 @@ The use cases, the probe and the dry run are specified in
   (`en` by default, `ru`). Every text comes from the message catalogue
   (`domain/messages.py`); the use cases hand out keys, the CLI translates them. The
   English lines are shown below; `HT_LANGUAGE=ru` renders the same catalogue keys
-  (`probe.settings.ok`, `plan.header`, `plan.steps`, …) in Russian. Identifiers stay as
-  they are in both languages: the run kind (`checkin`), the decision (`run`,
+  (`probe.settings.ok`, `plan.header`, `plan.steps`, …) in Russian. A probe line's
+  check name and status come from the check itself (`Check.label`, `Check.status_label`).
+  Identifiers stay as they are in both languages: the run kind (`checkin`), the decision (`run`,
   `skip_late`, …) and a failure reason (`portal_unreachable`). `horizon --help` is
   click's and stays English.
 - stderr: logging at INFO on the `horizon_tracker` logger, always in English; under

@@ -72,12 +72,20 @@ attempts from this constant rather than from a copy of it.
   `checkout_range` allows it.
 - Both drawn moments and both ends of a `TimeRange` are whole minutes.
 - The draw refuses a check-out range that does not start after the check-in range ends.
+- A refusal a configured value can reach is a `ScheduleError`: a range out of order, a
+  check-out range that does not follow the check-in one, a session or a grace that is
+  not positive, a window past midnight. Its `reason` is a `Message` (`schedule.*` keys,
+  see the `messages` SPEC), so a reader gets it in their language; `str(error)` is the
+  English text. A refusal only code can reach (an empty seed, a duration with seconds, a
+  negative extra, a range end with seconds) stays a plain `ValueError`.
 
 ## API
 
 Module `src/horizon_tracker/domain/schedule.py`:
 
 - `FIRST_ATTEMPT` — `1`, the number attempts are counted from.
+- `ScheduleError(reason: Message)` — a `ValueError` whose `reason` is the refusal as a
+  message; `str()` is `reason` in English.
 - `RunKind` — `StrEnum`: `CHECKIN`, `CHECKOUT`, named after the CLI commands.
 - `Decision` — `StrEnum`: `RUN`, `RETRY`, `SKIP_EARLY`, `SKIP_LATE`,
   `SKIP_NON_WORKING_DAY`, `GIVE_UP`.
@@ -86,8 +94,8 @@ Module `src/horizon_tracker/domain/schedule.py`:
 - `decide(now, window, verdict, attempt, policy) -> Decision` — the rule above;
   `verdict` is a `WorkingDayVerdict` from `calendar.py`.
 - `TimeRange(start: time, end: time)` — frozen; the span a moment is drawn from, both
-  ends included; refuses `start >= end` and ends that are not whole minutes
-  (`ValueError`).
+  ends included; refuses `start >= end` (`ScheduleError`, `schedule.range_order`) and
+  ends that are not whole minutes (`ValueError`).
 - `DailyMoments(check_in: time, check_out: time)` — frozen; the day's drawn pair.
 - `draw_moments(day: date, seed: bytes, checkin_range: TimeRange, session_length:
   timedelta, extra_max: timedelta, checkout_range: TimeRange) -> DailyMoments` — a pure
@@ -96,13 +104,16 @@ Module `src/horizon_tracker/domain/schedule.py`:
   minutes + 1; the check-out is the check-in plus `session_length` plus `digest[4:8]`
   modulo `extra_max`'s minutes + 1, clipped into `checkout_range`. Both moments are whole
   minutes. The check-out is never less than `session_length` after the check-in when
-  that fits the range, and is the range end when it does not. Refuses (`ValueError`) an
-  empty seed, a `session_length` that is not positive, a negative `extra_max`, either
-  duration not in whole minutes, and a `checkout_range` that does not start after
-  `checkin_range` ends.
+  that fits the range, and is the range end when it does not. Refuses a
+  `session_length` that is not positive (`ScheduleError`,
+  `schedule.session_length_not_positive`) and a `checkout_range` that does not start
+  after `checkin_range` ends (`ScheduleError`, `schedule.checkout_after_checkin`); refuses
+  an empty seed, a negative `extra_max` and either duration not in whole minutes
+  (`ValueError`).
 - `window_from(moment: time, grace: timedelta) -> Window` — the window of a run due at
-  `moment`: `Window(moment, moment + grace)`; refuses a grace that is not positive and a
-  window that would cross midnight (`ValueError`).
+  `moment`: `Window(moment, moment + grace)`; refuses a grace that is not positive
+  (`schedule.grace_not_positive`) and a window that would cross midnight
+  (`schedule.window_crosses_midnight`), both as `ScheduleError`.
 
 ## Testing
 

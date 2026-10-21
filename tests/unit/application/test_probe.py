@@ -208,12 +208,39 @@ def test_a_check_names_what_it_found_in_any_language_it_is_shown_in() -> None:
 
 
 def test_a_probe_report_is_ok_unless_a_check_failed() -> None:
-    ok = Check("a", CheckStatus.OK, ANY_DETAIL)
-    degraded = Check("b", CheckStatus.DEGRADED, ANY_DETAIL)
-    failed = Check("c", CheckStatus.FAILED, ANY_DETAIL)
+    ok = Check("portal", CheckStatus.OK, ANY_DETAIL)
+    degraded = Check("calendar", CheckStatus.DEGRADED, ANY_DETAIL)
+    failed = Check("chrome", CheckStatus.FAILED, ANY_DETAIL)
 
     assert ProbeReport((ok, degraded)).ok
     assert not ProbeReport((ok, failed, degraded)).ok
+
+
+@pytest.mark.parametrize("status", list(CheckStatus))
+@pytest.mark.parametrize("name", ["portal", "calendar", "chrome", "schedule"])
+def test_a_check_names_itself_and_its_status_as_messages(name: str, status: CheckStatus) -> None:
+    made = Check(name, status, ANY_DETAIL)
+
+    assert made.label == Message(f"probe.check.{name}")
+    assert made.status_label == Message(f"probe.status.{status}")
+
+
+def test_every_check_the_probe_makes_has_a_label() -> None:
+    # The names are free strings: the probe's own checks are the ones that must read.
+    report = Probing(moments=MOMENTS).run()
+
+    assert [item.label.key for item in report.checks] == [
+        "probe.check.portal",
+        "probe.check.calendar",
+        "probe.check.chrome",
+        "probe.check.schedule",
+    ]
+
+
+def test_a_check_with_a_name_the_catalogue_lacks_is_refused_when_it_is_made() -> None:
+    # A fifth check without a text fails where it is written, not when the CLI prints it.
+    with pytest.raises(KeyError, match=r"'probe\.check\.porta'"):
+        Check("porta", CheckStatus.OK, ANY_DETAIL)
 
 
 # --- DryRun --------------------------------------------------------------------------

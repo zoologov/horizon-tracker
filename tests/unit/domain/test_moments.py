@@ -1,12 +1,15 @@
 """Tests for the daily draw of the check-in and check-out moments and the window built from one."""
 
 import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from horizon_tracker.domain.messages import Language
 from horizon_tracker.domain.schedule import (
     DailyMoments,
+    ScheduleError,
     TimeRange,
     Window,
     draw_moments,
@@ -283,3 +286,54 @@ def test_window_from_accepts_a_window_ending_on_the_last_microsecond_of_the_day(
     window = window_from(time(23, 55), timedelta(minutes=4, seconds=59, microseconds=999999))
 
     assert window.end == time(23, 59, 59, 999999)
+
+
+# --- a refusal a setting can reach reads in any language -------------------------------
+
+READABLE_REFUSALS = {
+    "range-order": (
+        lambda: TimeRange(start=time(8, 10), end=time(7, 30)),
+        "range start 08:10:00 must be before its end 07:30:00",
+        "начало диапазона 08:10:00 должно быть раньше конца 07:30:00",
+    ),
+    "check-out-order": (
+        lambda: draw(FIRST_DAY, checkout_range=TimeRange(start=time(8, 0), end=time(9, 0))),
+        "the check-out range must start after the check-in range ends: "
+        "08:00:00 is not after 08:10:00",
+        "диапазон выхода должен начинаться после конца диапазона входа: 08:00:00 не позже 08:10:00",
+    ),
+    "session": (
+        lambda: draw(FIRST_DAY, session_length=timedelta(0)),
+        "session_length must be positive, got 0:00:00",
+        "длина сессии должна быть положительной, получено 0:00:00",
+    ),
+    "grace": (
+        lambda: window_from(time(7, 43), timedelta(0)),
+        "grace must be positive, got 0:00:00",
+        "запас окна должен быть положительным, получено 0:00:00",
+    ),
+    "midnight": (
+        lambda: window_from(time(23, 58), timedelta(minutes=5)),
+        "a window from 23:58:00 with grace 0:05:00 crosses midnight",
+        "окно от 23:58:00 при запасе 0:05:00 переходит через полночь",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("refused", "english", "russian"), READABLE_REFUSALS.values(), ids=READABLE_REFUSALS.keys()
+)
+def test_a_refusal_a_setting_can_reach_carries_its_reason_in_every_language(
+    refused: Callable[[], object], english: str, russian: str
+) -> None:
+    with pytest.raises(ScheduleError) as caught:
+        refused()
+
+    assert str(caught.value) == english
+    assert caught.value.reason.in_language(Language.EN) == english
+    assert caught.value.reason.in_language(Language.RU) == russian
+
+
+def test_a_schedule_refusal_is_a_value_error() -> None:
+    # Callers that refuse any bad value keep catching ValueError.
+    assert issubclass(ScheduleError, ValueError)

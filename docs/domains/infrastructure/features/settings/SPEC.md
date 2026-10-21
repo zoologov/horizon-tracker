@@ -56,13 +56,20 @@ in the configured language when the rest of the settings did not load.
 
 A refusal carries its problem as a `Message` (a catalogue key and its fields, see the
 `messages` SPEC), so it reads in either language; `str(error)` is the English text, the
-one the log carries.
+one the log carries. When the domain's rules refuse a value, the domain's reason (the
+`reason` of its `ScheduleError`) is the problem's `{error}` field, itself a `Message`, so
+a Russian line is Russian from end to end:
+`HT_CHECKIN_RANGE: not a valid range '08:10-07:30': range start 08:10:00 must be before
+its end 07:30:00`. A range whose hour or minute no clock shows (`25:00-26:00`)
+is refused before the domain is asked, with `config.no_such_time` as the reason.
 
 ## Invariants
 
 - No credential has a default.
 - `ConfigError` names the variable and the problem, never a credential's value, in
   every language.
+- A refusal in Russian holds no English text: only the variable name, the value given
+  and the language codes stay as written.
 - `repr` and `str` of `Settings` show `***` for `username`, `password`,
   `telegram_token`, `telegram_chat_id` and `jitter_seed`.
 - One source for one fact: no field holds a window. A run's window is built by the CLI
@@ -90,7 +97,8 @@ Module `src/horizon_tracker/infrastructure/config.py`:
   blank), before any other check, with a hint naming their successors. Minutes are a
   whole number from 0 to 1440. The ranges, the session length and the grace are checked
   by the domain's own rules (`TimeRange`, `draw_moments`, `window_from` on the end of the
-  check-out range); a refusal names the variable it concerns.
+  check-out range); a refusal names the variable it concerns and carries the domain's
+  reason as a message.
 - `language_from_env(environ: Mapping[str, str]) -> Language` — `HT_LANGUAGE`, `en` when
   unset or blank; raises `ConfigError` on an unknown code.
 - `ConfigError(variable: str, problem: Message)` — attributes `variable` and `problem`;

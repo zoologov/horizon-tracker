@@ -354,12 +354,12 @@ def _echo_probe(settings: Settings, report: ProbeReport) -> None:
 
 
 def _probe_line(item: Check, language: Language) -> str:
-    name = text(f"probe.check.{item.name}", language)
+    name = item.label.in_language(language)
     detail = item.detail.in_language(language)
     # The day's moments are a fact to read, not a dependency's health: no status.
     if item.name == _SCHEDULE:
         return f"{name}: {detail}"
-    return f"{name}: {text(f'probe.status.{item.status}', language)} - {detail}"
+    return f"{name}: {item.status_label.in_language(language)} - {detail}"
 
 
 def _configure_logging() -> None:

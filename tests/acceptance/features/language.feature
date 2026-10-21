@@ -132,6 +132,22 @@ Feature: Language of the notifications and the CLI output
     And HT_HOLD_SECONDS is named on 2 lines of the error output
     And no line of the service log is in Russian
 
+  @bead:ht-7a0.1
+  Scenario Outline: A value the schedule refuses reaches a Russian reader with its reason in Russian
+    Given HT_LANGUAGE is "ru"
+    And the variable <variable> is "<value>"
+    When the check-in runs at 07:30:00 on Wednesday 2026-10-21
+    Then the command exits with 1
+    And the service log reads "configuration error: <variable>: <english>"
+    And the error output reads "ошибка настройки: <variable>: <russian>"
+    And no line of the service log is in Russian
+
+    Examples:
+      | variable                  | value       | english                                                                            | russian                                                                                   |
+      | HT_CHECKIN_RANGE          | 08:10-07:30 | not a valid range '08:10-07:30': range start 08:10:00 must be before its end 07:30:00 | недопустимый диапазон '08:10-07:30': начало диапазона 08:10:00 должно быть раньше конца 07:30:00 |
+      | HT_CHECKOUT_RANGE         | 25:00-26:00 | not a valid range '25:00-26:00': no such time of day                                | недопустимый диапазон '25:00-26:00': такого времени суток нет                             |
+      | HT_SESSION_LENGTH_MINUTES | 0           | not a usable session length: session_length must be positive, got 0:00:00          | непригодная длина сессии: длина сессии должна быть положительной, получено 0:00:00        |
+
   Scenario: A configuration error is said once to an English reader
     Given HT_LANGUAGE is not set
     And the variable HT_HOLD_SECONDS is "soon"

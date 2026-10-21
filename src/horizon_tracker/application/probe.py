@@ -22,7 +22,7 @@ configuration the composition root could read.
 # beadloom:domain=application
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -54,12 +54,20 @@ class CheckStatus(StrEnum):
 class Check:
     """One dependency's answer: its name, its status and what it said, as a message.
 
-    ``name`` and ``status`` are identifiers; whoever shows the check translates them.
+    ``name`` and ``status`` are identifiers; ``label`` and ``status_label`` are the same
+    as messages, made with the check, so a name the catalogue lacks fails where the
+    check is made rather than when it is shown.
     """
 
     name: str
     status: CheckStatus
     detail: Message
+    label: Message = field(init=False, repr=False, compare=False)
+    status_label: Message = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "label", Message(f"probe.check.{self.name}"))
+        object.__setattr__(self, "status_label", Message(f"probe.status.{self.status}"))
 
 
 @dataclass(frozen=True)

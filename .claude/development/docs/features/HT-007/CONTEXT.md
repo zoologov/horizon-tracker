@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Created:** 2026-10-20
-> **Last updated:** 2026-10-20
+> **Last updated:** 2026-10-21
 
 ---
 
@@ -30,6 +30,7 @@ All human-readable texts come from the domain catalogue, the language by `HT_LAN
 | 2026-10-21 | BEAD-02: the use cases and the settings hand out a `Message(key, fields)` from `domain/messages.py`, not a string; the CLI picks the language | so application and `Settings` do not know the output language (Q2 of the RFC), and a typo in a key fails when the message is created, not when it is printed |
 | 2026-10-21 | BEAD-02: a configuration error is always an English log line, plus an echo to stderr in the reader's language, only if it is not English | the PRD requires English logs, the RFC requires `ConfigError` to be translated; an echo under `en` would duplicate the log line. The language is read separately (`language_from_env`), because `Settings` did not load |
 | 2026-10-21 | BEAD-02: `HT_LANGUAGE` in the deployment is an optional variable of the `horizon-vps` environment (`vars.HT_LANGUAGE`), not a secret and not a manual edit of `.env` | the deployment rewrites `.env` on every roll-out, a manual edit would live until the next push to `main`; without the variable the service speaks English |
+| 2026-10-21 | ht-7a0.1: a domain refusal that a setting's value reaches is a `ScheduleError(reason: Message)` with `schedule.*` keys; `Message.in_language` translates a message field into the same language; `config.*` keep the `{error}` field | the English `ValueError` text in the `{error}` field gave a Russian line with an English tail (PRD US-2); a message as the reason requires neither the domain to know the language nor the adapter to know the domain's rules. Refusals that only code reaches (an empty seed, seconds, a negative extra) stay `ValueError`: they have no reader, and keys without a reader would be dead |
 | 2026-10-21 | BEAD-02: the acceptance scenes from before HT-007 pin the notification language `ru`, the CLI output follows `HT_LANGUAGE` (`en`) | the scenario «A check-out past the end of its range is clipped» checks a Russian notification and English output in one run; one setting cannot express both. The scene with `notification_language=None` builds the notifier from `HT_LANGUAGE` through `cli.build_notifier` — for the BEAD-03 scenarios |
 
 ## Code Standards

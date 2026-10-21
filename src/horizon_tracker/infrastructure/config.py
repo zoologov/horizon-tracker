@@ -10,7 +10,8 @@ credential or the seed of the draw: ``repr``/``str`` show ``'***'`` in their pla
 
 ``HT_LANGUAGE`` picks the language of what a person reads (``en`` by default, ``ru``).
 A refusal carries its problem as a message key, so the CLI can show it in that language;
-its ``str`` is the English text the log carries.
+its ``str`` is the English text the log carries. A refusal by the domain's rules carries
+the domain's reason as a message too, so no line mixes two languages.
 """
 
 # beadloom:domain=infrastructure
@@ -23,7 +24,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from horizon_tracker.domain.messages import DEFAULT_LANGUAGE, Language, Message
-from horizon_tracker.domain.schedule import TimeRange, draw_moments, window_from
+from horizon_tracker.domain.schedule import (
+    ScheduleError,
+    TimeRange,
+    draw_moments,
+    window_from,
+)
 
 MASK = "***"
 
@@ -205,10 +211,18 @@ def _time_range(environ: Mapping[str, str], name: str, default: str) -> TimeRang
         raise ConfigError(name, Message("config.expected_range", {"text": text}))
     start_hour, start_minute, end_hour, end_minute = (int(part) for part in match.groups())
     try:
-        return TimeRange(time(start_hour, start_minute), time(end_hour, end_minute))
+        start, end = time(start_hour, start_minute), time(end_hour, end_minute)
     except ValueError as error:
-        problem = Message("config.invalid_range", {"text": text, "error": error})
-        raise ConfigError(name, problem) from error
+        reason = Message("config.no_such_time")
+        raise ConfigError(name, _invalid_range(text, reason)) from error
+    try:
+        return TimeRange(start, end)
+    except ScheduleError as refusal:
+        raise ConfigError(name, _invalid_range(text, refusal.reason)) from refusal
+
+
+def _invalid_range(text: str, reason: Message) -> Message:
+    return Message("config.invalid_range", {"text": text, "error": reason})
 
 
 def _minutes(environ: Mapping[str, str], name: str, default: str) -> timedelta:
@@ -235,8 +249,8 @@ def _check_the_draw(
 ) -> None:
     """Try the draw and the last window with the domain; its refusal names the variable.
 
-    Each try adds one value to those already accepted, so the domain's ``ValueError`` can
-    only be about the variable named. The extra minutes need no try of their own: a whole
+    Each try adds one value to those already accepted, so the domain's refusal can only
+    be about the variable named. The extra minutes need no try of their own: a whole
     number from 0 to a day is everything the draw asks of them.
     """
     _domain_check(
@@ -262,11 +276,12 @@ def _check_the_draw(
 
 
 def _domain_check(name: str, problem: Message, check: Callable[[], object]) -> None:
-    """Run ``check``; the domain's refusal becomes ``problem``'s ``error`` field."""
+    """Run ``check``; the domain's reason, a message, becomes ``problem``'s ``error`` field."""
     try:
         check()
-    except ValueError as error:
-        raise ConfigError(name, Message(problem.key, {**problem.fields, "error": error})) from error
+    except ScheduleError as refusal:
+        reason = Message(problem.key, {**problem.fields, "error": refusal.reason})
+        raise ConfigError(name, reason) from refusal
 
 
 def _hold_seconds(environ: Mapping[str, str], name: str) -> int:

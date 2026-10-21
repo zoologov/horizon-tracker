@@ -11,6 +11,9 @@ whatever the time.
 
 Time is an argument: the domain never reads a clock. ``now`` is read as wall time in
 the window's zone, which is the zone the ``Clock`` port hands out (Europe/Moscow).
+
+A refusal a configured value can reach is a ``ScheduleError``: its reason is a message,
+so whoever shows it reads it in their language; its ``str`` stays English.
 """
 # beadloom:domain=domain
 
@@ -20,6 +23,7 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 
 from horizon_tracker.domain.calendar import WorkingDayVerdict
+from horizon_tracker.domain.messages import Language, Message
 
 # Attempts are counted from one. Public, so the run loop counts from this value, not a copy.
 FIRST_ATTEMPT = 1
@@ -30,6 +34,20 @@ _WORD = 4
 _DIGEST = "sha256"
 # Any date serves for arithmetic on wall times: a drawn moment or a window never leaves it.
 _REFERENCE_DAY = date(2000, 1, 1)
+
+
+class ScheduleError(ValueError):
+    """A value the schedule refuses, with the reason as a message a person reads.
+
+    Raised for the refusals a configured value can reach: a range out of order, a
+    check-out range before the check-in one, a session or a grace that is not positive,
+    a window past midnight. A refusal only code can reach (an empty seed, a duration in
+    seconds, a negative extra) stays a plain ``ValueError``.
+    """
+
+    def __init__(self, reason: Message) -> None:
+        self.reason = reason
+        super().__init__(reason.in_language(Language.EN))
 
 
 class RunKind(StrEnum):
@@ -124,8 +142,8 @@ class TimeRange:
             msg = f"range ends must be whole minutes, got {self.start}-{self.end}"
             raise ValueError(msg)
         if self.start >= self.end:
-            msg = f"range start {self.start} must be before its end {self.end}"
-            raise ValueError(msg)
+            reason = Message("schedule.range_order", {"start": self.start, "end": self.end})
+            raise ScheduleError(reason)
 
 
 @dataclass(frozen=True)
@@ -164,12 +182,11 @@ def draw_moments(
 def window_from(moment: time, grace: timedelta) -> Window:
     """The window of a run due at ``moment``: it opens then and closes ``grace`` later."""
     if grace <= timedelta(0):
-        msg = f"grace must be positive, got {grace}"
-        raise ValueError(msg)
+        raise ScheduleError(Message("schedule.grace_not_positive", {"grace": grace}))
     end = _at(moment) + grace
     if end.date() != _REFERENCE_DAY:
-        msg = f"a window from {moment} with grace {grace} crosses midnight"
-        raise ValueError(msg)
+        reason = Message("schedule.window_crosses_midnight", {"moment": moment, "grace": grace})
+        raise ScheduleError(reason)
     return Window(start=moment, end=end.time())
 
 
@@ -183,8 +200,8 @@ def _check_draw_parameters(
     if not seed:
         raise ValueError("the draw needs a non-empty seed")
     if session_length <= timedelta(0):
-        msg = f"session_length must be positive, got {session_length}"
-        raise ValueError(msg)
+        reason = Message("schedule.session_length_not_positive", {"session_length": session_length})
+        raise ScheduleError(reason)
     if extra_max < timedelta(0):
         msg = f"extra_max must not be negative, got {extra_max}"
         raise ValueError(msg)
@@ -193,11 +210,11 @@ def _check_draw_parameters(
             msg = f"{name} must be whole minutes, got {duration}"
             raise ValueError(msg)
     if checkout_range.start <= checkin_range.end:
-        msg = (
-            f"the check-out range must start after the check-in range ends: "
-            f"{checkout_range.start} is not after {checkin_range.end}"
+        reason = Message(
+            "schedule.checkout_after_checkin",
+            {"checkout_start": checkout_range.start, "checkin_end": checkin_range.end},
         )
-        raise ValueError(msg)
+        raise ScheduleError(reason)
 
 
 def _is_whole_minute(moment: time) -> bool:

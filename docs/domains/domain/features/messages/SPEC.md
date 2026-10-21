@@ -16,7 +16,7 @@ The owner reads the notifications and the output of `horizon probe` and `--dry-r
 chooses the language they are written in. One catalogue in the domain holds every such
 text in every supported language, so no text is a literal inside the logic that decides
 when to show it, and a missing translation is found by a test rather than by the owner at
-07:43. The catalogue is plain data in code: two languages and 77 keys do not earn gettext.
+07:43. The catalogue is plain data in code: two languages and 83 keys do not earn gettext.
 
 ### How it works
 
@@ -32,13 +32,28 @@ place a person reads them:
 - `plan.*` - the dry-run plan: its header, verdict, calendar sources and the steps of
   one attempt;
 - `config.*` - the line a reader gets for a configuration error (`config.error`) and the
-  problem it names after `<VARIABLE>: `; a problem the domain's own check refused carries
-  the domain's English reason as its `{error}` field.
+  problem it names after `<VARIABLE>: `. A problem the domain's own check refused carries
+  the domain's reason as its `{error}` field, and that reason is itself a message, so it
+  reads in the reader's language: `config.invalid_range`, `config.checkout_after_checkin`,
+  `config.unusable_session_length` and `config.unusable_grace` take a `schedule.*`
+  message, and `config.invalid_range` takes `config.no_such_time` for an hour or a minute
+  no clock shows (`25:00`);
+- `schedule.*` - the schedule's refusals of a value a setting can reach (`ScheduleError`
+  in the `schedule` SPEC): `schedule.range_order`, `schedule.checkout_after_checkin`,
+  `schedule.session_length_not_positive`, `schedule.grace_not_positive`,
+  `schedule.window_crosses_midnight`.
+
+A Russian configuration error is Russian from end to end. Only what the reader types
+stays as written: the variable name, the value they gave and the language codes.
 
 The English texts of `plan.*`, `config.*` and the probe's checks are the strings those
-commands printed before HT-007, byte for byte, with two deliberate changes: the probe's
-settings line ends with `, language <code>`, and a refused bot token reads
-`TELEGRAM_BOT_TOKEN: is malformed: expected <bot id>:<secret>` like every other refusal.
+commands printed before HT-007, byte for byte, with three deliberate changes: the probe's
+settings line ends with `, language <code>`, a refused bot token reads
+`TELEGRAM_BOT_TOKEN: is malformed: expected <bot id>:<secret>` like every other refusal,
+and a range with an hour or a minute no clock shows reads
+`not a valid range '25:00-26:00': no such time of day` instead of Python's
+`hour must be in 0..23`. The English texts of `schedule.*` are the domain's refusals as
+they read before, so a log line of a configuration error is unchanged.
 
 `text(key, language, /, **fields)` returns the text of `key` in `language` with its named
 fields filled by `str.format`; a field may carry a conversion (`{desktop!r}`). `key` and
@@ -47,9 +62,12 @@ line does). A text is always formatted, so a text with a field the caller did no
 never returned half-filled.
 
 `Message(key, fields)` is what the use cases and the settings hand out instead of a
-string: the probe's check details, the steps of a dry run, the problem of a configuration
-error. Whoever shows it to a person calls `in_language(language)`. A key the catalogue
-does not hold is refused when the message is made, so a typo fails where it is written.
+string: the probe's check details and labels, the steps of a dry run, the problem of a
+configuration error, the reason of a schedule refusal. Whoever shows it to a person calls
+`in_language(language)`; a field whose value is itself a `Message` is read in the same
+language first. A key the catalogue does not hold is refused when the message is made, so
+a typo fails where it is written. The fields are copied into a read-only mapping when the
+message is made: neither the caller's mapping changing later nor a reader can change it.
 
 `missing_translations(catalogue=MESSAGES)` returns every `(key, language)` pair whose text
 is absent or blank, sorted by key and then in `Language` order. For the shipped catalogue
@@ -67,6 +85,9 @@ language the owner reads.
   Russian entry copied from English is caught.
 - An unknown key and an unfilled field raise `KeyError` naming the key or the field; a
   `Message` with an unknown key is refused when it is made.
+- A `config.*` or `schedule.*` text in Russian holds no Latin letter outside its fields
+  and the environment variables it names.
+- A `Message`'s fields cannot change after it is made.
 - The module performs no I/O and imports nothing outside the standard library.
 
 ## API
@@ -77,8 +98,9 @@ Module `src/horizon_tracker/domain/messages.py`:
 - `DEFAULT_LANGUAGE` - `Language.EN`.
 - `MESSAGES: Mapping[str, Mapping[Language, str]]` - the catalogue.
 - `text(key: str, language: Language, /, **fields: object) -> str` - the filled text.
-- `Message(key: str, fields: Mapping[str, object] = {})` - frozen; `in_language(language)
-  -> str`. Equal messages hash alike (the hash reads the key only).
+- `Message(key: str, fields: Mapping[str, object] = {})` - frozen; `fields` is a read-only
+  copy (`MappingProxyType`); `in_language(language) -> str` reads a `Message`-valued field
+  in the same language. Equal messages hash alike (the hash reads the key only).
 - `missing_translations(catalogue=MESSAGES) -> list[tuple[str, Language]]` - the pairs
   without a text.
 
@@ -96,7 +118,7 @@ Scenarios (HT-007 BEAD-03): `tests/acceptance/features/language.feature`.
 Derived from the imports on reindex.
 
 - Depends on: (none)
-- Used by: `run-report`, `morning-checkin`, `evening-checkout`, `windowed-run`, `probe`,
+- Used by: `schedule`, `run-report`, `morning-checkin`, `evening-checkout`, `windowed-run`, `probe`,
   `settings`, `telegram-notifier`, `cli`
 
 ## Parent

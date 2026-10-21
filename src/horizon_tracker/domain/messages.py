@@ -18,6 +18,7 @@ print today, so routing them through here changes no English output.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 
 
@@ -262,12 +263,13 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     },
     "config.expected_range": {
         _EN: "expected HH:MM-HH:MM, got {text!r}",
-        _RU: "ожидается HH:MM-HH:MM, получено {text!r}",
+        _RU: "ожидается чч:мм-чч:мм, получено {text!r}",
     },
     "config.invalid_range": {
         _EN: "not a valid range {text!r}: {error}",
         _RU: "недопустимый диапазон {text!r}: {error}",
     },
+    "config.no_such_time": {_EN: "no such time of day", _RU: "такого времени суток нет"},
     "config.expected_minutes": {
         _EN: "expected a whole number of minutes from 0 to {limit}, got {text!r}",
         _RU: "ожидается целое число минут от 0 до {limit}, получено {text!r}",
@@ -286,11 +288,38 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     },
     "config.malformed_token": {
         _EN: "is malformed: expected <bot id>:<secret>",
-        _RU: "искажён: ожидается <bot id>:<secret>",
+        _RU: "искажён: ожидается <номер бота>:<секрет>",
     },
     "config.unusable_grace": {
         _EN: "not a usable grace: {error}",
         _RU: "непригодный запас окна: {error}",
+    },
+    # --- the schedule's refusals of a value a setting can reach: a config line's {error}
+    "schedule.range_order": {
+        _EN: "range start {start} must be before its end {end}",
+        _RU: "начало диапазона {start} должно быть раньше конца {end}",
+    },
+    "schedule.checkout_after_checkin": {
+        _EN: (
+            "the check-out range must start after the check-in range ends: "
+            "{checkout_start} is not after {checkin_end}"
+        ),
+        _RU: (
+            "диапазон выхода должен начинаться после конца диапазона входа: "
+            "{checkout_start} не позже {checkin_end}"
+        ),
+    },
+    "schedule.session_length_not_positive": {
+        _EN: "session_length must be positive, got {session_length}",
+        _RU: "длина сессии должна быть положительной, получено {session_length}",
+    },
+    "schedule.grace_not_positive": {
+        _EN: "grace must be positive, got {grace}",
+        _RU: "запас окна должен быть положительным, получено {grace}",
+    },
+    "schedule.window_crosses_midnight": {
+        _EN: "a window from {moment} with grace {grace} crosses midnight",
+        _RU: "окно от {moment} при запасе {grace} переходит через полночь",
     },
 }
 
@@ -312,7 +341,8 @@ class Message:
 
     The use cases hand these out; whoever shows them to a person picks the language with
     ``in_language``. An unknown key is refused when the message is made, so a typo fails
-    where it is written rather than when the text is first shown.
+    where it is written rather than when the text is first shown. The fields are a
+    read-only copy: neither the caller nor a reader can change a message once made.
     """
 
     key: str
@@ -321,10 +351,15 @@ class Message:
     def __post_init__(self) -> None:
         if self.key not in MESSAGES:
             raise KeyError(self.key)
+        object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
 
     def in_language(self, language: Language) -> str:
-        """The message's text in ``language`` with its fields filled in."""
-        return text(self.key, language, **self.fields)
+        """The message's text in ``language``; a field that is a message reads in it too."""
+        filled = {
+            name: value.in_language(language) if isinstance(value, Message) else value
+            for name, value in self.fields.items()
+        }
+        return text(self.key, language, **filled)
 
 
 def missing_translations(

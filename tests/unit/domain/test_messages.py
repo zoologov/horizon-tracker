@@ -1,8 +1,9 @@
 """Unit tests for the message catalogue: the languages, the lookup and its completeness."""
 
+import re
 import string
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 
 import pytest
 
@@ -122,6 +123,35 @@ def test_a_message_with_an_unknown_key_is_refused_when_it_is_made() -> None:
         Message("plan.step.nothing")
 
 
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        (Language.EN, "configuration error: no such time of day"),
+        (Language.RU, "ошибка настройки: такого времени суток нет"),
+    ],
+)
+def test_a_message_in_a_field_reads_in_the_same_language(language: Language, expected: str) -> None:
+    # A reason handed over as a message must not fall back into another language.
+    message = Message("config.error", {"error": Message("config.no_such_time")})
+
+    assert message.in_language(language) == expected
+
+
+def test_a_message_keeps_its_fields_when_the_callers_mapping_changes_later() -> None:
+    given = {"path": "/usr/bin/google-chrome"}
+    message = Message("probe.chrome.not_found", given)
+
+    given["path"] = "/opt/chrome"
+
+    assert message.fields == {"path": "/usr/bin/google-chrome"}
+
+
+def test_the_fields_of_a_message_cannot_be_changed() -> None:
+    message = Message("probe.chrome.not_found", {"path": "/usr/bin/google-chrome"})
+
+    assert not isinstance(message.fields, MutableMapping)
+
+
 def test_two_messages_with_the_same_key_and_fields_are_equal_and_hash_alike() -> None:
     first = Message("probe.chrome.not_found", {"path": "/usr/bin/google-chrome"})
     second = Message("probe.chrome.not_found", {"path": "/usr/bin/google-chrome"})
@@ -192,3 +222,26 @@ def test_no_english_text_falls_into_cyrillic(key: str) -> None:
 def test_every_russian_text_is_written_in_russian(key: str) -> None:
     # A Russian entry copied from English would pass completeness and still read English.
     assert _has_cyrillic(MESSAGES[key][Language.RU])
+
+
+# An environment variable is an identifier the reader types, so it stays as written.
+_VARIABLE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
+_REFUSALS = sorted(key for key in MESSAGES if key.startswith(("config.", "schedule.")))
+
+
+def _latin_outside_fields_and_variables(template: str) -> str:
+    literal = "".join(text_ for text_, _, _, _ in string.Formatter().parse(template))
+    return "".join(
+        letter for letter in _VARIABLE.sub("", literal) if letter.isascii() and letter.isalpha()
+    )
+
+
+def test_the_latin_probe_skips_fields_and_variable_names() -> None:
+    assert _latin_outside_fields_and_variables("уберите HT_CHECKIN_WINDOW: {text!r}") == ""
+    assert _latin_outside_fields_and_variables("ожидается HH:MM") == "HHMM"
+
+
+@pytest.mark.parametrize("key", _REFUSALS)
+def test_a_russian_refusal_names_nothing_in_english(key: str) -> None:
+    # PRD US-2: no line falls into another language; only identifiers and values stay.
+    assert _latin_outside_fields_and_variables(MESSAGES[key][Language.RU]) == ""

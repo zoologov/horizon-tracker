@@ -83,6 +83,7 @@ creates a probe or a dry run only for a configuration `Settings.from_env` accept
   run loop.
 - Neither the probe nor the dry run picks a language: every text they hand out is a
   `Message`, so the same plan reads in English or Russian without a second code path.
+- A check whose name or status has no text in the catalogue cannot be made.
 
 ## API
 
@@ -90,8 +91,10 @@ Module `src/horizon_tracker/application/probe.py`:
 
 - `CheckStatus` — `StrEnum`: `OK`, `DEGRADED`, `FAILED`.
 - `Check(name: str, status: CheckStatus, detail: Message)` — frozen. `name` and `status`
-  are identifiers; the CLI translates them through the keys `probe.check.<name>` and
-  `probe.status.<status>`.
+  are identifiers; `label` (`probe.check.<name>`) and `status_label`
+  (`probe.status.<status>`) are the same as messages, made with the check (not
+  constructor arguments, not compared), so a name the catalogue lacks raises `KeyError`
+  where the check is made. The CLI shows `label` and `status_label`.
 - `ProbeReport(checks: tuple[Check, ...])` — frozen; `ok -> bool` property.
 - `Probe(client: HorizonClient, calendar: WorkingDayCalendar, clock: Clock, chrome_path:
   Path, file_exists: Callable[[Path], bool], moments: DailyMoments | None = None)` —
