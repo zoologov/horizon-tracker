@@ -24,6 +24,10 @@ waves:
     decision: parallel
     reason: "disjoint files: docs of ports/horizon-playwright-client/morning-checkin/evening-checkout/telegram-notifier (ht-8i1) vs src/horizon_tracker/domain/messages.py, report.py render, their tests, run-report SPEC and domain README (ht-7kx)"
     until: "2026-11-21"
+  - beads: [ht-qdg, ht-cix]
+    decision: parallel
+    reason: "HT-008, one node (horizon-tracker), disjoint files: .github/workflows/*, tests/unit/deploy/*, src/horizon_tracker/__init__.py, pyproject.toml, .beadloom/config.yml, the regenerated .claude/CLAUDE.md (ht-qdg) vs LICENSE, CHANGELOG.md, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/*, README.md (ht-cix)"
+    until: "2026-11-21"
 
 # The declared mutation scope (HT-005). The pure domain only: no I/O, no clock, no browser,
 # so a surviving mutant is a weak assertion and not an unreachable adapter branch. The same
