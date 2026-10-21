@@ -8,3 +8,8 @@ sync:
   hook_mode: warn
 tests:
   flat_tests: true
+site:
+  title: horizon-tracker
+  description: Scheduled check-in and check-out of a VMware Horizon desktop, reported to Telegram
+  base: /horizon-tracker/
+  repo_url: https://github.com/zoologov/horizon-tracker

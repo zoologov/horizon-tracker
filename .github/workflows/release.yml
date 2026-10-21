@@ -1,0 +1,626 @@
+name: Release
+
+# A release is a tag on main. Pushing a tag vMAJOR.MINOR.PATCH (strict: a pre-release tag
+# such as vMAJOR.MINOR.PATCH-rc.1 starts nothing) runs, each job only when the one before it passed:
+#
+#   1. verify  - the tag is a release tag, its commit is on main, pyproject.toml at that
+#                commit declares the tag's version, and CHANGELOG.md holds its dated
+#                section, which is extracted as the release notes. A tag that fails a check
+#                deploys nothing; the failing step and its ::error name the check.
+#   2. gate    - the full CI (ci.yml through workflow_call) on the tag's commit: what
+#                reaches the VPS passed what a pull request passes.
+#   3. deploy  - the tag's commit on the VPS: code, dependencies, .env, systemd units, then
+#                `horizon probe` as a smoke whose exit code is the job's. The operator's view
+#                of the same sequence is docs/guides/deployment.md.
+#   4. publish - the wheel and the sdist built from the tag's commit, and the GitHub Release
+#                of the tag with the extracted notes. After a green deploy, so no release
+#                names a version the host does not run. Idempotent: a release that exists
+#                (a tag cut through the Releases page, a redeploy) is edited, not duplicated.
+#   5. portal  - the Beadloom portal of the released tree to GitHub Pages (portal-build,
+#                then portal-deploy).
+#
+# A run by hand (Actions -> Release -> Run workflow) names an existing release tag and runs
+# the same five jobs for it: the redeploy a rotated secret needs. Nothing else reaches the
+# VPS - a push to main is CI's event and deploys nothing. The run's own commit is then
+# main's head, so every job takes the tag's commit from verify, never github.sha.
+#
+# Secrets live in the GitHub Environment `horizon-vps` and enter a step only through its
+# env: mapping. No run script carries a ${{ }} expression, none echoes a secret, none
+# traces itself with `set -x`, and .env travels to the VPS on ssh's stdin - so no secret
+# is ever part of a command line, here or on the VPS. The per-host values that are no
+# secret - the portal, the desktop, the time zone, the language - are variables of the
+# same environment, so no host's values are literals of this file.
+#
+# VPS_USER is root-equivalent (it installs units and runs systemctl): repository and venv
+# work runs as `sudo -u horizon`, systemd work as VPS_USER itself.
+#
+# A preflight refuses a run whose environment lacks the portal or the desktop, then
+# reaches the VPS and changes nothing, so a missing variable, an unreachable host or a
+# broken key stops the run before the first command that would leave the VPS
+# half-updated. The deploy summary names the tag, the version, the commit, the probe's
+# answer and the timers.
+#
+# The token reads the repository only, except in two jobs, each of which says why:
+# publish writes the repository's releases, portal-deploy writes GitHub Pages.
+#
+# Repository settings this file relies on, which the owner sets (HT-008 BEAD-05), not this
+# file: GitHub Pages enabled with Source = GitHub Actions; the `github-pages` environment
+# allowing deployments from the release tags (v*), because GitHub creates it allowing the
+# default branch only; and `horizon-vps` allowing the same tags if it restricts deployments
+# to branches.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing release tag to deploy again (vMAJOR.MINOR.PATCH)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # One release at a time; a deploy that started is never cut in half by the next tag.
+  # A group holds at most one WAITING run: of several queued behind a running release,
+  # GitHub keeps the newest.
+  group: release-horizon-vps
+  cancel-in-progress: false
+
+jobs:
+  # --- verify -------------------------------------------------------------------------------
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every branch and tag: the ancestry check reads origin/main, a redeploy by hand
+          # reads a tag that is not the run's ref. Every check below reads the TAG's commit
+          # through git, never the working tree, which on a run by hand is main's head.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the tag
+        id: tag
+        # Strict SemVer 2.0.0 without pre-release or build: numbers without leading zeros.
+        # The trigger's filter admits v01.0.0 and a run by hand admits any name; this does
+        # not. The input reaches the script through env:, never pasted into it.
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            tag="$REQUESTED_TAG"
+          else
+            tag="$PUSHED_TAG"
+          fi
+          release_tag='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          if ! [[ "$tag" =~ $release_tag ]]; then
+            echo "::error title=verify: tag::'$tag' is not a release tag - a release tag is vMAJOR.MINOR.PATCH (docs/guides/releasing.md)"
+            exit 1
+          fi
+          if ! sha="$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}")"; then
+            echo "::error title=verify: tag::there is no tag $tag in this repository - a redeploy names an existing release tag"
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "release $tag at $sha"
+
+      - name: The tag is on main
+        # Only main is released: a tag on a branch, or on a commit main never merged, stops.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA: ${{ steps.tag.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet origin/main > /dev/null; then
+            echo "::error title=verify: main::origin/main is not in the checkout - $TAG cannot be checked against main"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error title=verify: main::$TAG ($SHA) is not on main - only a commit of main is released"
+            exit 1
+          fi
+          echo "$TAG is on main"
+
+      - name: pyproject.toml declares the tag's version
+        # pyproject.toml [project] version is the version's one source; the tag names it.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA: ${{ steps.tag.outputs.sha }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          declared="$(git show "$SHA:pyproject.toml" \
+            | python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')"
+          if [ "$declared" != "$VERSION" ]; then
+            echo "::error title=verify: version::$TAG is tagged, but pyproject.toml at that commit declares $declared - set [project] version to $VERSION and tag the commit that does"
+            exit 1
+          fi
+          echo "pyproject.toml declares $VERSION"
+
+      - name: CHANGELOG.md holds the tag's section
+        # Keep a Changelog: the section `## [X.Y.Z] - YYYY-MM-DD` up to the next `## `
+        # heading, without the link references at the end of the file, is the release notes.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA: ${{ steps.tag.outputs.sha }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          changelog="$RUNNER_TEMP/CHANGELOG.md"
+          if ! git show "$SHA:CHANGELOG.md" > "$changelog" 2> /dev/null; then
+            echo "::error title=verify: changelog::there is no CHANGELOG.md at $TAG - add the section ## [$VERSION] - YYYY-MM-DD"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/release-notes"
+          notes="$RUNNER_TEMP/release-notes/notes.md"
+          status=0
+          awk -v heading="## [$VERSION] - " '
+            index($0, heading) == 1 {
+              found = 1
+              dated = (substr($0, length(heading) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/)
+              next
+            }
+            found && /^## / { exit }
+            found && !/^\[[^]]+\]: / { lines[++n] = $0 }
+            END {
+              if (!found) exit 3
+              if (!dated) exit 4
+              first = 1
+              while (first <= n && lines[first] ~ /^[[:space:]]*$/) first++
+              while (n >= first && lines[n] ~ /^[[:space:]]*$/) n--
+              if (n < first) exit 5
+              for (i = first; i <= n; i++) print lines[i]
+            }
+          ' "$changelog" > "$notes" || status=$?
+          case "$status" in
+            0) ;;
+            3)
+              echo "::error title=verify: changelog::CHANGELOG.md at $TAG has no section ## [$VERSION] - YYYY-MM-DD"
+              exit 1
+              ;;
+            4)
+              echo "::error title=verify: changelog::the section ## [$VERSION] of CHANGELOG.md at $TAG carries no date YYYY-MM-DD"
+              exit 1
+              ;;
+            5)
+              echo "::error title=verify: changelog::the section ## [$VERSION] of CHANGELOG.md at $TAG is empty"
+              exit 1
+              ;;
+            *)
+              echo "::error title=verify: changelog::CHANGELOG.md at $TAG could not be read (awk exited $status)"
+              exit 1
+              ;;
+          esac
+          echo "release notes: $(wc -l < "$notes") line(s) from ## [$VERSION]"
+
+      - name: Keep the release notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes/notes.md
+          if-no-files-found: error
+          # A re-run of the whole workflow writes the artifact of its attempt again.
+          overwrite: true
+          retention-days: 14
+
+  # --- gate ---------------------------------------------------------------------------------
+
+  gate:
+    needs: verify
+    # The full CI, not a reduced copy of it, on the commit that reaches the VPS.
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.verify.outputs.sha }}
+
+  # --- deploy -------------------------------------------------------------------------------
+
+  deploy:
+    # verify refused anything but a release tag on main, and gate passed on its commit.
+    needs: [verify, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    environment: horizon-vps
+    steps:
+      - name: Set up SSH
+        # Host alias `vps`: key and known_hosts from the environment, strict host checking.
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${VPS_HOST}
+            User ${VPS_USER}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            StrictHostKeyChecking yes
+            BatchMode yes
+          EOF
+
+      - name: "Preflight: reach the VPS"
+        # Before any change: the environment names the portal and the desktop (neither has
+        # a default), the host answers with the pinned key, the clone is there and the
+        # steps below can act as horizon without a password prompt.
+        env:
+          HORIZON_URL: ${{ vars.HORIZON_URL }}
+          HORIZON_DESKTOP: ${{ vars.HORIZON_DESKTOP }}
+        run: |
+          set -euo pipefail
+          for name in HORIZON_URL HORIZON_DESKTOP; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error title=horizon-vps::$name is not set - define the variable $name in the horizon-vps environment (docs/guides/deployment.md)"
+              exit 1
+            fi
+          done
+          ssh vps "set -e; true; \
+            test -d /opt/horizon-tracker/.git; \
+            sudo -n -u horizon true"
+
+      - name: Update the code
+        # The tag's commit as verify resolved it - on a redeploy by hand not the run's own
+        # commit, which is main's head - checked out by the clone's owner; `uv sync
+        # --locked` fails on a stale lock instead of re-resolving (as bootstrap).
+        env:
+          DEPLOY_SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029 # DEPLOY_SHA is meant to expand here, on the runner.
+          ssh vps "set -e; \
+            sudo -u horizon git -C /opt/horizon-tracker fetch --prune origin; \
+            sudo -u horizon git -C /opt/horizon-tracker checkout --detach '${DEPLOY_SHA}'; \
+            sudo -u horizon bash -lc 'cd /opt/horizon-tracker && /usr/local/bin/uv sync --locked'"
+
+      - name: Check the timers' time zone
+        # The timers fire at the range starts in the zone their OnCalendar names, and the
+        # service draws its moments in HT_TIMEZONE. Two different zones start every run
+        # before or after its range, so no run would ever act - and nothing would say so.
+        # Read from the commit just checked out, before .env or a unit is written.
+        env:
+          HT_TIMEZONE: ${{ vars.HT_TIMEZONE || 'UTC' }}
+        run: |
+          set -euo pipefail
+          calendars="$(ssh vps "grep -h '^OnCalendar=' \
+            /opt/horizon-tracker/deploy/horizon-checkin.timer \
+            /opt/horizon-tracker/deploy/horizon-checkout.timer")"
+          while IFS= read -r line; do
+            zone="${line##* }"
+            if [ "$zone" != "$HT_TIMEZONE" ]; then
+              echo "::error title=HT_TIMEZONE::the timers fire in $zone but HT_TIMEZONE is $HT_TIMEZONE - set the horizon-vps variable HT_TIMEZONE to $zone, or change OnCalendar in deploy/horizon-*.timer (docs/guides/deployment.md)"
+              exit 1
+            fi
+          done <<< "$calendars"
+          echo "the timers fire in HT_TIMEZONE ($HT_TIMEZONE)"
+
+      - name: Build .env
+        # The file is built on the runner and read on the VPS by systemd's EnvironmentFile
+        # parser, not by a shell. Every value is written double-quoted with \ " ` $ escaped
+        # by a backslash - the four characters systemd unescapes there (SHELL_NEED_ESCAPE,
+        # as its own write_env_var does) - so a password arrives literally. The values are
+        # the .env contract of docs/guides/deployment.md; the tests hold the two equal.
+        # The schedule is RFC HT-003's: timers fire at the range starts, the service draws
+        # each day's moments inside the ranges. HT_CHECKIN_WINDOW / HT_CHECKOUT_WINDOW are
+        # retired and must never be written: Settings refuses them, so the smoke would fail.
+        # HT_JITTER_SEED is optional: an undefined secret is empty, and an empty optional
+        # value is left out, so the draw is seeded from HORIZON_USERNAME.
+        # HORIZON_URL, HORIZON_DESKTOP and HT_TIMEZONE are environment variables (no secret,
+        # but per host); the preflight already refused a run without the first two, and an
+        # undefined HT_TIMEZONE is UTC. HT_LANGUAGE is optional the same way as the seed,
+        # read from a variable: left out, the service speaks English (RFC HT-007).
+        env:
+          HORIZON_URL: ${{ vars.HORIZON_URL }}
+          HORIZON_USERNAME: ${{ secrets.HORIZON_USERNAME }}
+          HORIZON_PASSWORD: ${{ secrets.HORIZON_PASSWORD }}
+          HORIZON_DESKTOP: ${{ vars.HORIZON_DESKTOP }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HT_TIMEZONE: ${{ vars.HT_TIMEZONE || 'UTC' }}
+          HT_CHECKIN_RANGE: "07:30-08:10"
+          HT_CHECKOUT_RANGE: "16:30-17:10"
+          HT_SESSION_LENGTH_MINUTES: "540"
+          HT_SESSION_EXTRA_MAX_MINUTES: "10"
+          HT_WINDOW_GRACE_MINUTES: "5"
+          HT_JITTER_SEED: ${{ secrets.HT_JITTER_SEED }}
+          HT_HOLD_SECONDS: "120"
+          HT_CHROME_PATH: /usr/bin/google-chrome
+          HT_ARTIFACTS_DIR: /opt/horizon-tracker/artifacts
+          HT_LANGUAGE: ${{ vars.HT_LANGUAGE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          names=(HORIZON_URL HORIZON_USERNAME HORIZON_PASSWORD HORIZON_DESKTOP
+                 TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID HT_TIMEZONE HT_CHECKIN_RANGE
+                 HT_CHECKOUT_RANGE HT_SESSION_LENGTH_MINUTES HT_SESSION_EXTRA_MAX_MINUTES
+                 HT_WINDOW_GRACE_MINUTES HT_HOLD_SECONDS HT_CHROME_PATH HT_ARTIFACTS_DIR)
+          optional=(HT_JITTER_SEED HT_LANGUAGE)
+          for name in "${names[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error title=.env::$name is empty - set it in the horizon-vps environment (docs/guides/deployment.md)"
+              exit 1
+            fi
+          done
+          for name in "${optional[@]}"; do
+            if [ -n "${!name:-}" ]; then
+              names+=("$name")
+            fi
+          done
+          body=""
+          for name in "${names[@]}"; do
+            value=${!name}
+            # Quoted pattern and replacement are literal; SC1003 misreads '\' as an escape.
+            # shellcheck disable=SC1003
+            value=${value//'\'/'\\'}
+            value=${value//'"'/'\"'}
+            value=${value//'`'/'\`'}
+            value=${value//'$'/'\$'}
+            body+="${name}=\"${value}\""$'\n'
+          done
+          printf '%s' "$body" > "$RUNNER_TEMP/horizon.env"
+
+      - name: Write .env
+        # horizon:horizon 0600, written next to the target and renamed over it, so the
+        # services never read a half-written file. The content is ssh's stdin.
+        run: |
+          set -euo pipefail
+          ssh vps "set -e; umask 077; \
+            install -m 600 -o horizon -g horizon /dev/stdin /opt/horizon-tracker/.env.new; \
+            mv -f /opt/horizon-tracker/.env.new /opt/horizon-tracker/.env; \
+            stat -c '%U:%G %a %n' /opt/horizon-tracker/.env" < "$RUNNER_TEMP/horizon.env"
+
+      - name: Install the units
+        # try-restart, not restart: it restarts a timer only if it is already active, so
+        # a deploy never switches the schedule on before the operator's first manual run
+        # (docs/guides/deployment.md, "Enabling the timers").
+        run: |
+          set -euo pipefail
+          ssh vps "set -e; \
+            for unit in horizon-checkin.service horizon-checkin.timer \
+                        horizon-checkout.service horizon-checkout.timer; do \
+              install -m 0644 /opt/horizon-tracker/deploy/\$unit /etc/systemd/system/\$unit; \
+            done; \
+            systemctl daemon-reload; \
+            systemctl try-restart horizon-checkin.timer horizon-checkout.timer; \
+            systemctl list-timers 'horizon-*' --all --no-pager"
+
+      - name: "Smoke: horizon probe"
+        # As horizon, with .env read by the same parser the timers use, like the manual runs
+        # of docs/guides/deployment.md. The probe never logs in; its exit code - 1 when
+        # settings, portal or Chrome FAILED - is the step's through systemd-run --wait and
+        # ssh (pipefail keeps it through tee).
+        # Its answer is kept for the summary: the probe prints no secret.
+        run: |
+          set -euo pipefail
+          ssh vps "systemd-run --quiet --pipe --wait --collect \
+            --uid=horizon --gid=horizon \
+            --working-directory=/opt/horizon-tracker \
+            -p EnvironmentFile=/opt/horizon-tracker/.env \
+            /opt/horizon-tracker/.venv/bin/horizon probe" | tee "$RUNNER_TEMP/probe.txt"
+
+      - name: Deploy summary
+        # Also after a red deploy: which release and commit were meant, what the probe said
+        # if it ran, and the timers as the VPS has them now.
+        if: ${{ !cancelled() }}
+        env:
+          DEPLOY_SHA: ${{ needs.verify.outputs.sha }}
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deploy to horizon-vps"
+            echo
+            echo "Tag: \`${RELEASE_TAG}\`, version ${RELEASE_VERSION}"
+            echo
+            echo "Commit: [\`${DEPLOY_SHA}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${DEPLOY_SHA})"
+            echo
+            echo "#### horizon probe"
+            echo
+            echo '```text'
+            if [ -s "$RUNNER_TEMP/probe.txt" ]; then
+              cat "$RUNNER_TEMP/probe.txt"
+            else
+              echo "the probe did not run - an earlier step failed"
+            fi
+            echo '```'
+            echo
+            echo "#### Timers"
+            echo
+            echo '```text'
+            ssh vps "systemctl list-timers 'horizon-*' --all --no-pager"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the key and .env from the runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/config "$RUNNER_TEMP/horizon.env"
+
+  # --- publish ------------------------------------------------------------------------------
+
+  publish:
+    needs: [verify, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The one job that writes the repository: its releases.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          # gh reaches GitHub with GH_TOKEN below; the checkout keeps no token.
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel and the sdist
+        run: uv build
+
+      - name: The release notes verify extracted
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+
+      - name: Publish the GitHub Release
+        # Created when the tag has no release yet; edited, its assets replaced, when it has
+        # one - a tag cut through the Releases page, or a redeploy by hand. --verify-tag
+        # refuses to create a tag: the release names the tag verify checked, or nothing.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/release-notes/notes.md"
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          if [ "${#wheels[@]}" -ne 1 ] || [ "${#sdists[@]}" -ne 1 ]; then
+            echo "::error title=publish::uv build left ${#wheels[@]} wheel(s) and ${#sdists[@]} sdist(s) in dist/ - a release carries one of each"
+            exit 1
+          fi
+          assets=("${sdists[0]}" "${wheels[0]}")
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file "$notes"
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            action="edited"
+          else
+            gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes-file "$notes" --verify-tag
+            action="created"
+          fi
+          line="GitHub Release $TAG $action with ${assets[*]}"
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
+
+  # --- portal -------------------------------------------------------------------------------
+  #
+  # The steps of the workflow that beadloom 9.0.0 (the beadloom this file installs) writes
+  # with `beadloom docs site --pages-workflow`. The generated file itself is not used: it
+  # deploys on every push to the default branch, and the portal follows releases here. So
+  # that command is never run in this repository - its file would be a second deploy path -
+  # and when beadloom is upgraded these steps are compared with what the new version writes.
+  # Two departures, both this repository's rules: actions/checkout is the one pin every
+  # workflow here shares (v7.0.1, not the generator's v5.1.0), and no checkout keeps the
+  # token. The portal's identity and base are the `site:` block of .beadloom/config.yml.
+
+  portal-build:
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Reads the repository and the Pages site; runs install scripts, so writes nothing.
+    permissions:
+      contents: read
+      pages: read
+    env:
+      PORTAL_BASE: "/horizon-tracker/"
+      # The Pages actions still ship Node 20 entry points; this runs them on Node 24, the
+      # runtime GitHub moves every action to.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      # The whole history of the released commit: each node's activity is measured on the
+      # history checked out here, and one commit shows every file as added.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - name: Check the portal's base against the Pages address
+        # A portal built for one base and served under another loads none of its assets.
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          set -euo pipefail
+          served="${PAGES_BASE_PATH%/}/"
+          if [ "$served" != "$PORTAL_BASE" ]; then
+            where="GitHub Pages serves this repository under $served"
+            built="the portal is built for $PORTAL_BASE"
+            fix="set site.base to $served in .beadloom/config.yml and PORTAL_BASE here"
+            echo "::error::$where, and $built; $fix."
+            exit 1
+          fi
+          echo "the portal is built for $PORTAL_BASE, where GitHub Pages serves it"
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install beadloom
+        run: python -m pip install "beadloom[languages]==9.0.0"
+
+      - name: Index the project
+        run: beadloom reindex
+
+      - name: Generate the portal
+        run: beadloom docs site --out site
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+
+      - name: Install the portal's dependencies
+        run: npm ci
+        working-directory: site
+
+      - name: Build the portal
+        run: npm run docs:build
+        working-directory: site
+
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: site/.vitepress/dist
+
+  portal-deploy:
+    needs: portal-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that publishes to Pages: Pages write, and the OIDC token deploy-pages
+    # presents.
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

@@ -7,6 +7,7 @@ real factory exercise only the paths that open no connection.
 
 import logging
 import re
+import tomllib
 from collections.abc import Iterator
 from datetime import datetime, time
 from functools import partial
@@ -31,6 +32,7 @@ from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
 from tests.support.bot_api import RecordingBotApi
 from tests.support.cli_world import DESKTOP, World, cli_log_handlers_restored
+from tests.support.repository_root import repository_root
 
 MSK = ZoneInfo("Europe/Moscow")
 USERNAME = "svc.horizon.user"
@@ -102,6 +104,17 @@ def test_version_is_reported() -> None:
 
     assert result.exit_code == 0
     assert __version__ in result.output
+
+
+def test_the_version_reported_is_the_one_pyproject_declares() -> None:
+    # pyproject.toml is the one source a release sets; the package carries no copy of it.
+    manifest = tomllib.loads((repository_root() / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = manifest["project"]["version"]
+
+    result = CliRunner().invoke(main, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == f"horizon, version {declared}\n"
 
 
 def test_help_lists_the_three_commands() -> None:

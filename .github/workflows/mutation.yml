@@ -1,29 +1,27 @@
-name: Mutation
+name: Mutation sample
 
-# Mutation testing per change, and on a weekly sample of the declared scope - the scheme
-# of beadloom's own mutation.yml (BDL-074), adopted by owner decision in HT-005.
+# Mutation testing on a weekly sample of the declared scope - the scheme of beadloom's own
+# mutation.yml (BDL-074), adopted by owner decision in HT-005. The mutation of the domain
+# functions a pull request touched is CI's job (ci.yml, mutation-per-change): one workflow
+# per event, and a pull request is CI's.
 #
 # The declared scope is mutation.targets in .beadloom/flow.yml: src/horizon_tracker/domain/,
-# the pure core with no I/O, the same scope as [tool.mutmut] only_mutate. Both jobs run
+# the pure core with no I/O, the same scope as [tool.mutmut] only_mutate. The job runs
 # scripts/mutation.sh, which takes its population from `beadloom mutation`, runs mutmut
 # over exactly that population, and has `beadloom mutation --stats ... --min-score` judge:
 #
-#   mutation-per-change (pull_request) - the domain functions the pull request touched.
-#     A pull request that touches none says so: the outcome is `nothing-to-mutate`, an
-#     annotation and a line in the summary name it, and nothing is scored. That green is
-#     a stated "no population", never a silent one.
 #   mutation-sample (weekly schedule, and by hand) - a seeded random sample of the whole
 #     scope, scored with the interval the sample supports (--sample-of). The seed defaults
 #     to the ISO week (2026-W43), so a week's sample is reproducible from the commit and
 #     the seed alone.
 #
-# The floor is 85 % for both, as scripts/mutation.sh has always held the whole domain.
+# The floor is 85 %, as scripts/mutation.sh has always held the whole domain.
 # Size, measured 2026-10-20 (4 cores, CPython 3.13, mutmut 3.8.0): the whole domain is 243
 # mutants and runs in about 15 s, so a sample of 150 costs seconds; the sample exists
 # so the scope keeps a weekly verdict as it grows, not because the whole is slow today.
 #
-# NEITHER JOB IS A REQUIRED STATUS CHECK, and neither is part of ci-ok. The sample reports
-# no check-run on a pull request, so a required context naming it would never report and
+# THE SAMPLE IS NOT A REQUIRED STATUS CHECK, and it is not part of ci-ok. It reports no
+# check-run on a pull request, so a required context naming it would never report and
 # would leave main unmergeable. A red sample is seen in Actions (and by GitHub's mail to
 # whoever last changed the schedule); nothing here opens an issue.
 #
@@ -34,8 +32,6 @@ name: Mutation
 # The action SHAs move with Dependabot; beadloom==9.0.0 is installed by version and moves
 # only by hand.
 on:
-  pull_request:
-    branches: [main]
   schedule:
     - cron: "23 4 * * 1"
   workflow_dispatch:
@@ -57,79 +53,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mutation-per-change:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    env:
-      # beadloom takes the merge base of this ref and HEAD: the pull request's own change.
-      BASE: origin/${{ github.base_ref }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The merge base needs the base branch's history, not a single commit.
-          fetch-depth: 0
-          # Nothing pushes, and the history is fetched here: no token stays in .git/config.
-          persist-credentials: false
-
-      - name: Install uv (with cache)
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-          python-version: "3.12"
-
-      - name: Install the suite and beadloom
-        run: |
-          uv sync --extra dev
-          uv tool install beadloom==9.0.0
-
-      - name: Build the index the population is read from
-        run: beadloom reindex
-
-      - name: Mutate the changed domain functions
-        run: |
-          scripts/mutation.sh --changed-since "$BASE" --out "$RUNNER_TEMP/mutation" --min-score 85
-
-      - name: Summary
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/mutation"
-          {
-            echo "### Mutation per change"
-            echo
-            echo '```text'
-            if [ -f "$out/report.md" ]; then cat "$out/report.md"; fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          outcome=""
-          if [ -f "$out/outcome" ]; then outcome="$(cat "$out/outcome")"; fi
-          case "$outcome" in
-            nothing-to-mutate)
-              echo "::notice title=Mutation::Nothing to mutate - the change touches no domain function that generates a mutant"
-              echo "**Nothing to mutate**: no score, because there is no population." >> "$GITHUB_STEP_SUMMARY"
-              ;;
-            scored) ;;
-            *)
-              echo "**The run reached no verdict**: no outcome was written." >> "$GITHUB_STEP_SUMMARY"
-              echo "::error title=Mutation::the run reached no verdict"
-              exit 1
-              ;;
-          esac
-
-      - name: Keep the plan, the counters and the survivors
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: mutation-per-change-${{ github.run_id }}
-          path: ${{ runner.temp }}/mutation
-          if-no-files-found: ignore
-          retention-days: 14
-
   mutation-sample:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

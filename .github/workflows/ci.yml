@@ -1,16 +1,26 @@
 name: CI
 
 # The completion checklist of CLAUDE.md, run on every pull request to main, on every push
-# to main, and - through workflow_call - as the gate the deploy waits for (deploy.yml).
+# to main (a merge, checked once more on main; nothing here reaches the VPS), by hand, and -
+# through workflow_call - as the gate a release waits for (release.yml). One workflow per
+# event: a pull request starts this file and nothing else.
+#
+# Under workflow_call the caller names the commit to check (input `ref`): a redeploy by
+# hand runs on main's head while it deploys an older tag, and the gate must check the
+# commit that reaches the host. Every other event leaves `ref` empty, and checkout takes
+# the event's own commit.
 #
 # Three stages, each started only when the one before it passed:
 #   1. lint, types, workflow-lint - the static checks, a minute each; nothing else waits
 #      on a browser or a suite to report a linter error.
-#   2. tests (Python 3.12, the VPS, and 3.13, development) and beadloom-gate.
+#   2. tests (Python 3.12, the VPS, and 3.13, development) and beadloom-gate; on a pull
+#      request also mutation-per-change, the mutation of the domain functions it touched.
 #   3. ci-ok - the one status branch protection can require. It runs whatever the others
 #      did (if: always()) and is red unless every job it needs succeeded: a failed,
 #      cancelled or SKIPPED stage is red here, because a skipped required check would
-#      read as passed.
+#      read as passed. mutation-per-change is NOT among its needs: the mutation verdict is
+#      informative (the owner's decision in HT-005), seen on the pull request, and a
+#      skipped mutation job on a push or a release must not turn ci-ok red.
 #
 # Two meanings of "blocking", kept apart:
 #  1. Inside a run: every step below fails its job. There is no continue-on-error and no
@@ -31,13 +41,20 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
   workflow_call:
+    inputs:
+      ref:
+        description: "The commit to check; empty checks the caller's own commit"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  # github.workflow names the CALLER under workflow_call, so the deploy's gate gets a group
+  # github.workflow names the CALLER under workflow_call, so the release's gate gets a group
   # of its own and never cancels, or is cancelled by, the CI run of the same push.
   # Only a pull request's superseded run is cancelled: a running CI on main is never
   # cancelled. A group holds at most one WAITING run whatever cancel-in-progress says, so of
@@ -57,6 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           # No job pushes: the token is not left in .git/config for a later step to read.
           persist-credentials: false
 
@@ -87,6 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           # No job pushes: the token is not left in .git/config for a later step to read.
           persist-credentials: false
 
@@ -113,6 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           # No job pushes: the token is not left in .git/config for a later step to read.
           persist-credentials: false
 
@@ -173,6 +193,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           # No job pushes: the token is not left in .git/config for a later step to read.
           persist-credentials: false
 
@@ -253,6 +274,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           # No job pushes: the token is not left in .git/config for a later step to read.
           persist-credentials: false
 
@@ -273,6 +295,91 @@ jobs:
 
       - name: Epics against the AS-IS space
         run: beadloom docs spaces --strict
+
+  mutation-per-change:
+    # Mutation testing of the domain functions this pull request touched - the scheme of
+    # beadloom's own mutation.yml (BDL-074), adopted by owner decision in HT-005. The
+    # declared scope is mutation.targets in .beadloom/flow.yml (src/horizon_tracker/domain/,
+    # the same scope as [tool.mutmut] only_mutate); scripts/mutation.sh takes the population
+    # from `beadloom mutation --changed-since`, runs mutmut over exactly that population and
+    # has beadloom judge it against the 85 % floor. A pull request that touches no domain
+    # function says so: the outcome is `nothing-to-mutate`, an annotation and a line in the
+    # summary name it, and nothing is scored - a stated "no population", never a silent one.
+    # A push and a release have no change to take a population from, so the job runs on a
+    # pull request only. It is informative: ci-ok does not need it. The weekly sample of
+    # the whole scope is mutation.yml. mutmut exits 0 when mutants survive, so its run needs
+    # no excuse; the script exits with beadloom's verdict.
+    if: github.event_name == 'pull_request'
+    needs: [lint, types, workflow-lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # beadloom takes the merge base of this ref and HEAD: the pull request's own change.
+      BASE: origin/${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          # The merge base needs the base branch's history, not a single commit.
+          fetch-depth: 0
+          # Nothing pushes, and the history is fetched here: no token stays in .git/config.
+          persist-credentials: false
+
+      - name: Install uv (with cache)
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install the suite and beadloom
+        run: |
+          uv sync --extra dev
+          uv tool install beadloom==9.0.0
+
+      - name: Build the index the population is read from
+        run: beadloom reindex
+
+      - name: Mutate the changed domain functions
+        run: |
+          scripts/mutation.sh --changed-since "$BASE" --out "$RUNNER_TEMP/mutation" --min-score 85
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/mutation"
+          {
+            echo "### Mutation per change"
+            echo
+            echo '```text'
+            if [ -f "$out/report.md" ]; then cat "$out/report.md"; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          outcome=""
+          if [ -f "$out/outcome" ]; then outcome="$(cat "$out/outcome")"; fi
+          case "$outcome" in
+            nothing-to-mutate)
+              echo "::notice title=Mutation::Nothing to mutate - the change touches no domain function that generates a mutant"
+              echo "**Nothing to mutate**: no score, because there is no population." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            scored) ;;
+            *)
+              echo "**The run reached no verdict**: no outcome was written." >> "$GITHUB_STEP_SUMMARY"
+              echo "::error title=Mutation::the run reached no verdict"
+              exit 1
+              ;;
+          esac
+
+      - name: Keep the plan, the counters and the survivors
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-per-change-${{ github.run_id }}
+          path: ${{ runner.temp }}/mutation
+          if-no-files-found: ignore
+          retention-days: 14
 
   # --- stage 3 ------------------------------------------------------------------------------
 
