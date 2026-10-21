@@ -4,9 +4,10 @@ name: Release
 # such as vMAJOR.MINOR.PATCH-rc.1 starts nothing) runs, each job only when the one before it passed:
 #
 #   1. verify  - the tag is a release tag, its commit is on main, pyproject.toml at that
-#                commit declares the tag's version, and CHANGELOG.md holds its dated
-#                section, which is extracted as the release notes. A tag that fails a check
-#                deploys nothing; the failing step and its ::error name the check.
+#                commit declares the tag's version, uv.lock locks the same version, and
+#                CHANGELOG.md holds its dated section, which is extracted as the release
+#                notes. A tag that fails a check deploys nothing; the failing step and its
+#                ::error name the check.
 #   2. gate    - the full CI (ci.yml through workflow_call) on the tag's commit: what
 #                reaches the VPS passed what a pull request passes.
 #   3. deploy  - the tag's commit on the VPS: code, dependencies, .env, systemd units, then
@@ -20,9 +21,13 @@ name: Release
 #                then portal-deploy).
 #
 # A run by hand (Actions -> Release -> Run workflow) names an existing release tag and runs
-# the same five jobs for it: the redeploy a rotated secret needs. Nothing else reaches the
-# VPS - a push to main is CI's event and deploys nothing. The run's own commit is then
-# main's head, so every job takes the tag's commit from verify, never github.sha.
+# the same five jobs for it: the redeploy a rotated secret needs. verify refuses a run by
+# hand started from any ref but main, so only main's own release.yml reaches the deploy.
+# That stops a run started from another branch by mistake; it is no defence against a
+# branch whose release.yml was edited, which only the environment's deployment rules are.
+# Nothing else reaches the VPS - a push to main is CI's event and deploys nothing. The
+# run's own commit is then main's head, so every job takes the tag's commit from verify,
+# never github.sha.
 #
 # Secrets live in the GitHub Environment `horizon-vps` and enter a step only through its
 # env: mapping. No run script carries a ${{ }} expression, none echoes a secret, none
@@ -91,16 +96,23 @@ jobs:
 
       - name: Resolve the tag
         id: tag
+        # A run by hand executes the release.yml of the ref it was started from: only main's
+        # passes (github.ref == 'refs/heads/main'); a pushed tag is checked below instead.
         # Strict SemVer 2.0.0 without pre-release or build: numbers without leading zeros.
         # The trigger's filter admits v01.0.0 and a run by hand admits any name; this does
         # not. The input reaches the script through env:, never pasted into it.
         env:
           EVENT: ${{ github.event_name }}
+          RUN_REF: ${{ github.ref }}
           PUSHED_TAG: ${{ github.ref_name }}
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = workflow_dispatch ]; then
+            if [ "$RUN_REF" != refs/heads/main ]; then
+              echo "::error title=verify: dispatch::the run was started from $RUN_REF - a redeploy runs main's workflow only: Use workflow from main"
+              exit 1
+            fi
             tag="$REQUESTED_TAG"
           else
             tag="$PUSHED_TAG"
@@ -153,6 +165,48 @@ jobs:
             exit 1
           fi
           echo "pyproject.toml declares $VERSION"
+
+      - name: uv.lock locks the tag's version
+        # The deploy installs with `uv sync --locked`, which refuses a lock that disagrees
+        # with pyproject.toml - after the host has checked out the tag. The project's own
+        # entry in uv.lock, found under its normalised name, must hold the tag's version.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA: ${{ steps.tag.outputs.sha }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          lock="$RUNNER_TEMP/uv.lock"
+          if ! git show "$SHA:uv.lock" > "$lock" 2> /dev/null; then
+            echo "::error title=verify: lock::there is no uv.lock at $TAG - run uv lock and tag the commit that holds it"
+            exit 1
+          fi
+          git show "$SHA:pyproject.toml" > "$RUNNER_TEMP/pyproject.toml"
+          # Two lines: the project's normalised name, then every version uv.lock locks it at.
+          read_lock="$(python3 - "$RUNNER_TEMP/pyproject.toml" "$lock" <<'PY'
+          import re
+          import sys
+          import tomllib
+
+          with open(sys.argv[1], "rb") as project:
+              name = re.sub(r"[-_.]+", "-", tomllib.load(project)["project"]["name"]).lower()
+          with open(sys.argv[2], "rb") as lock:
+              packages = tomllib.load(lock).get("package", [])
+          print(name)
+          print(" ".join(p["version"] for p in packages if p.get("name") == name))
+          PY
+          )"
+          name="$(head -n 1 <<< "$read_lock")"
+          locked="$(tail -n +2 <<< "$read_lock")"
+          if [ -z "$locked" ]; then
+            echo "::error title=verify: lock::uv.lock at $TAG locks no $name - run uv lock and tag the commit that holds it"
+            exit 1
+          fi
+          if [ "$locked" != "$VERSION" ]; then
+            echo "::error title=verify: lock::uv.lock at $TAG locks $name $locked, not $VERSION - run uv lock after the version bump and tag the commit that holds it"
+            exit 1
+          fi
+          echo "uv.lock locks $name $VERSION"
 
       - name: CHANGELOG.md holds the tag's section
         # Keep a Changelog: the section `## [X.Y.Z] - YYYY-MM-DD` up to the next `## `

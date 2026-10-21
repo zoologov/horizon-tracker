@@ -12,8 +12,8 @@ Key:
 ## Gates run
 
 - [ ] `uv run pytest`
-- [ ] `uv run ruff check src/ tests/` and `uv run ruff format --check src/ tests/`
-- [ ] `uv run mypy src/`
+- [ ] `uv run ruff check` and `uv run ruff format --check`
+- [ ] `uv run mypy`
 - [ ] `beadloom ci`
 
 ## Changelog

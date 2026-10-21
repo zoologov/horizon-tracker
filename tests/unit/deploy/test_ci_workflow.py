@@ -177,17 +177,18 @@ def test_ci_ok_is_red_when_it_was_given_no_job_to_sum() -> None:
 
 
 ADAPTER = ".github/scripts/mutmut_adapter.py"
+SYNC = "uv sync --locked --extra dev"
 RUFF_CHECK = "uv run ruff check"
 RUFF_FORMAT = "uv run ruff format --check"
 MYPY = "uv run mypy"
 
 
 def test_lint_checks_the_rules_and_the_format() -> None:
-    assert_in_order("lint", ["uv sync --extra dev", RUFF_CHECK, RUFF_FORMAT])
+    assert_in_order("lint", [SYNC, RUFF_CHECK, RUFF_FORMAT])
 
 
 def test_types_checks_the_code_the_tests_and_the_ci_glue() -> None:
-    assert_in_order("types", ["uv sync --extra dev", MYPY])
+    assert_in_order("types", [SYNC, MYPY])
 
 
 def test_the_static_checks_take_their_scope_from_pyproject() -> None:
@@ -196,6 +197,21 @@ def test_the_static_checks_take_their_scope_from_pyproject() -> None:
     lines = command_lines("lint") + command_lines("types")
     tools = [line for line in lines if line.startswith(("uv run ruff", "uv run mypy"))]
     assert tools == [RUFF_CHECK, RUFF_FORMAT, MYPY]
+
+
+def pull_request_gates() -> set[str]:
+    """The commands the "Gates run" checklist of the pull request template ticks."""
+    text = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
+    section = re.search(r"^## Gates run\n(.*?)(?=^## )", text, re.DOTALL | re.MULTILINE)
+    assert section, "the pull request template has no section ## Gates run"
+    return set(re.findall(r"`([^`]+)`", section.group(1)))
+
+
+def test_the_pull_request_template_ticks_the_commands_ci_runs() -> None:
+    # A narrower command on the checklist checks less than CI does on the same change.
+    lines = command_lines("lint") + command_lines("types")
+    static = {line for line in lines if line.startswith(("uv run ruff", "uv run mypy"))}
+    assert pull_request_gates() == {"uv run pytest", *static, "beadloom ci"}
 
 
 def test_mypy_is_configured_over_the_code_the_tests_and_the_ci_glue() -> None:
@@ -288,7 +304,7 @@ def test_tests_install_the_browser_after_restoring_its_cache() -> None:
     assert names.index("Cache the Playwright browser") < names.index("Chromium for the adapters")
     assert_in_order(
         "tests",
-        ["uv sync --extra dev", "uv run playwright install --with-deps chromium", "uv run pytest"],
+        [SYNC, "uv run playwright install --with-deps chromium", "uv run pytest"],
     )
 
 
@@ -477,7 +493,7 @@ def test_the_mutation_job_reads_the_whole_history_for_the_merge_base() -> None:
 
 def test_the_mutation_job_installs_the_suite_and_the_pinned_beadloom() -> None:
     lines = command_lines(MUTATION)
-    assert "uv sync --extra dev" in lines
+    assert SYNC in lines
     assert "uv tool install beadloom==9.0.0" in lines
     setup = [s for s in steps(ci(), MUTATION) if str(s.get("uses", "")).startswith("astral-sh/")]
     assert len(setup) == 1

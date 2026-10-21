@@ -718,6 +718,7 @@ VERIFY = "verify"
 RESOLVE = "Resolve the tag"
 ON_MAIN = "The tag is on main"
 VERSION_CHECK = "pyproject.toml declares the tag's version"
+LOCK_CHECK = "uv.lock locks the tag's version"
 CHANGELOG_CHECK = "CHANGELOG.md holds the tag's section"
 KEEP_NOTES = "Keep the release notes"
 NOTES_ARTIFACT = "release-notes"
@@ -779,20 +780,35 @@ def pyproject(version: str) -> str:
     return f'[project]\nname = "horizon-tracker"\nversion = "{version}"\n'
 
 
+def uv_lock(version: str, name: str = "horizon-tracker") -> str:
+    """A uv.lock in uv's shape: a dependency first, then the project's own entry."""
+    return (
+        'version = 1\nrevision = 3\nrequires-python = ">=3.12"\n\n'
+        '[[package]]\nname = "click"\nversion = "8.1.8"\n'
+        'source = { registry = "https://pypi.org/simple" }\n\n'
+        f'[[package]]\nname = "{name}"\nversion = "{version}"\nsource = {{ editable = "." }}\n'
+    )
+
+
 def release_repo(
     tmp_path: Path,
     *,
     version: str = "3.1.4",
+    lock: str | None = uv_lock("3.1.4"),
     log: str | None = RELEASED,
     on_main: bool = True,
     tag: str = "v3.1.4",
 ) -> Path:
-    """A clone as verify's checkout leaves it: main fetched as origin/main, the tag present."""
+    """A clone as verify's checkout leaves it: main fetched as origin/main, the tag present.
+
+    ``lock`` is the text of uv.lock at the tagged commit; ``None`` leaves the file out.
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-q", "-b", "main")
     base = commit(repo, {"README.md": "horizon-tracker\n"}, "base")
-    released = commit(repo, {"pyproject.toml": pyproject(version), "CHANGELOG.md": log}, "release")
+    files = {"pyproject.toml": pyproject(version), "uv.lock": lock, "CHANGELOG.md": log}
+    released = commit(repo, files, "release")
     git(repo, "update-ref", "refs/remotes/origin/main", released if on_main else base)
     git(repo, "tag", "-a", tag, "-m", tag, released)
     return repo
@@ -824,19 +840,26 @@ class VerifyRun:
 
 
 def run_verify(
-    repo: Path, tmp_path: Path, *, event: str = "push", tag: str = "v3.1.4"
+    repo: Path,
+    tmp_path: Path,
+    *,
+    event: str = "push",
+    tag: str = "v3.1.4",
+    dispatched_from: str = "refs/heads/main",
 ) -> VerifyRun:
     """Every run step of verify in order, stopping at the first that fails.
 
-    A push names the tag as the run's ref; a dispatch runs on main and names the tag as
-    its input. Step outputs reach the later steps through their env, as on a runner.
+    A push names the tag as the run's ref; a dispatch runs on the branch it was started
+    from, ``dispatched_from``, and names the tag as its input. Step outputs reach the
+    later steps through their env, as on a runner.
     """
     assert BASH is not None
     runner_temp = tmp_path / "runner"
     runner_temp.mkdir()
     context = {
         "github.event_name": event,
-        "github.ref_name": tag if event == "push" else "main",
+        "github.ref": f"refs/tags/{tag}" if event == "push" else dispatched_from,
+        "github.ref_name": tag if event == "push" else dispatched_from.rpartition("/")[2],
         "inputs.tag": "" if event == "push" else tag,
         "runner.temp": str(runner_temp),
     }
@@ -887,7 +910,7 @@ def test_verify_reads_the_whole_history_without_keeping_the_token() -> None:
 
 def test_verify_checks_in_the_order_a_refusal_is_cheapest_to_read() -> None:
     names = [s["name"] for s in steps(release(), VERIFY) if "run" in s]
-    assert names == [RESOLVE, ON_MAIN, VERSION_CHECK, CHANGELOG_CHECK]
+    assert names == [RESOLVE, ON_MAIN, VERSION_CHECK, LOCK_CHECK, CHANGELOG_CHECK]
 
 
 def test_verify_hands_the_tag_the_version_and_the_commit_to_the_later_jobs() -> None:
@@ -931,7 +954,7 @@ def test_the_release_notes_stop_at_the_next_section(tmp_path: Path) -> None:
         ("## [3.2.0] - 2026-11-02", "### Added\n\n- A second command."),
         ("## [3.1.4] - 2026-10-21", RELEASED_SECTION),
     )
-    repo = release_repo(tmp_path, version="3.2.0", log=log, tag="v3.2.0")
+    repo = release_repo(tmp_path, version="3.2.0", lock=uv_lock("3.2.0"), log=log, tag="v3.2.0")
     run = run_verify(repo, tmp_path, tag="v3.2.0")
     assert run.failed is None, run.output
     assert run.notes == "### Added\n\n- A second command.\n"
@@ -961,6 +984,20 @@ def test_a_name_that_is_no_release_tag_is_refused(tmp_path: Path, tag: str) -> N
 
 
 @needs_git
+@pytest.mark.parametrize("ref", ["refs/heads/features/HT-008", "refs/tags/v3.1.4"])
+def test_a_redeploy_started_from_anything_but_main_is_refused(tmp_path: Path, ref: str) -> None:
+    # A run by hand executes the release.yml of the ref it was started from, and deploy
+    # holds the horizon-vps secrets: only main's own workflow may reach them.
+    run = run_verify(
+        release_repo(tmp_path), tmp_path, event="workflow_dispatch", dispatched_from=ref
+    )
+    assert run.failed == RESOLVE
+    assert f"::error title=verify: dispatch::the run was started from {ref}" in run.output
+    assert "Use workflow from main" in run.output
+    assert run.outputs == {}
+
+
+@needs_git
 def test_a_redeploy_of_a_tag_that_does_not_exist_is_refused(tmp_path: Path) -> None:
     run = run_verify(release_repo(tmp_path), tmp_path, event="workflow_dispatch", tag="v2.0.0")
     assert run.failed == RESOLVE
@@ -982,6 +1019,40 @@ def test_a_tag_whose_pyproject_declares_another_version_is_refused(tmp_path: Pat
     assert "::error title=verify: version::" in run.output
     assert "declares 0.9.0" in run.output
     assert "3.1.4" in run.output
+
+
+@needs_git
+@pytest.mark.parametrize(
+    ("lock", "said"),
+    [
+        (None, "there is no uv.lock at v3.1.4"),
+        (uv_lock("3.1.3"), "uv.lock at v3.1.4 locks horizon-tracker 3.1.3"),
+        (uv_lock("3.1.4", name="another-project"), "uv.lock at v3.1.4 locks no horizon-tracker"),
+    ],
+    ids=["no-lock", "stale-lock", "no-entry"],
+)
+def test_a_tag_whose_lock_records_another_version_is_refused(
+    tmp_path: Path, lock: str | None, said: str
+) -> None:
+    # The deploy's `uv sync --locked` refuses this lock AFTER the host moved to the tag.
+    run = run_verify(release_repo(tmp_path, lock=lock), tmp_path)
+    assert run.failed == LOCK_CHECK
+    assert "::error title=verify: lock::" in run.output
+    assert said in run.output
+    assert "uv lock" in run.output
+
+
+@needs_git
+def test_the_lock_entry_is_found_under_the_projects_normalised_name(tmp_path: Path) -> None:
+    # uv writes the name normalised: lower case, runs of - _ . as one hyphen.
+    repo = release_repo(tmp_path, lock=uv_lock("3.1.4", name="horizon-tracker"))
+    git(repo, "tag", "-d", "v3.1.4")
+    project = '[project]\nname = "Horizon_Tracker"\nversion = "3.1.4"\n'
+    released = commit(repo, {"pyproject.toml": project}, "a name uv normalises")
+    git(repo, "update-ref", "refs/remotes/origin/main", released)
+    git(repo, "tag", "-a", "v3.1.4", "-m", "v3.1.4", released)
+    run = run_verify(repo, tmp_path)
+    assert run.failed is None, run.output
 
 
 @needs_git

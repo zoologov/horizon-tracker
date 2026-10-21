@@ -86,8 +86,10 @@ jobs:
 
       - name: Sync deps
         # --extra dev: ruff, mypy and pytest live in [project.optional-dependencies].dev,
-        # which a bare `uv sync` does not install.
-        run: uv sync --extra dev
+        # which a bare `uv sync` does not install. --locked: a uv.lock that disagrees with
+        # pyproject.toml fails here, at the pull request, instead of re-resolving and
+        # stopping the deploy, whose sync is --locked too. Every install in CI does the same.
+        run: uv sync --locked --extra dev
 
       # No path on the command line: ruff takes the whole repository (src/, tests/ and the
       # CI glue in .github/scripts/), and a bare local run checks exactly what CI checks.
@@ -116,7 +118,7 @@ jobs:
           python-version: "3.12"
 
       - name: Sync deps
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Mypy
         # The scope is [tool.mypy] files in pyproject.toml: src/, the tests (a fixture typed
@@ -204,7 +206,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Sync deps
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Playwright version from uv.lock
         # The browser a Playwright release drives is fixed by that release, so the
@@ -335,7 +337,7 @@ jobs:
 
       - name: Install the suite and beadloom
         run: |
-          uv sync --extra dev
+          uv sync --locked --extra dev
           uv tool install beadloom==9.0.0
 
       - name: Build the index the population is read from

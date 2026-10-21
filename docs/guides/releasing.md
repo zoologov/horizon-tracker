@@ -58,9 +58,12 @@ new major version, and its change log names the change under *Breaking* before a
   are the service's distribution, not a library. The *API* sections of the node documents
   under `docs/domains/` describe a module's interface to the rest of this codebase and are not
   part of this promise.
-
-<!-- TODO: verify with the owner whether the lines `horizon probe` and `--dry-run` print are
-part of the surface or, like the Telegram report, prose for a person. -->
+- **The text `horizon probe` and `horizon checkin --dry-run` / `horizon checkout --dry-run`
+  print.** Like the Telegram report, it is prose for a person and can change in a PATCH. Their
+  exit codes are promised, as for every subcommand. This is the owner's decision of
+  2026-10-21. The reason: the text goes through the message catalogue and `HT_LANGUAGE`, and
+  no machine reads it, because the deploy's smoke step reads the probe's exit code. A future
+  machine consumer gets a `--json` option whose schema is then promised, not a frozen text.
 
 ## How a change sets the version
 
@@ -139,8 +142,9 @@ The owner cuts releases.
    ```
 
    `verify` refuses a tag whose version `pyproject.toml` does not declare at the tagged
-   commit. CI installs with `uv sync --extra dev`, which does not check the lock, so a stale
-   `uv.lock` passes CI and stops the deploy at its `Update the code` step.
+   commit. CI installs with `uv sync --locked --extra dev`, so a pull request whose
+   `uv.lock` was not rewritten fails CI, and `verify` refuses a tag whose `uv.lock` locks
+   another version.
 3. **Write the change log.** Move the `[Unreleased]` entries into a section
    `## [X.Y.Z] - YYYY-MM-DD` with *Breaking* first, then *Added*, *Changed* and *Fixed*, and
    one sentence at the top naming the line that set the version. Leave `## [Unreleased]`
@@ -195,9 +199,11 @@ publishes nothing. The failing step names the check in its `::error` annotation,
 | Check | Refused when | Why |
 |-------|--------------|-----|
 | `tag` | the name is not `vMAJOR.MINOR.PATCH` with numbers without leading zeros (a number with a leading zero, a tag of two parts, any name given by hand) | the trigger's filter admits a leading zero and a run by hand admits any name; a release tag is strict SemVer without a pre-release or build part |
+| `dispatch` | a run by hand was started from a ref other than `main` | a run by hand executes the `release.yml` of the ref it starts from, and only `main`'s may reach the `horizon-vps` secrets |
 | `tag` | a run by hand names a tag the repository does not hold | a redeploy deploys an existing release, nothing else |
 | `main` | the tag's commit is not an ancestor of `origin/main` | only a commit of `main` is released: a tag on a branch, or on a commit `main` never merged, stops |
 | `version` | `pyproject.toml` at the tag's commit declares another version | the version has one source, and the tag names it |
+| `lock` | `uv.lock` is absent at the tag's commit, holds no entry for the project, or locks another version | the deploy's `uv sync --locked` refuses such a lock after the host has checked out the tag |
 | `changelog` | `CHANGELOG.md` is absent at the tag, has no section `## [X.Y.Z] - `, the section carries no date `YYYY-MM-DD`, or the section is empty | the section is the release's notes; a release without them names nothing it changed |
 
 A tag with a pre-release part, such as `vX.Y.Z-rc.1`, starts no workflow at all: the trigger's

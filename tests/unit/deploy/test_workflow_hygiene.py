@@ -15,6 +15,8 @@ WORKFLOWS = sorted(p.name for p in WORKFLOWS_DIR.glob("*.yml"))
 PINNED = re.compile(r"^[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}$")
 USES_LINE = re.compile(r"^\s*(?:-\s+)?uses:\s*(\S+)(.*)$")
 VERSION_COMMENT = re.compile(r"#\s*v\d+\.\d+\.\d+\s*$")
+UV_SYNC = re.compile(r"\buv sync\b(.*)$")
+LOCKED = re.compile(r"(?<!\S)--locked(?![\w-])")
 READ_ONLY = {"contents": "read"}
 # The only jobs whose token may do more than read the repository, each with what it needs:
 # publishing a release writes the repository's releases, and GitHub Pages is built from a
@@ -68,6 +70,19 @@ def test_no_check_is_excused_from_failing_the_run(name: str) -> None:
     assert "continue-on-error" not in all_strings(workflow), name
     for script in run_scripts(workflow):
         assert not re.search(r"\|\|\s*(true|:)", script), f"{name}: a failure is swallowed"
+
+
+@pytest.mark.parametrize("name", WORKFLOWS)
+def test_every_install_refuses_a_stale_lock(name: str) -> None:
+    # `uv sync` without --locked re-resolves a lock that disagrees with pyproject.toml, so
+    # a bump without `uv lock` would pass CI and stop the deploy, whose sync is --locked.
+    syncs = [
+        found.group(1)
+        for script in run_scripts(load_workflow(name))
+        for line in script.splitlines()
+        if (found := UV_SYNC.search(line))
+    ]
+    assert all(LOCKED.search(arguments) for arguments in syncs), f"{name}: {syncs}"
 
 
 @pytest.mark.parametrize("name", WORKFLOWS)

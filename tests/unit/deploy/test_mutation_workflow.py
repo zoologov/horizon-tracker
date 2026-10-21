@@ -91,7 +91,7 @@ def test_the_sample_job_keeps_no_token_in_its_checkout() -> None:
 
 def test_the_sample_job_installs_the_suite_and_the_pinned_beadloom() -> None:
     lines = script_lines(SAMPLE)
-    assert "uv sync --extra dev" in lines
+    assert "uv sync --locked --extra dev" in lines
     assert "uv tool install beadloom==9.0.0" in lines
     setup = [
         s for s in steps(mutation(), SAMPLE) if str(s.get("uses", "")).startswith("astral-sh/")
