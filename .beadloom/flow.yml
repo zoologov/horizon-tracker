@@ -29,6 +29,9 @@ waves:
 # so a surviving mutant is a weak assertion and not an unreachable adapter branch. The same
 # scope as [tool.mutmut] only_mutate in pyproject.toml; .github/workflows/mutation.yml reads
 # it through `beadloom mutation --changed-since` (per change) and names it in the sample.
+# The message catalogue (domain/messages.py MESSAGES) is data, not a function body: mutmut 3.8
+# generates no mutant for it, so it is outside the gate by construction and needs no
+# exclusion; its completeness is pinned by tests/unit/domain/test_messages.py instead (HT-007).
 mutation:
   targets:
   - src/horizon_tracker/domain/

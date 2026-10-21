@@ -1,21 +1,22 @@
 # ACTIVE: HT-007 — i18n
 
-> **Last updated:** 2026-10-20
+> **Last updated:** 2026-10-21
 > **Phase:** Development
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-04 (ht-m1h) review
-**Goal:** the verdict on BEAD-01..03 on the final tree
-**Done when:** the verdict in the bead's comments; no major, or a fix bead is opened
+**Bead:** fix after the review (ht-7a0.1); then BEAD-05 (ht-zyh) tech-writer
+**Goal:** no configuration error line mixes languages (PRD US-2)
+**Done when:** the domain's refusals have their own en/ru keys, the tests bite
 
 ## Progress
 
 - [x] The documents are approved by the owner's standing decision (2026-10-20); the beads are created, parent ht-7a0
 - [x] BEAD-01 … BEAD-03 (2026-10-21)
-- [ ] BEAD-04 → BEAD-04 → BEAD-05 → BEAD-06
+- [x] BEAD-04 (2026-10-21)
+- [ ] fix ht-7a0.1 → BEAD-05 → BEAD-06
 
 ## Results
 
@@ -24,7 +25,7 @@
 | BEAD-01 | Done | ht-7kx, 9070895: `domain/messages.py` (`Language`, 75 keys en/ru, `text`, `missing_translations`), `render(report, language)`; 282 tests, 1058 passed / 4 skipped, coverage 99 %, mutations 301/303 (99.3 %; the survivors — `schedule._pick`), 13 sabotages bite; a temporary constant `_LANGUAGE = RU` in the notifier until BEAD-02 |
 | BEAD-02 | Done | ht-1yu, 87b2809: `Settings.language` from `HT_LANGUAGE` (en by default, ru; anything else refused at start-up), `TelegramNotifier(..., language)`, `build_notifier`; probe/dry-run/configuration errors through `Message` and the catalogue (77 keys); a configuration error — the log in English + an echo in the reader's language to stderr; 57 tests, 1115 passed / 4 skipped, coverage 99 %, mutations 308/310, 20 sabotages bite; the deployment reads `vars.HT_LANGUAGE` |
 | BEAD-03 | Done | ht-bsc, e7aff90: the 4 PRD scenarios + 7 edge cases = 17 tests through `HT_LANGUAGE` → Settings → `build_notifier`; no stubs left in the suite; 1132 passed / 0 skipped, coverage 99 %; 16 sabotages bite |
-| BEAD-04 | Open | — |
+| BEAD-04 | Done | ht-m1h: OK — 0 critical, 0 major, 2 minor, 4 nit; minor 1 (mixed languages in domain refusals) + nits 4, 5 → ht-7a0.1; minor 2 (the reason for excluding the catalogue from mutations) recorded in flow.yml; nit 3 — a documented decision; nit 6 closed |
 | BEAD-05 | Open | — |
 | BEAD-06 | Open | — |
 
