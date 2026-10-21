@@ -12,7 +12,8 @@ log.
 
 ### Purpose
 
-Every run sends one message to the owner's private chat from the service bot the notification bot.
+Every run sends one message to the configured chat (`TELEGRAM_CHAT_ID`) from the
+Telegram bot whose token the service holds (`TELEGRAM_BOT_TOKEN`).
 A report that carries a screenshot, of a confirmed success or of a failure, goes out as
 that photo with the text as its caption. A run must never fail because its notification
 failed, and the bot token, which sits in the path of every Bot API URL, must not leak

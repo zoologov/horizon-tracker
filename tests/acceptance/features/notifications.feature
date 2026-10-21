@@ -1,6 +1,6 @@
 @bead:ht-axc @node:infrastructure @node:domain @node:cli
 Feature: Notifications
-  Every run sends one message to the owner's Telegram chat through the the notification bot bot. A
+  Every run sends one message to the owner's Telegram chat through the Telegram bot. A
   failure carries its reason and a screenshot; no message ever carries a credential.
 
   Background:

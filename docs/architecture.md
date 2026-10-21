@@ -90,7 +90,7 @@ at start. The CLI renders the probe and dry-run lines in that language and build
 `TelegramNotifier` with it, and the notifier renders each report with
 `render(report, language)`. A configuration error is logged in English and, when the
 configured language is another, also printed on stderr in that language. The logs are
-always English: they are the operator's, whatever language the owner reads.
+always English: they are the operator's, whatever language the notifications use.
 
 ## Source
 
@@ -100,4 +100,4 @@ always English: they are the operator's, whatever language the owner reads.
 
 - Runtime: Python 3.12, Playwright over the system Chrome, systemd timers on the VPS
 - External services: VMware Horizon HTML Access (UAG), isdayoff.ru, Telegram Bot API
-- Operations: `deploy/RUNBOOK.md` (Russian, the owner's operator document)
+- Operations: [`docs/guides/deployment.md`](guides/deployment.md) (installing and running the service on a host)

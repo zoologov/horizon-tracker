@@ -7,7 +7,7 @@ stack:
 quality:
 - clean-code
 - tdd
-language: ru
+language: en
 
 # Wave overrides (HT-001). The graph names one node per layer, so two beads
 # inside one package share a node and `beadloom waves` serialises them even

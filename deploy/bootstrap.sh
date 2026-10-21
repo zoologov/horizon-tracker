@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# bootstrap.sh - idempotent first install of horizon-tracker on the VPS.
+# bootstrap.sh - idempotent first install of horizon-tracker on the host.
 #
-# Target: Ubuntu/Debian (apt) with systemd, beside the neighbouring service. Its own system user
-# `horizon`, home /opt/horizon-tracker; the neighbour's directory is never touched. Run as root.
-# Every step checks or converges its own state, so a second run changes nothing
-# and rolls nothing back.
+# Target: Ubuntu/Debian (apt) with systemd. Its own system user `horizon`, home
+# /opt/horizon-tracker; nothing outside that home, the units and the packages
+# below is touched, so other services on the host are left as they are. Run as
+# root. Every step checks or converges its own state, so a second run changes
+# nothing and rolls nothing back.
 #
 # Does NOT write /opt/horizon-tracker/.env: the deploy workflow writes it from
-# GitHub Environment `horizon-vps` (see RUNBOOK.md).
-# Does NOT enable the timers: the owner enables them after the first manual run
-# (`horizon probe`, `checkin --force`, `checkout --force`; PLAN BEAD-13).
+# GitHub Environment `horizon-vps` (see docs/guides/deployment.md).
+# Does NOT enable the timers: the operator enables them after the first manual
+# run (`horizon probe`, `checkin --force`, `checkout --force`).
 set -euo pipefail
 
 # --- Fixed by the units: they name this user and this home -------------------
@@ -25,8 +26,11 @@ readonly UNITS=(
 )
 
 # --- Overridable from the environment ----------------------------------------
-HT_REPO="${HT_REPO:-https://github.com/zoologov/horizon-tracker.git}"
-# Must agree with HT_CHROME_PATH in .env; Chrome is installed by the neighbouring service's bootstrap.
+# The repository cloned when the home holds no clone yet. Unset, it is the origin
+# of the clone this script runs from; there is no built-in default, so a fork
+# never clones someone else's repository.
+HT_REPO="${HT_REPO:-}"
+# Must agree with HT_CHROME_PATH in .env; Chrome belongs to the host.
 HT_CHROME_PATH="${HT_CHROME_PATH:-/usr/bin/google-chrome}"
 APT_PACKAGES="${APT_PACKAGES:-python3.12 python3.12-venv git curl ca-certificates}"
 
@@ -46,14 +50,28 @@ require_root() {
   fi
 }
 
-# Checked, never installed: the browser belongs to the host (the neighbouring service's bootstrap
-# installs the .deb). Checked before any change, so a missing Chrome leaves the
-# host as it was.
+# Checked, never installed: the browser belongs to the host (the Google Chrome
+# .deb). Checked before any change, so a missing Chrome leaves the host as it was.
 require_chrome() {
   if [ ! -x "$HT_CHROME_PATH" ]; then
     die "Chrome not found at $HT_CHROME_PATH - install google-chrome-stable (.deb, not snap) and rerun"
   fi
   skip "Chrome present at $HT_CHROME_PATH"
+}
+
+# The URL to clone, settled before any change so a missing one leaves the host as
+# it was. Not needed once the home holds a clone (made by hand for a private
+# repository, see the guide).
+resolve_repo() {
+  if [ -d "$HT_HOME/.git" ]; then
+    return
+  fi
+  if [ -z "$HT_REPO" ]; then
+    HT_REPO="$(git -C "$DEPLOY_DIR" remote get-url origin 2>/dev/null)" || HT_REPO=""
+  fi
+  if [ -z "$HT_REPO" ]; then
+    die "no repository to clone: run this script from a clone that has an origin, or set HT_REPO"
+  fi
 }
 
 # 1. System user without a login shell, home in /opt (getent makes it idempotent).
@@ -91,7 +109,7 @@ ensure_repo() {
   chown -R "$HT_USER:$HT_USER" "$HT_HOME"
 }
 
-# 4. uv system-wide at the path the deploy workflow calls (shared with the neighbouring service).
+# 4. uv system-wide at the path the deploy workflow calls (kept if already there).
 ensure_uv() {
   if [ -x "$UV" ]; then
     skip "uv installed ($UV)"
@@ -126,6 +144,7 @@ ensure_units() {
 main() {
   require_root
   require_chrome
+  resolve_repo
   ensure_user
   ensure_packages
   ensure_repo
@@ -134,7 +153,7 @@ main() {
   ensure_dirs
   ensure_units
   log "done. Left untouched: $HT_HOME/.env - the deploy workflow writes it (0600 $HT_USER:$HT_USER)."
-  log "Not enabled: the timers. First run by hand (RUNBOOK.md: probe, checkin --force,"
+  log "Not enabled: the timers. First run by hand (docs/guides/deployment.md: probe, checkin --force,"
   log "checkout --force), then enable them:"
   log "  systemctl enable --now horizon-checkin.timer horizon-checkout.timer"
 }

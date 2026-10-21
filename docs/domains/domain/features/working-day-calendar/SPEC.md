@@ -11,7 +11,7 @@ Monday to Friday as the fallback, and names which rule decided.
 
 ### Purpose
 
-Runs happen on working days of the Russian production calendar. The calendar is an
+Runs happen on working days of a production calendar (isdayoff.ru). The calendar is an
 external service and may be unreachable, so the decision needs a fallback, and the
 owner needs to know which of the two rules decided a given day.
 
@@ -26,7 +26,7 @@ into a `WorkingDayVerdict`:
   `WEEKDAY_FALLBACK`.
 
 The source travels into the `RunReport`, and the notification names it in its
-"Calendar:" line.
+"Calendar:" line (`report.calendar`, in the configured language).
 
 ## Invariants
 

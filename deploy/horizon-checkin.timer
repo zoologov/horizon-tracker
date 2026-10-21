@@ -1,5 +1,5 @@
 [Unit]
-Description=Start the Horizon morning check-in daily at 07:30 Moscow time, its range start
+Description=Start the Horizon morning check-in daily at 07:30 Europe/Moscow, its range start
 
 [Timer]
 # Every day, not Mon-Fri: the working-day verdict (isdayoff.ru, falling back to
@@ -7,10 +7,13 @@ Description=Start the Horizon morning check-in daily at 07:30 Moscow time, its r
 # At the start of the range the day's moment is drawn from (07:30-08:10), never
 # later: the service draws today's moment and waits for it in its own process,
 # and a run started after the moment's 5-minute window only reports it missed.
+# The zone is this repository's configured HT_TIMEZONE: a host in another zone
+# changes it here and in the GitHub variable together, and the deploy refuses a
+# run whose HT_TIMEZONE differs (docs/guides/deployment.md).
 OnCalendar=*-*-* 07:30:00 Europe/Moscow
 Unit=horizon-checkin.service
 
-# Never catch up a run missed while the VPS was down: a late run is worse than
+# Never catch up a run missed while the host was down: a late run is worse than
 # none, and a catch-up at boot would land after the range start anyway, where the
 # service only waits for a moment it may already have missed.
 Persistent=no

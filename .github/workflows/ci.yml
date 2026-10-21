@@ -16,10 +16,11 @@ name: CI
 #  1. Inside a run: every step below fails its job. There is no continue-on-error and no
 #     `|| true`; a step that must stay informational decides its own outcome and prints a
 #     ::warning annotation instead, because continue-on-error turns a red step into a
-#     `success` conclusion that no annotation reports (measured on the neighbouring service's PR #138).
-#  2. On a merge: whether ci-ok is REQUIRED is a branch-protection setting, which HT-005
-#     BEAD-03 (the owner) sets or records as unavailable. Until then a red run is visible
-#     on the PR and does not stop a merge by itself.
+#     `success` conclusion that no annotation reports (measured on a pull request of a
+#     neighbouring project).
+#  2. On a merge: whether ci-ok is REQUIRED is a branch-protection setting, which the
+#     repository's administrator sets where the GitHub plan offers it. Without it a red
+#     run is visible on the PR and does not stop a merge by itself.
 #
 # Every action is pinned to a full commit SHA, its version in the comment; Dependabot
 # (.github/dependabot.yml) moves those pins and uv.lock. It does not move the two tools

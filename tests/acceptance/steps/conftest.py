@@ -41,7 +41,8 @@ COMMANDS = {"check-in": "checkin", "check-out": "checkout"}
 # A scene with no pin builds the notifier in the language HT_LANGUAGE names, as the service.
 OWNERS_NOTIFICATION_LANGUAGE = Language.RU
 
-# The schedule every scene runs under: the deployed ranges and day length (RUNBOOK §2.2)
+# The schedule every scene runs under: the deployed ranges and day length (the .env contract
+# in docs/guides/deployment.md)
 # under a seed of the suite's own, so each feature can name the moments a date draws. They
 # were computed by an oracle of the RFC formula that imports nothing from the project; the
 # dates the features name draw these (check-in / check-out):

@@ -28,10 +28,10 @@ first bad one:
 | `HORIZON_URL` | `horizon_url` | required | not blank |
 | `HORIZON_USERNAME` | `username` | required, secret | not blank |
 | `HORIZON_PASSWORD` | `password` | required, secret | not blank |
-| `HORIZON_DESKTOP` | `desktop` | `DEV desktop` | — |
+| `HORIZON_DESKTOP` | `desktop` | `DEV desktop` (an example title; set it to your launch item) | — |
 | `TELEGRAM_BOT_TOKEN` | `telegram_token` | required, secret | not blank |
 | `TELEGRAM_CHAT_ID` | `telegram_chat_id` | required, secret | not blank |
-| `HT_TIMEZONE` | `timezone` | `Europe/Moscow` | a known IANA zone |
+| `HT_TIMEZONE` | `timezone` | `Europe/Moscow` (the code's default; set it to your zone, e.g. `Europe/Berlin`) | a known IANA zone |
 | `HT_CHECKIN_RANGE` | `checkin_range` | `07:30-08:10` | `HH:MM-HH:MM`, start before end |
 | `HT_CHECKOUT_RANGE` | `checkout_range` | `16:30-17:10` | `HH:MM-HH:MM`, start before end, starts after the check-in range ends |
 | `HT_SESSION_LENGTH_MINUTES` | `session_length` | `540` | whole minutes 0..1440, not 0 |
@@ -58,9 +58,9 @@ A refusal carries its problem as a `Message` (a catalogue key and its fields, se
 `messages` SPEC), so it reads in either language; `str(error)` is the English text, the
 one the log carries. When the domain's rules refuse a value, the domain's reason (the
 `reason` of its `ScheduleError`) is the problem's `{error}` field, itself a `Message`, so
-a Russian line is Russian from end to end:
+a line is in one language from end to end. In English:
 `HT_CHECKIN_RANGE: not a valid range '08:10-07:30': range start 08:10:00 must be before
-its end 07:30:00`. A range whose hour or minute no clock shows (`25:00-26:00`)
+its end 07:30:00`; `HT_LANGUAGE=ru` renders the same keys, the domain's reason included, in Russian. A range whose hour or minute no clock shows (`25:00-26:00`)
 is refused before the domain is asked, with `config.no_such_time` as the reason.
 
 ## Invariants
@@ -113,8 +113,8 @@ Module `src/horizon_tracker/infrastructure/config.py`:
 
 The CLI logs a `ConfigError` on stderr as `configuration error: <VAR>: <problem>` in
 English and exits 1; when the configured language is not English it also prints the
-error in that language on stderr, the catalogue's `config.error` text, which `ru` renders in Russian
-(`docs/services/cli.md`).
+error in that language on stderr, the catalogue's `config.error` text, which `ru` renders
+in Russian (`docs/services/cli.md`).
 
 ## Testing
 

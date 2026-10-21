@@ -26,27 +26,25 @@ leaves it `None`. `__post_init__` checks the type of every field and refuses a v
 of the wrong type with `TypeError`, rather than trusting the caller.
 
 `render(report, language)` builds the message text from the message catalogue
-([messages](../messages/SPEC.md)) in `language`. The same failure in English and in
-Russian:
+([messages](../messages/SPEC.md)) in `language`. A failure in English, with
+`HT_TIMEZONE=Europe/Berlin` as an example zone:
 
 ```text
 Check-in failed
-Time: 21.10.2026 07:39:12 MSK, planned for 07:38
+Time: 21.10.2026 07:39:12 CEST, planned for 07:38
 Calendar: the isdayoff.ru production calendar
 Reason: the desktop did not open
 ```
 
-```text
-Check-in failed
-Time: 21.10.2026 07:39:12 MSK, planned for 07:38
-Calendar: the isdayoff.ru production calendar
-Reason: the desktop did not open
-```
+`HT_LANGUAGE=ru` renders the same four catalogue keys in Russian. Only the words
+change; the times and their format stay as they are. The `ru` text of the headline
+above, for instance, is `Вход не удался`; every `ru` text holds Cyrillic, every `en`
+text none, and the catalogue's own test keeps it so.
 
 The first line is the run kind and the outcome, one catalogue key per pair
 (`report.checkin.failed`). The time line carries the actual time with the abbreviation
-of the configured zone (`MSK` for the default `Europe/Moscow`), followed by the planned
-moment (`planned for HH:MM`, the `report.time_planned` key) when `planned_at` is set. The calendar
+of the configured zone (`CEST` for `Europe/Berlin` in summer, for example), followed by the planned
+moment (`planned for HH:MM` in English, the `report.time_planned` key) when `planned_at` is set. The calendar
 line names the source: the isdayoff.ru calendar, the Monday-Friday fallback, or "not
 asked, manual run --force" for a run that asked no calendar. The reason line is present
 only when there is a reason. The two formatted times are the only values the report puts
@@ -83,7 +81,7 @@ Module `src/horizon_tracker/domain/report.py`:
 - `render(report: RunReport, language: Language) -> str` — the notification text in
   `language`; there is no default, so every caller names the language it renders in.
   When `planned_at` is set, the time line carries it beside the actual time:
-  `Time: 20.10.2026 07:56:12 MSK, planned for 07:43`.
+  `Time: 20.10.2026 07:56:12 CEST, planned for 07:43`.
 
 ## Testing
 

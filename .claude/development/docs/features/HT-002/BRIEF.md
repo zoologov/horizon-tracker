@@ -60,7 +60,7 @@ In `src/horizon_tracker/infrastructure/horizon_playwright.py`:
   (the `li`/`button` structure, the dynamic `primary-monitor`, `[hidden]` on the menu item);
   the bundle `app-htmlaccess.4eb7424a56fc03317f06.js` is in the cloud session's scratchpad and with
   the local agent for cross-checking. The adapter tests gain the case "desktop without a session →
-  ALREADY_LOGGED_OFF».
+  ALREADY_LOGGED_OFF".
 
 The live check after the roll-out — by the local agent from the VPS: `checkin --force`,
 a check in an external Horizon client that the session exists and is disconnected, `checkout --force`, a check that

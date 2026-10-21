@@ -4,12 +4,12 @@ One responsibility: turning a message key into its text in a language. The catal
 plain data in code (two languages and a few dozen keys do not earn gettext), and
 ``text(key, language, **fields)`` fills a text's named fields with ``str.format``. The
 use cases hand out keys and values; whoever shows them to a person picks the language.
-Logs are not in here: the operator reads them in English whatever the owner reads.
+Logs are not in here: the operator reads them in English whatever the language.
 
 Every key has a text in every ``Language`` -- ``missing_translations()`` names any pair
-that does not, and a test holds the catalogue to an empty answer. The English texts of
-the probe, the dry run and the configuration errors are the very strings those commands
-print today, so routing them through here changes no English output.
+that does not, and a test holds the catalogue to an empty answer. The catalogue holds
+the texts of the notification, the probe, the dry run and the configuration errors:
+English is the default language, Russian the other one.
 """
 
 # beadloom:domain=domain

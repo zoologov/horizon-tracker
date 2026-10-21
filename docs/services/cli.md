@@ -36,8 +36,8 @@ The two flags combine.
 A configuration error is logged on stderr as `configuration error: <VAR>: <problem>`
 without the credential's value, and every command exits 1. The log line is English
 whatever the language. When `HT_LANGUAGE` names another language, the CLI also prints the
-error in it on stderr, below the log line (the catalogue's `config.error` text, in Russian for
-`ru`). An English reader gets the log line once. The Russian line is Russian throughout,
+error in it on stderr, below the log line (the catalogue's `config.error` text, which
+`HT_LANGUAGE=ru` renders in Russian). An English reader gets the log line once. The Russian line is Russian throughout,
 the domain's reason for refusing a range, a session length or a grace included. Only the
 variable, the value given and the language codes stay as written. The settings did not
 load, so the language is read on its own (`language_from_env`). An unknown `HT_LANGUAGE`
@@ -89,8 +89,10 @@ serves and Chrome for the version it reports once started.
 
 ### `horizon checkin --dry-run`, `horizon checkout --dry-run`
 
+With `HT_TIMEZONE=Europe/Berlin` as an example:
+
 ```text
-dry run: checkin at 2026-10-21 07:30:00 MSK
+dry run: checkin at 2026-10-21 07:30:00 CEST
 would run now: yes (run)
 would wait until: 07:41
 calendar: isdayoff.ru
@@ -116,8 +118,8 @@ the retries and the one Telegram report.
 | `HORIZON_URL` | the HTML Access portal, e.g. `https://horizon.example.com/portal/webclient/` (required) |
 | `HORIZON_USERNAME`, `HORIZON_PASSWORD` | the AD account (secret; masked in every repr and log) |
 | `HORIZON_DESKTOP` | the launch item's title, e.g. `DEV desktop` |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | the the notification bot bot token and the owner's chat (secret) |
-| `HT_TIMEZONE` | the IANA zone of every wall time: the ranges, the drawn moments and the report, default `Europe/Moscow` |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | the Telegram bot's token and the chat its reports go to (secret) |
+| `HT_TIMEZONE` | the IANA zone of every wall time: the ranges, the drawn moments and the report, e.g. `Europe/Berlin`; the code's default is `Europe/Moscow` |
 | `HT_CHECKIN_RANGE` | `HH:MM-HH:MM` the check-in moment is drawn from, default `07:30-08:10`; the check-in timer fires at its start |
 | `HT_CHECKOUT_RANGE` | `HH:MM-HH:MM` the check-out moment is clipped to, default `16:30-17:10`; the check-out timer fires at its start |
 | `HT_SESSION_LENGTH_MINUTES` | the check-out moment is at least this long after the check-in one when the range allows, default `540` |

@@ -66,7 +66,7 @@ node owns that the derivation could not read; a count there is a question to ans
 
 | Axis | Node | Sites | Owns unread | In scope | Why |
 |------|------|-------|-------------|----------|-----|
-| co-writers | — | unresolved — no declared effect rule found a sink this target reaches, so there is no commit point to ask who else writes through | — | no | no row: no seed found, no node named |
+| co-writers | — | unresolved — no declared effect rule found a sink this target reaches, so there is no commit point to ask who else writes through | — | no | no row: no seed was found, no node was named |
 | callers | windowed-run | 1 — `src/horizon_tracker/application/windowed_run.py:130` | none | yes | this is where the wait for the moment before the first attempt and the window from the moment appear |
 | branches | schedule | `decide`: 2 branch(es), 7 exit form(s), over every call | none | yes | `decide` does not change, but the node gets the draw of the moments and builds a `Window` from the moment |
 | branches | schedule | `__post_init__`: 1 branch(es), 1 exit form(s), over every call | none | yes | validation of the new values (range, day length) |

@@ -14,7 +14,7 @@ from tests.support.repository_root import repository_root
 
 ROOT: Path = repository_root()
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
-RUNBOOK = ROOT / "deploy" / "RUNBOOK.md"
+DEPLOYMENT_GUIDE = ROOT / "docs" / "guides" / "deployment.md"
 
 # A workflow is untyped YAML; the tests narrow each value as they read it.
 Mapping = dict[str, Any]

@@ -246,7 +246,7 @@ beadloom install-hooks           # pre-commit (lint + sync-check + coherence) + 
 ## 3. File Memory (protection against auto-compaction)
 
 <!-- beadloom:auto-start doc-language -->
-**Document language:** ALL documents (PRD, RFC, CONTEXT, PLAN, ACTIVE, BRIEF) MUST be written in Russian — set by `language: ru` in `.beadloom/flow.yml`.
+**Document language:** ALL documents (PRD, RFC, CONTEXT, PLAN, ACTIVE, BRIEF) MUST be written in English — set by `language: en` in `.beadloom/flow.yml`.
 <!-- beadloom:auto-end -->
 
 ```

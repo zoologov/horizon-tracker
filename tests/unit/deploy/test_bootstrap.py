@@ -3,8 +3,9 @@
 The script runs under bash with a PATH holding only recording stubs, so every external
 command it calls is logged and none is executed; a command without a stub is "not
 found" and fails the run instead of reaching the host. The assertions read that log:
-the units are installed and reloaded, the timers are never enabled or started, and
-the secrets file is never named.
+the units are installed and reloaded, the timers are never enabled or started, the
+secrets file is never named, and the repository cloned is the one the script came from
+unless ``HT_REPO`` names another.
 """
 
 import shutil
@@ -28,9 +29,17 @@ RECORD = """#!{bash}
 {{ printf '%s' "${{0##*/}}"; for arg in "$@"; do printf '\\t%s' "$arg"; done; printf '\\n'; }} \\
   >> "$STUB_LOG"
 """
+# The origin of the clone bootstrap.sh runs from, as `git remote get-url origin` prints it.
+ORIGIN = "https://example.invalid/horizon-tracker.git"
 BEHAVIOUR = {
     "id": 'echo "${STUB_UID:-0}"\n',
     "getent": 'exit "${STUB_GETENT_EXIT:-0}"\n',
+    # A clone without an origin makes git exit 2, as `git remote get-url` does.
+    "git": (
+        'case "$*" in *"remote get-url origin"*)\n'
+        '  if [ -n "${STUB_ORIGIN:-}" ]; then echo "$STUB_ORIGIN"; else exit 2; fi ;;\n'
+        "esac\n"
+    ),
 }
 STUBS = [
     "id",
@@ -86,7 +95,13 @@ def bootstrap(tmp_path: Path, chrome: Path, **env: str) -> Run:
     log.touch()
     result = subprocess.run(
         [BASH, str(BOOTSTRAP)],
-        env={"PATH": str(stubs), "STUB_LOG": str(log), "HT_CHROME_PATH": str(chrome), **env},
+        env={
+            "PATH": str(stubs),
+            "STUB_LOG": str(log),
+            "STUB_ORIGIN": ORIGIN,
+            "HT_CHROME_PATH": str(chrome),
+            **env,
+        },
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -129,6 +144,35 @@ def test_creates_a_nologin_system_user_homed_in_opt(tmp_path: Path, chrome: Path
 def test_an_existing_user_is_left_alone(tmp_path: Path, chrome: Path) -> None:
     run = bootstrap(tmp_path, chrome, STUB_GETENT_EXIT="0")
     assert run.called("useradd") == []
+
+
+def clone_source(run: Run) -> str:
+    [clone] = [call for call in run.called("git") if call[:1] == ["clone"]]
+    return clone[1]
+
+
+def test_clones_the_repository_the_script_came_from(tmp_path: Path, chrome: Path) -> None:
+    run = bootstrap(tmp_path, chrome)
+    assert run.returncode == 0, run.stderr
+    assert clone_source(run) == ORIGIN
+
+
+def test_ht_repo_names_another_repository_to_clone(tmp_path: Path, chrome: Path) -> None:
+    other = "git@github.com:example-owner/horizon-tracker.git"
+    run = bootstrap(tmp_path, chrome, HT_REPO=other)
+    assert run.returncode == 0, run.stderr
+    assert clone_source(run) == other
+
+
+def test_no_repository_to_clone_is_named_before_anything_changes(
+    tmp_path: Path, chrome: Path
+) -> None:
+    # No built-in default: a fork must never clone someone else's repository.
+    run = bootstrap(tmp_path, chrome, STUB_ORIGIN="")
+    assert run.returncode == 1
+    assert "HT_REPO" in run.stderr
+    assert {call[0] for call in run.calls} <= {"id", "git"}
+    assert not [call for call in run.called("git") if call[:1] == ["clone"]]
 
 
 def test_installs_the_runtime_packages(tmp_path: Path, chrome: Path) -> None:

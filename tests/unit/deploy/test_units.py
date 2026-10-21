@@ -16,6 +16,8 @@ import pytest
 from tests.support.repository_root import repository_root
 
 DEPLOY_DIR = repository_root() / "deploy"
+# The guide carries the .env contract the deploy writes; the timers must agree with it.
+GUIDE = repository_root() / "docs" / "guides" / "deployment.md"
 HOME = "/opt/horizon-tracker"
 RUNS = [
     pytest.param("checkin", "07:30", id="checkin"),
@@ -28,6 +30,10 @@ RANGE_VARIABLE = {"checkin": "HT_CHECKIN_RANGE", "checkout": "HT_CHECKOUT_RANGE"
 # last part with margin; it is what the 15-minute timeout of HT-001 held beside its window.
 RUN_ALLOWANCE_MINUTES = 10
 TIMEOUT = "60min"
+# The zone the shipped timers fire in: this repository's configured value. A host in
+# another zone changes it in both timers together with HT_TIMEZONE; the deploy refuses
+# a run whose HT_TIMEZONE differs (test_deploy_workflow, the zone check).
+SHIPPED_ZONE = "Europe/Moscow"
 
 Unit = dict[str, dict[str, list[str]]]
 
@@ -65,17 +71,21 @@ def timer(run: str) -> Unit:
     return parse_unit(DEPLOY_DIR / f"horizon-{run}.timer")
 
 
-def runbook_minutes(text: str, variable: str) -> int:
-    """The whole minutes RUNBOOK §2.2 gives ``variable``."""
+def guide() -> str:
+    return GUIDE.read_text(encoding="utf-8")
+
+
+def guide_minutes(text: str, variable: str) -> int:
+    """The whole minutes the guide's ``.env`` contract gives ``variable``."""
     values = re.findall(rf"^{variable}=(\d+)$", text, re.M)
-    assert len(values) == 1, f"{variable}: expected one line in the RUNBOOK, got {values}"
+    assert len(values) == 1, f"{variable}: expected one line in the guide, got {values}"
     return int(values[0])
 
 
-def runbook_range(text: str, variable: str) -> tuple[int, int]:
-    """The range RUNBOOK §2.2 gives ``variable``, as minutes since midnight."""
+def guide_range(text: str, variable: str) -> tuple[int, int]:
+    """The range the guide's ``.env`` contract gives ``variable``, as minutes since midnight."""
     found = re.findall(rf"^{variable}=(\d\d):(\d\d)-(\d\d):(\d\d)$", text, re.M)
-    assert len(found) == 1, f"{variable}: expected one line in the RUNBOOK, got {found}"
+    assert len(found) == 1, f"{variable}: expected one line in the guide, got {found}"
     sh, sm, eh, em = (int(part) for part in found[0])
     return sh * 60 + sm, eh * 60 + em
 
@@ -108,9 +118,9 @@ def test_service_cannot_hang_until_the_next_run(run: str, start: str) -> None:
 
 @pytest.mark.parametrize(("run", "start"), RUNS)
 def test_service_timeout_covers_the_wait_the_window_and_the_run(run: str, start: str) -> None:
-    runbook = (DEPLOY_DIR / "RUNBOOK.md").read_text(encoding="utf-8")
-    range_start, range_end = runbook_range(runbook, RANGE_VARIABLE[run])
-    grace = runbook_minutes(runbook, "HT_WINDOW_GRACE_MINUTES")
+    text = guide()
+    range_start, range_end = guide_range(text, RANGE_VARIABLE[run])
+    grace = guide_minutes(text, "HT_WINDOW_GRACE_MINUTES")
     timeout = only(service(run), "Service", "TimeoutStartSec")
     minutes = re.fullmatch(r"(\d+)min", timeout)
     assert minutes, timeout
@@ -131,9 +141,9 @@ def test_service_is_started_only_by_its_timer(run: str, start: str) -> None:
 
 
 @pytest.mark.parametrize(("run", "start"), RUNS)
-def test_timer_fires_at_the_range_start_in_moscow(run: str, start: str) -> None:
+def test_timer_fires_at_the_range_start_in_the_shipped_zone(run: str, start: str) -> None:
     unit = timer(run)
-    assert only(unit, "Timer", "OnCalendar") == f"*-*-* {start}:00 Europe/Moscow"
+    assert only(unit, "Timer", "OnCalendar") == f"*-*-* {start}:00 {SHIPPED_ZONE}"
     assert only(unit, "Timer", "Unit") == f"horizon-{run}.service"
     assert only(unit, "Install", "WantedBy") == "timers.target"
 
@@ -151,19 +161,17 @@ def test_timer_is_not_coalesced_into_the_range(run: str, start: str) -> None:
 
 
 @pytest.mark.parametrize(("run", "start"), RUNS)
-def test_runbook_range_opens_when_the_timer_fires(run: str, start: str) -> None:
+def test_the_guide_range_opens_when_the_timer_fires(run: str, start: str) -> None:
     # A timer later than the range start skips every moment drawn before it as missed;
     # one earlier skips the run as too early. Only the start itself waits for the moment.
-    runbook = (DEPLOY_DIR / "RUNBOOK.md").read_text(encoding="utf-8")
-    range_start, _ = runbook_range(runbook, RANGE_VARIABLE[run])
+    range_start, _ = guide_range(guide(), RANGE_VARIABLE[run])
     assert f"{range_start // 60:02d}:{range_start % 60:02d}" == start
 
 
-def test_runbook_names_no_retired_window_variable() -> None:
+def test_the_guide_names_no_retired_window_variable() -> None:
     # Settings refuses HT_CHECKIN_WINDOW / HT_CHECKOUT_WINDOW: a .env copied from a
-    # RUNBOOK that still shows them would stop every run with a configuration error.
-    runbook = (DEPLOY_DIR / "RUNBOOK.md").read_text(encoding="utf-8")
-    assert not re.search(r"^HT_CHECK(IN|OUT)_WINDOW=", runbook, re.M)
+    # guide that still showed them would stop every run with a configuration error.
+    assert not re.search(r"^HT_CHECK(IN|OUT)_WINDOW=", guide(), re.M)
 
 
 @pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze absent")
@@ -177,7 +185,7 @@ def test_systemd_accepts_the_calendar_expression(run: str, start: str) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert f"{start}:00 Europe/Moscow" in result.stdout
+    assert f"{start}:00 {SHIPPED_ZONE}" in result.stdout
 
 
 @pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze absent")

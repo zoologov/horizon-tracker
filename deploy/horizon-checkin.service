@@ -1,6 +1,6 @@
 [Unit]
-Description=Horizon morning check-in: open DEV desktop until Windows logs on, then disconnect
-Documentation=file:///opt/horizon-tracker/deploy/RUNBOOK.md
+Description=Horizon morning check-in: open the desktop until Windows logs on, then disconnect
+Documentation=file:///opt/horizon-tracker/docs/guides/deployment.md
 # The run reaches the portal, isdayoff.ru and Telegram, so it waits for a
 # configured network rather than for network.target.
 After=network-online.target
@@ -13,7 +13,8 @@ Wants=network-online.target
 # skip and exits 0.
 Type=oneshot
 
-# A separate system user beside the neighbouring service; the neighbour's directory is never touched.
+# A system user of its own: the service shares no user and no home with any
+# other service on the host.
 User=horizon
 Group=horizon
 WorkingDirectory=/opt/horizon-tracker

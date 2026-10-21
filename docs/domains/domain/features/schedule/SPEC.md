@@ -33,7 +33,7 @@ computes `hmac-sha256(seed, day.isoformat())` and reads two 32-bit words of the 
 
 The draw is a pure function of the date and the seed. The morning and the evening run,
 the probe and a dry run of the same date therefore name the same pair without sharing
-any state. With the deployed defaults (check-in 07:30-08:10, session 540 minutes, up to
+any state. With the defaults (check-in 07:30-08:10, session 540 minutes, up to
 10 extra minutes, check-out 16:30-17:10) the check-out falls 540 to 550 minutes after
 the check-in, and it is clipped to 17:10 when the sum would pass the end of the range.
 

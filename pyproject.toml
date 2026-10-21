@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "horizon-tracker"
 version = "0.1.0"
-description = "Scheduled check-in/check-out of a VMware Horizon VDI session, run on a VPS"
+description = "Scheduled check-in and check-out of a VMware Horizon VDI desktop at moments drawn inside configured ranges, reported to Telegram"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

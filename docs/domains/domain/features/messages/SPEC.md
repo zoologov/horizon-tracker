@@ -74,7 +74,7 @@ is absent or blank, sorted by key and then in `Language` order. For the shipped 
 the answer is an empty list, and a test holds it there.
 
 Logs are not in the catalogue: the operator reads the journal in English whatever
-language the owner reads.
+language `HT_LANGUAGE` picks. English is the default language, Russian the other one.
 
 ## Invariants
 

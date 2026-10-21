@@ -88,7 +88,7 @@ code marks each as a hypothesis in the one method that holds it:
   it since; "Confirming a log off" below is why that matters.
 
 The probe never logs in, so it cannot confirm either reading. The first measurement is
-the manual `checkin --force` and `checkout --force` on the VPS (`deploy/RUNBOOK.md` §4).
+the manual `checkin --force` and `checkout --force` on the VPS (`docs/guides/deployment.md`).
 
 ### Confirming a log off
 

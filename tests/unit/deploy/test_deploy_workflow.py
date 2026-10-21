@@ -1,10 +1,11 @@
 """Tests for the deploy workflow: what reaches the VPS, and what never reaches the log.
 
 The step that builds ``.env`` is the one piece of the deploy that runs on the runner
-alone, so it is executed here with stand-in secrets and its file is read back with
-systemd's own parsing rules: every value must arrive literally, quotes, backslashes and
-dollars included. The rest is a contract with the VPS that only a real deploy proves
-(PLAN BEAD-13); here it is held to the commands BEAD-08 published.
+alone, so it is executed here with stand-in secrets and variables, and its file is read
+back with systemd's own parsing rules: every value must arrive literally, quotes,
+backslashes and dollars included. The preflight and the time-zone check run here too,
+against a fake ``ssh``. The rest is a contract with the VPS that only a real deploy
+proves; here it is held to the commands the deployment guide publishes.
 """
 
 import os
@@ -19,8 +20,8 @@ from horizon_tracker.domain.messages import Language
 from horizon_tracker.infrastructure.config import Settings
 from tests.support.systemd_env import parse_env_file
 from tests.support.workflows import (
+    DEPLOYMENT_GUIDE,
     ROOT,
-    RUNBOOK,
     WORKFLOWS_DIR,
     Mapping,
     all_strings,
@@ -46,11 +47,17 @@ SECRETS = {
 # from HORIZON_USERNAME (RFC HT-003, "API Changes").
 OPTIONAL_SECRETS = {"HT_JITTER_SEED"}
 # Not secret, so an environment variable rather than a secret, and optional the same way:
-# undefined, it is left out of .env and the service speaks English (RFC HT-007). The owner
-# defines HT_LANGUAGE=ru in horizon-vps; a hand edit of .env would not survive a deploy.
+# undefined, it is left out of .env and the service speaks English (RFC HT-007). A hand
+# edit of .env would not survive a deploy, so a host's language is set in horizon-vps.
 OPTIONAL_VARIABLES = {"HT_LANGUAGE"}
+# Per-host values, not secret, that no workflow literal may carry: the portal and the
+# desktop have no default, so the preflight refuses a run without them.
+REQUIRED_VARIABLES = {"HORIZON_URL", "HORIZON_DESKTOP"}
+# Per-host as well, with the default the workflow states when the variable is undefined.
+DEFAULTED_VARIABLES = {"HT_TIMEZONE": "UTC"}
+VARIABLES = REQUIRED_VARIABLES | set(DEFAULTED_VARIABLES) | OPTIONAL_VARIABLES
 # The schedule values of RFC HT-003 "API Changes", pinned here rather than read back
-# from the workflow or the RUNBOOK, which the contract test only holds equal.
+# from the workflow or the guide, which the contract test only holds equal.
 SCHEDULE = {
     "HT_CHECKIN_RANGE": "07:30-08:10",
     "HT_CHECKOUT_RANGE": "16:30-17:10",
@@ -64,11 +71,13 @@ UNITS = sorted(p.name for p in (ROOT / "deploy").iterdir() if p.suffix in {".ser
 TIMERS = "horizon-checkin.timer horizon-checkout.timer"
 BUILD_ENV = "Build .env"
 PREFLIGHT = "Preflight: reach the VPS"
+ZONE_CHECK = "Check the timers' time zone"
 SUMMARY = "Deploy summary"
 STEP_ORDER = [
     "Set up SSH",
     PREFLIGHT,
     "Update the code",
+    ZONE_CHECK,
     BUILD_ENV,
     "Write .env",
     "Install the units",
@@ -78,13 +87,21 @@ STEP_ORDER = [
 # Stand-ins chosen to break a naive writer: quotes of both kinds, a backslash, `$`,
 # a backtick, `#`, `=`, outer spaces and non-ASCII.
 STAND_INS = {
-    "HORIZON_USERNAME": "ETALON\\j.doe",
+    "HORIZON_USERNAME": "EXAMPLE\\j.doe",
     "HORIZON_PASSWORD": " p@ss \"w0rd\" 'q' $HOME ${X} `id` \\n # ; = end ",
     "TELEGRAM_BOT_TOKEN": "123456:AA-bb_cc$dd",
     "TELEGRAM_CHAT_ID": "-1001234567890",
 }
+# What the horizon-vps environment of a test defines: a portal and a desktop name with a
+# space in it, as a real launch item's title has.
+VARIABLE_STAND_INS = {
+    "HORIZON_URL": "https://horizon.example.com/portal/webclient/",
+    "HORIZON_DESKTOP": "DEV desktop",
+}
 SECRET_EXPRESSION = re.compile(r"^\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}$")
-VARIABLE_EXPRESSION = re.compile(r"^\$\{\{\s*vars\.([A-Z_]+)\s*\}\}$")
+# ``vars.NAME``, or ``vars.NAME || 'default'``: GitHub's || yields the default for an
+# undefined variable, which evaluates to the empty string.
+VARIABLE_EXPRESSION = re.compile(r"^\$\{\{\s*vars\.([A-Z_]+)(?:\s*\|\|\s*'([^']*)')?\s*\}\}$")
 BASH = shutil.which("bash")
 
 
@@ -96,44 +113,66 @@ def script(name: str) -> str:
     return str(step_named(deploy(), "deploy", name)["run"])
 
 
-def runbook_contract() -> dict[str, str]:
-    """The ``.env`` RUNBOOK §2.2 shows, read with systemd's rules."""
-    text = RUNBOOK.read_text(encoding="utf-8")
+def guide_contract() -> dict[str, str]:
+    """The ``.env`` the deployment guide shows, read with systemd's rules."""
+    text = DEPLOYMENT_GUIDE.read_text(encoding="utf-8")
     block = re.search(r"```ini\n(.*?)```", text, re.DOTALL)
-    assert block, "RUNBOOK has no ```ini block for .env"
+    assert block, "the deployment guide has no ```ini block for .env"
     return parse_env_file(block.group(1))
+
+
+def evaluate(value: object) -> str:
+    """A step's env value as the runner sees it: stand-ins for what horizon-vps defines.
+
+    Required secrets and variables are defined; an optional secret or variable is left
+    undefined, as a fresh environment has it, so it evaluates to the empty string - or to
+    the default its expression names.
+    """
+    secret = SECRET_EXPRESSION.match(str(value))
+    variable = VARIABLE_EXPRESSION.match(str(value))
+    if variable is not None:
+        name, default = variable.group(1), variable.group(2)
+        assert name in VARIABLES, name
+        return VARIABLE_STAND_INS.get(name, default or "")
+    if secret is None:
+        return str(value)
+    if secret.group(1) in OPTIONAL_SECRETS:
+        return ""
+    return STAND_INS[secret.group(1)]
+
+
+def step_inputs(name: str, overrides: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment step ``name`` runs with; ``overrides`` replace evaluated values."""
+    declared = step_named(deploy(), "deploy", name)["env"]
+    env = {key: evaluate(value) for key, value in declared.items()}
+    env.update(overrides or {})
+    return env
+
+
+def run_step(
+    name: str, tmp_path: Path, env: dict[str, str], path: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run step ``name``'s script under bash -eo pipefail, as the runner does."""
+    assert BASH is not None
+    base = {"PATH": path or os.environ["PATH"], "RUNNER_TEMP": str(tmp_path)}
+    return subprocess.run(
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script(name)],
+        env={**base, **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def build_env(
     tmp_path: Path, overrides: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    """Run the build step as the runner would: its env, stand-ins in place of secrets.
+    """Run the build step as the runner would: its env, stand-ins in place of secrets."""
+    return run_step(BUILD_ENV, tmp_path, step_inputs(BUILD_ENV, overrides))
 
-    An optional secret or variable is left undefined, as in the horizon-vps environment
-    today, so it reaches the step as the empty string; ``overrides`` defines it.
-    """
-    assert BASH is not None
-    env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(tmp_path)}
-    for key, value in step_named(deploy(), "deploy", BUILD_ENV)["env"].items():
-        secret = SECRET_EXPRESSION.match(str(value))
-        variable = VARIABLE_EXPRESSION.match(str(value))
-        if variable is not None:
-            assert variable.group(1) in OPTIONAL_VARIABLES, variable.group(1)
-            env[key] = ""
-        elif secret is None:
-            env[key] = str(value)
-        elif secret.group(1) in OPTIONAL_SECRETS:
-            env[key] = ""
-        else:
-            env[key] = STAND_INS[secret.group(1)]
-    env.update(overrides or {})
-    return subprocess.run(
-        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script(BUILD_ENV)],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+
+def built_values(tmp_path: Path) -> dict[str, str]:
+    return parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
 
 
 # --- triggers and jobs ------------------------------------------------------------------
@@ -166,7 +205,7 @@ def test_deploys_never_overlap_and_never_cancel_each_other() -> None:
     assert concurrency["cancel-in-progress"] is False
 
 
-def test_deploy_steps_run_in_the_runbook_order() -> None:
+def test_deploy_steps_run_in_the_order_the_guide_describes() -> None:
     names = [s["name"] for s in steps(deploy(), "deploy") if s.get("name") in STEP_ORDER]
     assert names == STEP_ORDER
 
@@ -183,7 +222,24 @@ def test_every_secret_of_the_environment_is_used_and_no_other() -> None:
 
 def test_every_variable_of_the_environment_is_used_and_no_other() -> None:
     named = {m.group(1) for s in all_strings(deploy()) for m in re.finditer(r"vars\.([A-Z_]+)", s)}
-    assert named == OPTIONAL_VARIABLES
+    assert named == VARIABLES
+
+
+def test_the_portal_the_desktop_and_the_zone_are_read_from_the_environment() -> None:
+    # Per-host values: a workflow literal would put one host's portal on every fork.
+    env = step_named(deploy(), "deploy", BUILD_ENV)["env"]
+    assert env["HORIZON_URL"] == "${{ vars.HORIZON_URL }}"
+    assert env["HORIZON_DESKTOP"] == "${{ vars.HORIZON_DESKTOP }}"
+    assert env["HT_TIMEZONE"] == "${{ vars.HT_TIMEZONE || 'UTC' }}"
+
+
+def test_the_steps_that_read_a_variable_read_it_the_same_way() -> None:
+    # The preflight refuses on the value the build writes; the zone check compares the
+    # timers with the zone the build writes. One expression each, or they could diverge.
+    build = step_named(deploy(), "deploy", BUILD_ENV)["env"]
+    for step in (PREFLIGHT, ZONE_CHECK):
+        for name, expression in step_named(deploy(), "deploy", step)["env"].items():
+            assert build[name] == expression, (step, name)
 
 
 def test_no_secret_is_echoed_to_the_log() -> None:
@@ -217,14 +273,44 @@ def test_env_file_gives_systemd_every_value_literally(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(BASH is None, reason="bash absent")
-def test_env_file_is_the_runbook_contract(tmp_path: Path) -> None:
-    contract = runbook_contract()
+def test_env_file_is_the_contract_the_guide_shows(tmp_path: Path) -> None:
+    # A value the guide shows as <secret ...> or <variable ...> is the one the
+    # environment supplied; every other value is shown as the workflow writes it.
+    contract = guide_contract()
+    inputs = step_inputs(BUILD_ENV)
     assert build_env(tmp_path).returncode == 0
-    values = parse_env_file((tmp_path / "horizon.env").read_text(encoding="utf-8"))
+    values = built_values(tmp_path)
     assert set(values) == set(contract)
     for name, shown in contract.items():
-        expected = STAND_INS[name] if shown.startswith("<") else shown
+        expected = inputs[name] if shown.startswith("<") else shown
         assert values[name] == expected, name
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_env_file_carries_the_portal_and_the_desktop_the_environment_names(
+    tmp_path: Path,
+) -> None:
+    assert build_env(tmp_path).returncode == 0
+    values = built_values(tmp_path)
+    for name, stand_in in VARIABLE_STAND_INS.items():
+        assert values[name] == stand_in, name
+    assert Settings.from_env(values).desktop == VARIABLE_STAND_INS["HORIZON_DESKTOP"]
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_an_undefined_time_zone_variable_writes_utc(tmp_path: Path) -> None:
+    assert build_env(tmp_path).returncode == 0
+    values = built_values(tmp_path)
+    assert values["HT_TIMEZONE"] == "UTC"
+    assert Settings.from_env(values).timezone.key == "UTC"
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_defined_time_zone_variable_reaches_the_settings(tmp_path: Path) -> None:
+    assert build_env(tmp_path, {"HT_TIMEZONE": "Europe/Berlin"}).returncode == 0
+    values = built_values(tmp_path)
+    assert values["HT_TIMEZONE"] == "Europe/Berlin"
+    assert Settings.from_env(values).timezone.key == "Europe/Berlin"
 
 
 @pytest.mark.skipif(BASH is None, reason="bash absent")
@@ -374,6 +460,133 @@ def test_the_preflight_reaches_the_vps_and_changes_nothing() -> None:
     assert not CHANGES.search(text.replace(f"{HOME}/.git", "")), text
 
 
+def recording_ssh(bin_dir: Path, answer: str = "") -> Path:
+    """An ``ssh`` that logs its arguments, prints ``answer`` and succeeds; returns the log."""
+    bin_dir.mkdir()
+    log = bin_dir.parent / "ssh.log"
+    (bin_dir / "answer").write_text(answer, encoding="utf-8")
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        f"#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> '{log}'\ncat '{bin_dir / 'answer'}'\n",
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    log.touch()
+    return log
+
+
+def with_fake_ssh(tmp_path: Path, answer: str = "") -> tuple[str, Path]:
+    log = recording_ssh(tmp_path / "bin", answer)
+    return f"{tmp_path / 'bin'}:{os.environ['PATH']}", log
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+@pytest.mark.parametrize("name", sorted(REQUIRED_VARIABLES))
+def test_the_preflight_refuses_a_run_without_the_portal_or_the_desktop(
+    tmp_path: Path, name: str
+) -> None:
+    path, log = with_fake_ssh(tmp_path)
+    result = run_step(PREFLIGHT, tmp_path, step_inputs(PREFLIGHT, {name: ""}), path)
+    assert result.returncode == 1
+    assert f"::error title=horizon-vps::{name} is not set" in result.stdout
+    assert "docs/guides/deployment.md" in result.stdout
+    assert log.read_text(encoding="utf-8") == "", "the VPS was reached"
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_preflight_with_the_portal_and_the_desktop_reaches_the_vps(tmp_path: Path) -> None:
+    path, log = with_fake_ssh(tmp_path)
+    result = run_step(PREFLIGHT, tmp_path, step_inputs(PREFLIGHT), path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"test -d {HOME}/.git" in log.read_text(encoding="utf-8")
+
+
+def test_the_preflight_reads_the_portal_and_the_desktop_variables() -> None:
+    env = step_named(deploy(), "deploy", PREFLIGHT)["env"]
+    assert {name: env[name] for name in REQUIRED_VARIABLES} == {
+        name: f"${{{{ vars.{name} }}}}" for name in REQUIRED_VARIABLES
+    }
+
+
+# --- the timers' time zone --------------------------------------------------------------
+
+
+def shipped_calendars() -> str:
+    """The ``OnCalendar=`` lines of the timers this commit ships, as grep -h prints them."""
+    lines = [
+        line
+        for name in ("horizon-checkin.timer", "horizon-checkout.timer")
+        for line in (ROOT / "deploy" / name).read_text(encoding="utf-8").splitlines()
+        if line.startswith("OnCalendar=")
+    ]
+    assert len(lines) == 2, lines
+    return "\n".join(lines) + "\n"
+
+
+def shipped_zone() -> str:
+    zones = {line.rsplit(" ", 1)[-1] for line in shipped_calendars().splitlines()}
+    assert len(zones) == 1, zones
+    return zones.pop()
+
+
+def test_the_zone_check_reads_the_timers_the_deploy_installs() -> None:
+    text = " ".join(script(ZONE_CHECK).split())
+    assert text.startswith("set -euo pipefail")
+    assert f"{HOME}/deploy/horizon-checkin.timer" in text
+    assert f"{HOME}/deploy/horizon-checkout.timer" in text
+    assert not CHANGES.search(text), text
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_zone_check_passes_when_the_timers_fire_in_ht_timezone(tmp_path: Path) -> None:
+    path, _ = with_fake_ssh(tmp_path, shipped_calendars())
+    env = step_inputs(ZONE_CHECK, {"HT_TIMEZONE": shipped_zone()})
+    result = run_step(ZONE_CHECK, tmp_path, env, path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_zone_check_refuses_timers_in_another_zone(tmp_path: Path) -> None:
+    # Timers firing in one zone while the service draws its moments in another start
+    # every run before or after its range: no check-in would ever happen, silently.
+    path, _ = with_fake_ssh(tmp_path, shipped_calendars())
+    env = step_inputs(ZONE_CHECK, {"HT_TIMEZONE": "America/New_York"})
+    result = run_step(ZONE_CHECK, tmp_path, env, path)
+    assert result.returncode == 1
+    assert "::error title=HT_TIMEZONE::" in result.stdout
+    assert shipped_zone() in result.stdout
+    assert "America/New_York" in result.stdout
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_an_undefined_zone_is_refused_against_timers_in_another_zone(tmp_path: Path) -> None:
+    # The default is UTC; timers shipped in any other zone must not deploy unnoticed.
+    path, _ = with_fake_ssh(tmp_path, "OnCalendar=*-*-* 07:30:00 Europe/Berlin\n")
+    result = run_step(ZONE_CHECK, tmp_path, step_inputs(ZONE_CHECK), path)
+    assert result.returncode == 1
+    assert "HT_TIMEZONE is UTC" in result.stdout
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_zone_check_reads_both_timers(tmp_path: Path) -> None:
+    # Only the check-out timer is in another zone: a check of the first line alone passes.
+    calendars = "OnCalendar=*-*-* 07:30:00 UTC\nOnCalendar=*-*-* 16:30:00 Europe/Berlin\n"
+    path, _ = with_fake_ssh(tmp_path, calendars)
+    env = step_inputs(ZONE_CHECK, {"HT_TIMEZONE": "UTC"})
+    result = run_step(ZONE_CHECK, tmp_path, env, path)
+    assert result.returncode == 1
+    assert "Europe/Berlin" in result.stdout
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_timer_without_a_zone_is_refused(tmp_path: Path) -> None:
+    # Without a zone a timer fires in the host's local time, which no setting names.
+    path, _ = with_fake_ssh(tmp_path, "OnCalendar=*-*-* 07:30:00\n")
+    env = step_inputs(ZONE_CHECK, {"HT_TIMEZONE": "UTC"})
+    result = run_step(ZONE_CHECK, tmp_path, env, path)
+    assert result.returncode == 1
+
+
 def test_the_probe_output_is_kept_for_the_summary() -> None:
     text = script("Smoke: horizon probe")
     assert '| tee "$RUNNER_TEMP/probe.txt"' in text
@@ -408,7 +621,7 @@ def run_summary(tmp_path: Path, probe: str | None) -> tuple[subprocess.Completed
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_STEP_SUMMARY": str(summary),
         "GITHUB_SERVER_URL": "https://github.com",
-        "GITHUB_REPOSITORY": "zoologov/horizon-tracker",
+        "GITHUB_REPOSITORY": "example-owner/horizon-tracker",
         "DEPLOY_SHA": "0123456789abcdef0123456789abcdef01234567",
     }
     result = subprocess.run(
@@ -426,7 +639,7 @@ def test_the_summary_names_the_commit_the_probe_and_the_timers(tmp_path: Path) -
     result, summary = run_summary(tmp_path, "settings: ok\nportal: ok\n")
     assert result.returncode == 0, result.stderr
     assert "0123456789abcdef0123456789abcdef01234567" in summary
-    assert "https://github.com/zoologov/horizon-tracker/commit/0123456789abcdef" in summary
+    assert "https://github.com/example-owner/horizon-tracker/commit/0123456789abcdef" in summary
     assert "settings: ok\nportal: ok" in summary
     assert "horizon-checkin.timer" in summary
 

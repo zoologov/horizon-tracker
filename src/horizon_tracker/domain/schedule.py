@@ -1,16 +1,16 @@
 """Decides when a run may go ahead: today's drawn moment, its window, and run, retry or skip.
 
-Each working day draws one check-in moment from its range (07:30-08:10 as deployed) and
-one check-out moment from its own (16:30-17:10), at least a session length apart when that
-fits. The draw is a pure function of the date and a seed (hmac-sha256), so the morning
-and the evening runs agree on the pair without sharing any state. A run's window opens
-at its moment and closes after a grace. Both ends belong to the window. An attempt
+Each working day draws one check-in moment from its range (07:30-08:10 by default) and
+one check-out moment from its own (16:30-17:10 by default), at least a session length
+apart when that fits. The draw is a pure function of the date and a seed (hmac-sha256),
+so the morning and the evening runs agree on the pair without sharing any state. A run's
+window opens at its moment and closes after a grace. Both ends belong to the window. An attempt
 outside it is skipped and never performed late; inside it, the first attempt runs and
 later ones retry until the policy's attempts are spent. A non-working day is skipped
 whatever the time.
 
 Time is an argument: the domain never reads a clock. ``now`` is read as wall time in
-the window's zone, which is the zone the ``Clock`` port hands out (Europe/Moscow).
+the window's zone, which is the zone the ``Clock`` port hands out (``HT_TIMEZONE``).
 
 A refusal a configured value can reach is a ``ScheduleError``: its reason is a message,
 so whoever shows it reads it in their language; its ``str`` stays English.
