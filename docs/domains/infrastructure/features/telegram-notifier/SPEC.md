@@ -20,7 +20,7 @@ into the journal.
 
 ### How it works
 
-`send(report)` renders the text with `render(report)` from the domain and then:
+`send(report)` renders the text with `render(report, language)` from the domain (the language is a module constant, Russian, until HT-007 BEAD-02 makes it a constructor argument fed from `HT_LANGUAGE`) and then:
 
 1. if the report has a screenshot, reads it and posts `sendPhoto` with the text as the
    caption;

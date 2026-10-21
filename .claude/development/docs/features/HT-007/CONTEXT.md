@@ -34,7 +34,7 @@ All human-readable texts come from the domain catalogue, the language by `HT_LAN
 - Python 3.12, `uv`; the code, docstrings and logs in English; the flow documents in English (`language: en`).
 
 ### Methodologies
-- Clean Architecture: `cli` → `infrastructure` → `application` → `domain`; the message catalogue lives in `infrastructure`, the use cases hand out keys.
+- Clean Architecture: `cli` → `infrastructure` → `application` → `domain`; the message catalogue lives in `domain` (plain data and `text()`), the use cases hand out keys.
 - Cohesion-driven: the catalogue module has one responsibility — translating a key into the text in the configured language.
 - TDD: the catalogue and rendering tests first; mutations over the domain only (`flow.yml`).
 
@@ -50,13 +50,14 @@ All human-readable texts come from the domain catalogue, the language by `HT_LAN
 
 ## Related Files
 
-- `src/horizon_tracker/infrastructure/messages.py` — the catalogue (new)
+- `src/horizon_tracker/domain/messages.py` — the catalogue (new; per the RFC — in the domain, without I/O)
 - `src/horizon_tracker/infrastructure/telegram_notifier.py`, `src/horizon_tracker/cli.py` — the consumers
 - `src/horizon_tracker/infrastructure/config.py` — `HT_LANGUAGE`
 - `tests/acceptance/features/language.feature` — the PRD scenarios
 
 ## Current Phase
 
-- **Phase:** Planning
-- **Current bead:** —
-- **Blockers:** HT-004 BEAD-03 (ht-bm9)
+- **Phase:** Development (wave 2)
+- **Current bead:** BEAD-02 (ht-1yu)
+- **Blockers:** —
+- **BEAD-01 departures from the documents:** the catalogue in `domain`, not in `infrastructure` (the RFC outranks CONTEXT); `text()` raises `KeyError` on an unknown key rather than returning the key with a log line (a test/production switch and logging in the domain are not needed — the completeness tests make the case unreachable); `render(report, language)` without a default value, so a forgotten argument does not silently give English
