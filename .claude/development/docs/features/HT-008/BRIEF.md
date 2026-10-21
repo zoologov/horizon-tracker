@@ -1,7 +1,7 @@
 # BRIEF: HT-008 — Release flow on tags, one workflow per event, a protected trunk, the portal on Pages, and the repository's public face
 
 > **Type:** chore
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-21
 
 ---

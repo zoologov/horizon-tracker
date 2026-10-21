@@ -1,7 +1,7 @@
 # BRIEF: HT-005 — GitHub Actions by best practice: stages, pins, Dependabot, nightly mutations
 
 > **Type:** chore
-> **Status:** Approved
+> **Status:** Done
 > **Created:** 2026-10-20
 
 ---
