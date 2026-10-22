@@ -19,4 +19,5 @@
 # keeps it distinguishable from a guard that fired for a reader at a terminal;
 # through a hook only the code is read, so the distinction is made by the outcome
 # name and not by the number.
-exec beadloom guard "$1" --hook claude-code
+root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+exec python3 "$root/.cursor/hooks/beadloom-guard.py" ${1:+"$1"}

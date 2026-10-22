@@ -30,6 +30,7 @@ PASSWORD = "Pa$$w0rd-never-shown"
 ONE_CHECKIN = [
     "login",
     "open_desktop",
+    "capture_open_desktop",
     "desktop_status",
     "disconnect",
     "login",
@@ -119,6 +120,25 @@ def test_a_checkin_reports_the_screenshot_of_the_opened_desktop() -> None:
     assert report.screenshot == OPENED
 
 
+def test_the_success_photo_is_taken_after_the_hold_and_the_report_time_is_not() -> None:
+    morning = Morning(start=at(7, 55, 10))
+    morning.client.clock = morning.clock
+    morning.client.success_screenshot = OPENED
+
+    report = morning.run()
+
+    calls = morning.client.calls
+    opened = calls.index("open_desktop")
+    captured = calls.index("capture_open_desktop")
+    disconnected = calls.index("disconnect")
+    assert opened < captured < disconnected
+    assert morning.client.called_at[opened] == at(7, 55, 10)
+    assert report.at == morning.client.called_at[opened]
+    assert morning.client.called_at[captured] == at(7, 55, 10) + HOLD
+    assert report.outcome is Outcome.SUCCEEDED
+    assert report.screenshot == OPENED
+
+
 def test_a_forced_checkin_reports_the_screenshot_of_the_opened_desktop() -> None:
     morning = Morning(start=at(11, 0), calendar_answer=False)
     morning.client.success_screenshot = OPENED
@@ -157,6 +177,7 @@ def test_a_checkin_the_broker_did_not_confirm_reports_no_screenshot_of_the_deskt
 
     report = morning.run()
 
+    assert morning.client.calls.count("capture_open_desktop") == POLICY.max_attempts
     assert report.outcome is Outcome.FAILED
     assert report.screenshot is None
 

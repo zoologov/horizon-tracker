@@ -1,15 +1,19 @@
 """Screenshot preview: a success reports with the photo the client took, or as text without one.
 
-The Horizon fake answers ``open_desktop`` and ``log_off`` with the path of a photo the
-Given steps wrote, as the adapter answers with the screenshot it took of the step it
-completed; ``None`` plays a screenshot that could not be taken. The Then steps read the
-chat through the real Telegram notifier: whether the message is a photo, which bytes it
-carries and what its caption says. That the adapter photographs the launch list only once
-the broker has ended the session is the adapter's contract, pinned on the HTML Access
-fixture in the adapter's integration tests; here the fake keeps it by construction.
+The Horizon fake answers ``capture_open_desktop`` and ``log_off`` with the path of a photo
+the Given steps wrote, as the adapter answers with the screenshot it took of that step;
+``None`` plays a screenshot that could not be taken. ``open_desktop`` returns nothing.
+The Then steps read the chat through the real Telegram notifier: whether the message is a
+photo, which bytes it carries and what its caption says. One check-in scenario also reads
+the fake's call order: the photograph follows the hold and precedes the disconnect, while
+the caption's time stays the moment the desktop opened. That the adapter photographs the
+launch list only once the broker has ended the session is the adapter's contract, pinned
+on the HTML Access fixture in the adapter's integration tests; here the fake keeps it by
+construction.
 """
 
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then
@@ -34,7 +38,7 @@ def _photo(scene: Scene, name: str, content: bytes) -> Path:
 
 
 def _answers_with(shot: Path | None) -> Script:
-    """The client answers a completed open or log off with ``shot``."""
+    """The client answers a completed capture or log off with ``shot``."""
 
     def script(world: World) -> None:
         world.client.success_screenshot = shot
@@ -93,6 +97,23 @@ def first_confirmation_lost(scene: Scene, loss: str) -> None:
 
 
 # --- Then -----------------------------------------------------------------------------
+
+
+@then("the opened desktop was photographed after the hold, before the disconnect")
+def photographed_after_the_hold(scene: Scene) -> None:
+    """The photograph follows the configured hold and still precedes the disconnect."""
+    client = scene.ran.client
+    calls = client.calls
+    assert calls.count("open_desktop") == 1
+    assert calls.count("capture_open_desktop") == 1
+    assert calls.count("disconnect") == 1
+    opened = calls.index("open_desktop")
+    captured = calls.index("capture_open_desktop")
+    disconnected = calls.index("disconnect")
+    assert opened < captured < disconnected
+    hold = timedelta(seconds=scene.ran.opened[-1][0].hold_seconds)
+    gap = client.called_at[captured] - client.called_at[opened]
+    assert gap == hold, f"the photograph was {gap} after the open; the hold is {hold}"
 
 
 @then("the message is the photo of the opened desktop")

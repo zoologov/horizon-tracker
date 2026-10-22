@@ -64,8 +64,8 @@ class FakeHorizonClient:
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
     a broker that does not do what it was asked; ``bundles`` are the client bundles the
     portal names and ``browser`` the version the Chrome binary reports. ``success_screenshot``
-    is the path ``open_desktop`` and ``log_off`` answer with, as the adapter's photo of the
-    step it completed; ``None`` plays a screenshot that could not be taken. Given a
+    is the path ``log_off`` and ``capture_open_desktop`` answer with. ``open_desktop``
+    returns nothing. ``None`` plays a screenshot that could not be taken. Given a
     ``clock``, ``called_at`` records the clock's time of each call beside ``calls``.
     """
 
@@ -117,11 +117,14 @@ class FakeHorizonClient:
         self._enter("desktop_status", name)
         return DesktopStatus(name=name, state=self.state)
 
-    def open_desktop(self, name: str) -> Path | None:
+    def open_desktop(self, name: str) -> None:
         self._enter("open_desktop", name)
         if self.open_connects:
             self.state = SessionState.CONNECTED
         self._leave("open_desktop")
+
+    def capture_open_desktop(self) -> Path | None:
+        self._enter("capture_open_desktop")
         return self.success_screenshot
 
     def disconnect(self) -> None:

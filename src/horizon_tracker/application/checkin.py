@@ -1,14 +1,18 @@
 """The morning check-in: open the desktop until Windows logs on, hold it, then disconnect.
 
-One attempt logs in, opens the desktop over Blast, holds it open for ``hold`` so the
-Windows logon completes, reads the session state the broker shows, and disconnects
--- never logs off -- so the session runs on until the evening. The disconnect closes
-the client, so the attempt logs in again to read the state the disconnect left.
-The check-in counts only if the broker saw the transition CONNECTED -> DISCONNECTED;
-then its report carries the screenshot the client took of the opened desktop, if any.
+One attempt logs in, opens the desktop over Blast, and records that instant as the
+time the desktop opened. It holds the desktop open for ``hold`` so the Windows
+logon completes, photographs it while Blast is still up, reads the session state
+the broker shows, and disconnects -- never logs off -- so the session runs on
+until the evening. The disconnect closes the client, so the attempt logs in again
+to read the state the disconnect left. The check-in counts only if the broker saw
+the transition CONNECTED -> DISCONNECTED; then its report carries the photograph
+taken after the hold, if any. A missing photograph stays a text success. An
+unconfirmed check-in carries no photograph of the opened desktop.
 """
 
 # beadloom:domain=application
+# beadloom:feature=morning-checkin
 
 from dataclasses import dataclass
 from datetime import timedelta
@@ -52,15 +56,16 @@ class MorningCheckin:
 
     def _attempt(self) -> AttemptResult:
         self.client.login()
-        opened = self.client.open_desktop(self.desktop)
+        self.client.open_desktop(self.desktop)
         opened_at = self.clock.now()
         try:
             self.clock.sleep(self.hold.total_seconds())
+            shot = self.client.capture_open_desktop()
             while_open = self.client.desktop_status(self.desktop).state
         finally:
             self.client.disconnect()
         self.client.login()
         after_disconnect = self.client.desktop_status(self.desktop).state
         if checkin_succeeded(while_open, after_disconnect):
-            return AttemptResult(Outcome.SUCCEEDED, opened_at, screenshot=opened)
+            return AttemptResult(Outcome.SUCCEEDED, opened_at, screenshot=shot)
         return AttemptResult(Outcome.FAILED, self.clock.now(), Reason.DESKTOP_DID_NOT_OPEN)

@@ -40,11 +40,18 @@ class HorizonClient(Protocol):
         """The session state of the named desktop, read after login."""
         ...
 
-    def open_desktop(self, name: str) -> Path | None:
-        """Open the named desktop; returns once Blast is connected and the desktop drawn.
+    def open_desktop(self, name: str) -> None:
+        """Open the named desktop. Returns once Blast is connected and the desktop drawn.
 
-        Answers with the path of the success screenshot of the open desktop, ``None``
-        when none could be taken; a missing screenshot never fails the step.
+        The photograph of that desktop is ``capture_open_desktop``, not this call.
+        """
+        ...
+
+    def capture_open_desktop(self) -> Path | None:
+        """The first non-blank frame of the open remote surface, or ``None``.
+
+        ``None`` when none appears in time, the page left the screenshot allowlist,
+        or the shot failed. A missing photo never fails the step.
         """
         ...
 

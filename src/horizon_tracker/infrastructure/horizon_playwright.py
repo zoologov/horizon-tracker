@@ -20,10 +20,13 @@ the same thread, so a client is closed (it is a context manager) before the next
 
 import logging
 import re
+import struct
 import time
+import zlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from types import TracebackType
 from typing import Self, TypeVar
@@ -75,6 +78,14 @@ LOGOFF_MENU_ITEM = "#menu-item-logoff-btn"
 # The Blast session draws into a canvas it appends to ``#canvas-container``; the service
 # ``canvas#canvas`` beside the container is never shown.
 DESKTOP_CANVAS = "#canvas-container canvas"
+# The remote surface, not the page. The hidden service canvas and video sit beside
+# the container and are not part of it. The largest of these is the one a frame is
+# read from: a small overlay must not look painted while the desktop is black.
+_DESKTOP_SURFACE = "#canvas-container canvas, #canvas-container video"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_SAMPLE_SIDE = 32
+_LIT_CHANNEL = 24
+_LIT_PIXELS_REQUIRED = 8
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
 # The client posts every broker command as one XML document to ``…/broker/xml``; a log
 # off's carries ``<kill-session>`` (``Kw.setRequestXML`` and ``Oi.createXML`` in the bundle).
@@ -113,9 +124,16 @@ class HorizonTimeouts:
     # measured; it answers once it has handed the log off on, so this is generous. Past
     # it the fresh-list confirmation decides, and it fails closed.
     kill_session_answer_ms: int = 30_000
-    # How long the open desktop is held still before its success screenshot, so the
-    # photograph shows the drawn desktop rather than its first frame.
-    success_settle_ms: int = 2_000
+    # How long ``capture_open_desktop`` polls for a non-blank remote surface.
+    # A fixed pause cannot tell a black frame from a painted desktop.
+    desktop_paint_ms: int = 60_000
+
+
+class _Frame(Enum):
+    """What one capture sample decided, when it did not save a file."""
+
+    WAIT = "wait"
+    STOP = "stop"
 
 
 class PlaywrightHorizonClient:
@@ -196,12 +214,8 @@ class PlaywrightHorizonClient:
             tile = self._tile(name)
             return DesktopStatus(name, self._tile_session_state(tile))
 
-    def open_desktop(self, name: str) -> Path | None:
-        """Launch the tile, cancel the Fullscreen offer, return once the desktop is open.
-
-        Answers with a screenshot of the open desktop taken after a settle of
-        ``success_settle_ms``, or ``None`` when it could not be taken.
-        """
+    def open_desktop(self, name: str) -> None:
+        """Launch the tile, cancel the Fullscreen offer, return once the desktop is open."""
         with self._step(Reason.DESKTOP_DID_NOT_OPEN):
             self._tile(name).locator(LAUNCH_BUTTON).first.click()
             self._opened_desktop = name
@@ -210,7 +224,49 @@ class PlaywrightHorizonClient:
             raise self._failure(Reason.DESKTOP_DID_NOT_OPEN)
         blast = "seen" if self._blast_socket_open() else "no WebSocket on a Blast path seen"
         logger.info("Horizon desktop open (%s)", blast)
-        return self._screenshot(RunKind.CHECKIN, settle_ms=self._timeouts.success_settle_ms)
+
+    def capture_open_desktop(self) -> Path | None:
+        """Save the first non-blank frame of the open remote surface, or return ``None``.
+
+        Polls an element screenshot of the largest canvas or video inside
+        ``#canvas-container`` until a 32 by 32 sample has at least 8 pixels with
+        ``max(R, G, B) >= 24``, or ``desktop_paint_ms`` runs out. A blank timeout,
+        a page outside the screenshot allowlist, or a screenshot error answers
+        ``None``. A missing photo never fails the step.
+        """
+        deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
+        while True:
+            try:
+                frame = self._nonblank_frame()
+            except (PlaywrightError, OSError, ValueError) as error:
+                _log_screenshot_failure(error)
+                return None
+            if isinstance(frame, Path):
+                return frame
+            if frame is _Frame.STOP or time.monotonic() >= deadline:
+                if frame is _Frame.WAIT:
+                    logger.warning("Horizon desktop still blank")
+                return None
+            try:
+                self._live_page().wait_for_timeout(self._timeouts.poll_ms)
+            except PlaywrightError as error:
+                _log_screenshot_failure(error)
+                return None
+
+    def _nonblank_frame(self) -> Path | _Frame:
+        """One sample: a saved path, ``WAIT`` to poll again, or ``STOP`` with no photo."""
+        page = self._page
+        if page is None or page.is_closed() or _route(page.url) not in _SCREENSHOT_ROUTES:
+            return _Frame.STOP
+        surface = _largest_surface(page.locator(_DESKTOP_SURFACE))
+        if surface is None:
+            return _Frame.WAIT
+        png = surface.screenshot(type="png")
+        if not _png_frame_is_nonblank(png):
+            return _Frame.WAIT
+        path = self._artifacts.screenshot_path(RunKind.CHECKIN)
+        path.write_bytes(png)
+        return path
 
     def disconnect(self) -> None:
         """Close the browser context: the client lets go, the Windows session keeps running."""
@@ -512,28 +568,45 @@ class PlaywrightHorizonClient:
     def _failure(self, reason: Reason) -> HorizonClientError:
         return HorizonClientError(reason, self._screenshot(self._run_kind))
 
-    def _screenshot(self, kind: RunKind, *, settle_ms: int = 0) -> Path | None:
-        """A screenshot of the page after ``settle_ms``, unless it is (or may be) the login page.
+    def _screenshot(self, kind: RunKind) -> Path | None:
+        """A screenshot of the page, unless it is (or may be) the login page.
 
-        The route is read after the settle, so a page that left for the login page in the
-        meantime is not photographed. Never raises: the screenshot is evidence, not a
-        condition of the step, so a Playwright or disk error is logged by its type only
-        and answers ``None``.
+        Never raises: the screenshot is evidence, not a condition of the step, so a
+        Playwright or disk error is logged by its type only and answers ``None``.
         """
         page = self._page
         if page is None or page.is_closed():
             return None
         try:
-            if settle_ms > 0:
-                page.wait_for_timeout(settle_ms)
             if _route(page.url) not in _SCREENSHOT_ROUTES:
                 return None
             path = self._artifacts.screenshot_path(kind)
             page.screenshot(path=path)
         except (PlaywrightError, OSError) as error:
-            logger.warning("Horizon screenshot failed: %s", type(error).__name__)
+            _log_screenshot_failure(error)
             return None
         return path
+
+
+def _log_screenshot_failure(error: BaseException) -> None:
+    """Log a screenshot failure by the error's type, never by its message."""
+    logger.warning("Horizon screenshot failed: %s", type(error).__name__)
+
+
+def _largest_surface(surfaces: Locator) -> Locator | None:
+    """The canvas or video with the greatest box area, or ``None`` when none is shown."""
+    best: Locator | None = None
+    best_area = 0.0
+    for index in range(surfaces.count()):
+        candidate = surfaces.nth(index)
+        box = candidate.bounding_box()
+        if box is None:
+            continue
+        area = box["width"] * box["height"]
+        if area > best_area:
+            best = candidate
+            best_area = area
+    return best
 
 
 def _close_quietly(part: str, close: Callable[[], None]) -> None:
@@ -570,3 +643,120 @@ def _route(url: str) -> str:
     """The client's hash route of a URL (``#/desktop``), without any query part."""
     fragment = urlsplit(url).fragment.split("?", 1)[0]
     return f"#{fragment}" if fragment else ""
+
+
+def _png_frame_is_nonblank(png: bytes) -> bool:
+    """Whether a 32 by 32 sample of ``png`` has at least 8 pixels with a channel >= 24.
+
+    The sample is a grid spread across the whole frame, so a painted desktop whose
+    corner is black still counts. Alpha is ignored. ``max(R, G, B)`` is the channel.
+    """
+    width, height, rows, channels = _decode_png(png)
+    if width < 1 or height < 1:
+        return False
+    lit = 0
+    for grid_y in range(_SAMPLE_SIDE):
+        row = rows[(grid_y * height) // _SAMPLE_SIDE]
+        for grid_x in range(_SAMPLE_SIDE):
+            offset = ((grid_x * width) // _SAMPLE_SIDE) * channels
+            if max(row[offset], row[offset + 1], row[offset + 2]) >= _LIT_CHANNEL:
+                lit += 1
+                if lit >= _LIT_PIXELS_REQUIRED:
+                    return True
+    return False
+
+
+def _decode_png(png: bytes) -> tuple[int, int, list[bytes], int]:
+    """The 8-bit RGB or RGBA rows of ``png``. Raises ``ValueError`` when it cannot."""
+    try:
+        width, height, channels, compressed = _png_image(png)
+        raw = zlib.decompress(compressed)
+    except (struct.error, zlib.error) as error:
+        raise ValueError("png") from error
+    stride = width * channels
+    row_size = stride + 1
+    if height < 0 or width < 0 or len(raw) != height * row_size:
+        raise ValueError("png size")
+    rows: list[bytes] = []
+    previous = bytes(stride)
+    offset = 0
+    for _ in range(height):
+        row = bytearray(raw[offset + 1 : offset + row_size])
+        _unfilter(raw[offset], row, previous, channels)
+        offset += row_size
+        previous = bytes(row)
+        rows.append(previous)
+    return width, height, rows, channels
+
+
+def _png_image(png: bytes) -> tuple[int, int, int, bytes]:
+    """Width, height, channel count and the concatenated IDAT bytes."""
+    if not png.startswith(_PNG_SIGNATURE):
+        raise ValueError("not a png")
+    position = len(_PNG_SIGNATURE)
+    width: int | None = None
+    height = 0
+    channels = 0
+    idat = bytearray()
+    while position + 8 <= len(png):
+        length = struct.unpack(">I", png[position : position + 4])[0]
+        kind = png[position + 4 : position + 8]
+        start = position + 8
+        end = start + length
+        if end + 4 > len(png):
+            raise ValueError("truncated png")
+        data = png[start:end]
+        position = end + 4
+        if kind == b"IHDR":
+            width, height, channels = _png_header(data)
+        elif kind == b"IDAT":
+            idat.extend(data)
+        elif kind == b"IEND":
+            break
+    if width is None or not idat:
+        raise ValueError("png missing image data")
+    return width, height, channels, bytes(idat)
+
+
+def _png_header(data: bytes) -> tuple[int, int, int]:
+    """Width, height and channel count from an IHDR chunk. 8-bit truecolor only."""
+    width, height, bit_depth, color_type, compression, _method, interlace = struct.unpack(
+        ">IIBBBBB", data
+    )
+    if bit_depth != 8 or color_type not in (2, 6) or compression != 0 or interlace != 0:
+        raise ValueError("unsupported png")
+    return width, height, 3 if color_type == 2 else 4
+
+
+def _unfilter(filter_type: int, row: bytearray, previous: bytes, channels: int) -> None:
+    """Undo one PNG row filter in place. ``previous`` is the prior reconstructed row."""
+    if filter_type == 0:
+        return
+    for index in range(len(row)):
+        left = row[index - channels] if index >= channels else 0
+        up = previous[index]
+        up_left = previous[index - channels] if index >= channels else 0
+        if filter_type == 1:
+            predictor = left
+        elif filter_type == 2:
+            predictor = up
+        elif filter_type == 3:
+            predictor = (left + up) // 2
+        elif filter_type == 4:
+            predictor = _paeth(left, up, up_left)
+        else:
+            raise ValueError("png filter")
+        row[index] = (row[index] + predictor) & 255
+
+
+def _paeth(left: int, up: int, up_left: int) -> int:
+    """The PNG Paeth predictor: the neighbour closest to ``left + up - up_left``."""
+    estimate = left + up - up_left
+    distance_left = abs(estimate - left)
+    distance_up = abs(estimate - up)
+    distance_up_left = abs(estimate - up_left)
+    if distance_left <= distance_up and distance_left <= distance_up_left:
+        return left
+    if distance_up <= distance_up_left:
+        return up
+    return up_left

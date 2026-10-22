@@ -16,11 +16,12 @@ import logging
 import os
 import re
 import socket
+import struct
 import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from functools import partial
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -29,7 +30,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Locator, Page, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
@@ -65,12 +66,10 @@ FAST = HorizonTimeouts(
     logoff_confirm_ms=3_000,
     poll_ms=100,
     kill_session_answer_ms=3_000,
-    success_settle_ms=100,
+    desktop_paint_ms=600,
 )
-# A settle long enough to outlast the fixture page's fall back to the login page, which
-# comes DROP_TO_LOGIN_AFTER_MS after the desktop drew: the success screenshot meets it.
+# The fixture page falls back to the login page this long after the desktop drew.
 DROP_TO_LOGIN_AFTER_MS = 300
-SETTLE_PAST_THE_DROP = replace(FAST, success_settle_ms=1_500)
 # Longer than the live poll interval (1 s) the adapter once waited after OK, and well
 # inside FAST.kill_session_answer_ms.
 SLOW_KILL_SESSION_ANSWER_S = 1.5
@@ -456,13 +455,19 @@ def fails_with(reason: Reason, action: Callable[[], object]) -> HorizonClientErr
 def photographed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """The hash route of the page at each screenshot the adapter takes, in order."""
     routes: list[str] = []
-    real_screenshot = Page.screenshot
+    real_page = Page.screenshot
+    real_locator = Locator.screenshot
 
-    def spy(page: Page, *args: Any, **kwargs: Any) -> bytes:
+    def spy_page(page: Page, *args: Any, **kwargs: Any) -> bytes:
         routes.append("#" + urlsplit(page.url).fragment)
-        return real_screenshot(page, *args, **kwargs)
+        return real_page(page, *args, **kwargs)
 
-    monkeypatch.setattr(Page, "screenshot", spy)
+    def spy_locator(locator: Locator, *args: Any, **kwargs: Any) -> bytes:
+        routes.append("#" + urlsplit(locator.page.url).fragment)
+        return real_locator(locator, *args, **kwargs)
+
+    monkeypatch.setattr(Page, "screenshot", spy_page)
+    monkeypatch.setattr(Locator, "screenshot", spy_locator)
     return routes
 
 
@@ -999,20 +1004,144 @@ def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logge
 # --- the success screenshot ------------------------------------------------------------
 
 
-def test_an_open_desktop_answers_with_a_screenshot_of_the_drawn_desktop(
+def png_size(data: bytes) -> tuple[int, int]:
+    """The width and height stored in a PNG's IHDR."""
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    return struct.unpack(">II", data[16:24])
+
+
+def paint_remote_surface(
+    client: PlaywrightHorizonClient,
+    color: str,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> None:
+    """Fill the Blast canvas. A width and height replace its bitmap, which clears it first."""
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """({ color, width, height }) => {
+            const canvas = document.querySelector("#canvas-container canvas");
+            if (width !== null) { canvas.width = width; }
+            if (height !== null) { canvas.height = height; }
+            const context = canvas.getContext("2d");
+            context.fillStyle = color;
+            context.fillRect(0, 0, canvas.width, canvas.height);
+        }""",
+        {"color": color, "width": width, "height": height},
+    )
+
+
+def add_small_bright_canvas(client: PlaywrightHorizonClient) -> None:
+    """A 64 by 64 red canvas beside the remote surface, smaller than the Blast canvas."""
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """() => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 64;
+            canvas.height = 64;
+            const context = canvas.getContext("2d");
+            context.fillStyle = "rgb(255, 0, 0)";
+            context.fillRect(0, 0, 64, 64);
+            document.querySelector("#canvas-container").appendChild(canvas);
+        }"""
+    )
+
+
+def test_open_desktop_returns_no_success_screenshot(
     client: PlaywrightHorizonClient,
     artifacts: RecordingArtifacts,
     photographed: list[str],
 ) -> None:
     client.login()
 
-    shot = client.open_desktop(DESKTOP)
+    # mypy will not let a caller read a None return. This proves the call gives no path.
+    opened = client.open_desktop(DESKTOP)  # type: ignore[func-returns-value]
+    assert opened is None
+
+    assert artifacts.asked == []
+    assert photographed == []
+    assert list(artifacts.root.iterdir()) == []
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+def test_a_black_remote_surface_is_not_saved(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+
+    assert client.capture_open_desktop() is None
+
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert photographed
+    assert set(photographed) == {"#/desktop"}
+    assert "Horizon desktop still blank" in caplog.text
+
+
+def test_a_painted_remote_surface_is_saved(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+
+    shot = client.capture_open_desktop()
 
     assert shot is not None
-    assert shot.read_bytes().startswith(b"\x89PNG")
+    assert png_size(shot.read_bytes()) == (200, 100)
     assert artifacts.asked == [RunKind.CHECKIN]
     assert photographed == ["#/desktop"]
-    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+def test_a_smaller_bright_canvas_does_not_paint_a_black_desktop(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    add_small_bright_canvas(client)
+
+    assert client.capture_open_desktop() is None
+
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert "Horizon desktop still blank" in caplog.text
+
+
+def test_capture_on_the_login_page_saves_nothing(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    portal.state.drop_to_login_after_ms = DROP_TO_LOGIN_AFTER_MS
+    client = make_client()
+    client.login()
+    client.open_desktop(DESKTOP)
+    page = client._page
+    assert page is not None
+    # The page's timer only runs while Playwright is polling, so wait on the page.
+    page.wait_for_function("() => location.hash.split('?')[0] === '#/home'", timeout=3_000)
+
+    assert client.capture_open_desktop() is None
+
+    assert photographed == []
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert "Horizon desktop still blank" not in caplog.text
 
 
 def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
@@ -1062,27 +1191,6 @@ def test_a_log_off_is_photographed_only_once_the_broker_has_ended_the_session(
     assert broker_at_photo == ["none"]
 
 
-def test_no_success_screenshot_is_taken_once_the_page_fell_back_to_the_login_page(
-    make_client: Callable[..., PlaywrightHorizonClient],
-    portal: Portal,
-    artifacts: RecordingArtifacts,
-    photographed: list[str],
-) -> None:
-    # The page drops to #/home after the desktop drew, inside the settle the adapter
-    # holds before its photograph: the allowlist refuses the login page, the verdict
-    # stands. Without the settle the photograph would have been taken on #/desktop.
-    portal.state.drop_to_login_after_ms = DROP_TO_LOGIN_AFTER_MS
-    client = make_client(timeouts=SETTLE_PAST_THE_DROP)
-    client.login()
-
-    shot = client.open_desktop(DESKTOP)
-
-    assert shot is None
-    assert photographed == []
-    assert artifacts.asked == []
-    assert list(artifacts.root.iterdir()) == []
-
-
 def refuse_the_screenshot(monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifacts) -> None:
     """Playwright fails the screenshot, with the password in its message."""
 
@@ -1103,14 +1211,7 @@ def refuse_the_disk(monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifac
     ("fault", "error_type"),
     [(refuse_the_screenshot, "Error"), (refuse_the_disk, "FileExistsError")],
 )
-@pytest.mark.parametrize(
-    ("step", "run_kind", "session"),
-    [
-        ("open_desktop", RunKind.CHECKIN, "none"),
-        ("log_off", RunKind.CHECKOUT, "disconnected"),
-    ],
-)
-def test_a_success_screenshot_that_fails_is_logged_by_type_and_the_step_still_succeeds(
+def test_a_log_off_screenshot_that_fails_is_logged_by_type_and_the_step_still_succeeds(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
     artifacts: RecordingArtifacts,
@@ -1118,23 +1219,56 @@ def test_a_success_screenshot_that_fails_is_logged_by_type_and_the_step_still_su
     caplog: pytest.LogCaptureFixture,
     fault: Callable[[pytest.MonkeyPatch, RecordingArtifacts], None],
     error_type: str,
-    step: str,
-    run_kind: RunKind,
-    session: str,
 ) -> None:
-    portal.state.session = session
-    client = make_client(run_kind=run_kind)
+    portal.state.session = "disconnected"
+    client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
     fault(monkeypatch, artifacts)
 
-    shot = getattr(client, step)(DESKTOP)
+    shot = client.log_off(DESKTOP)
 
     assert shot is None
-    assert artifacts.asked == [run_kind], "the screenshot was never attempted"
+    assert artifacts.asked == [RunKind.CHECKOUT], "the screenshot was never attempted"
     assert f"Horizon screenshot failed: {error_type}" in caplog.text
     assert PASSWORD not in caplog.text
-    expected = SessionState.CONNECTED if step == "open_desktop" else SessionState.NO_SESSION
-    assert client.desktop_status(DESKTOP).state is expected
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def refuse_the_element_screenshot(
+    monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifacts
+) -> None:
+    """The element screenshot fails, with the password in its message."""
+
+    def refuse(*_args: object, **_kwargs: object) -> bytes:
+        raise PlaywrightError(f"Target crashed {PASSWORD}")
+
+    monkeypatch.setattr(Locator, "screenshot", refuse)
+
+
+@pytest.mark.parametrize(
+    ("fault", "error_type"),
+    [(refuse_the_element_screenshot, "Error"), (refuse_the_disk, "NotADirectoryError")],
+)
+def test_a_capture_whose_screenshot_fails_returns_none(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    fault: Callable[[pytest.MonkeyPatch, RecordingArtifacts], None],
+    error_type: str,
+) -> None:
+    client = make_client()
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+    fault(monkeypatch, artifacts)
+
+    assert client.capture_open_desktop() is None
+
+    assert f"Horizon screenshot failed: {error_type}" in caplog.text
+    assert "Horizon desktop still blank" not in caplog.text
+    assert PASSWORD not in caplog.text
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
 
 
 # --- probe ---------------------------------------------------------------------------------

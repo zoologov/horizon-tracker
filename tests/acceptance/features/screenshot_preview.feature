@@ -1,9 +1,11 @@
 @bead:ht-bm9 @node:application @node:infrastructure @node:cli
 Feature: Screenshot preview in the success notification
   A successful check-in reports with a photo of the opened desktop, and a successful
-  check-out with a photo of the launch list once the session is gone. The caption is the
-  text the run would otherwise send alone. A run whose photo could not be taken still
-  reports its success, as text: the photo is evidence, not a condition of the run.
+  check-out with a photo of the launch list once the session is gone. The check-in photo
+  is taken after the desktop was held, while Blast is still open, and the time in the
+  caption stays the moment the desktop opened. The caption is the text the run would
+  otherwise send alone. A run whose photo could not be taken still reports its success,
+  as text: the photo is evidence, not a condition of the run.
 
   Background:
     Given the service is configured for the desktop "DEV desktop"
@@ -18,6 +20,15 @@ Feature: Screenshot preview in the success notification
     And the message reads "Вход выполнен"
     And the message reads "Время: 21.10.2026 07:38:00 MSK, назначено на 07:38"
     And the message reads "Календарь: производственный календарь isdayoff.ru"
+    And the command exits with 0
+
+  Scenario: A successful check-in's screenshot is taken after the desktop was held
+    Given the desktop has no session
+    And the client photographs the opened desktop
+    When the check-in runs at 07:30:00 on Wednesday 2026-10-21
+    Then the opened desktop was photographed after the hold, before the disconnect
+    And the message is the photo of the opened desktop
+    And the message reads "Время: 21.10.2026 07:38:00 MSK, назначено на 07:38"
     And the command exits with 0
 
   Scenario: A check-in whose screenshot failed still reports success as text
