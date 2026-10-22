@@ -52,7 +52,9 @@ class MorningCheckin:
 
     def _attempt(self) -> AttemptResult:
         self.client.login()
-        opened = self.client.open_desktop(self.desktop)
+        # ht-rqz reads the photo from capture_open_desktop after the hold. Until then
+        # the check-in still uses this return, which the port types as None.
+        opened = self.client.open_desktop(self.desktop)  # type: ignore[func-returns-value]
         opened_at = self.clock.now()
         try:
             self.clock.sleep(self.hold.total_seconds())

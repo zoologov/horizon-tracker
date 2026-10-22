@@ -8,6 +8,7 @@ would move it; a scripted failure is queued per method and raised on its next ca
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from horizon_tracker.domain.report import RunReport
 from horizon_tracker.domain.session import DesktopStatus, SessionState
@@ -64,8 +65,9 @@ class FakeHorizonClient:
     ``open_connects``, ``disconnect_keeps_session`` and ``log_off_takes_effect`` script
     a broker that does not do what it was asked; ``bundles`` are the client bundles the
     portal names and ``browser`` the version the Chrome binary reports. ``success_screenshot``
-    is the path ``open_desktop`` and ``log_off`` answer with, as the adapter's photo of the
-    step it completed; ``None`` plays a screenshot that could not be taken. Given a
+    is the path ``log_off`` and ``capture_open_desktop`` answer with. ``open_desktop``
+    still returns that path as well, because the check-in reads it until ht-rqz calls
+    ``capture_open_desktop``. ``None`` plays a screenshot that could not be taken. Given a
     ``clock``, ``called_at`` records the clock's time of each call beside ``calls``.
     """
 
@@ -117,11 +119,17 @@ class FakeHorizonClient:
         self._enter("desktop_status", name)
         return DesktopStatus(name=name, state=self.state)
 
-    def open_desktop(self, name: str) -> Path | None:
+    def open_desktop(self, name: str) -> None:
         self._enter("open_desktop", name)
         if self.open_connects:
             self.state = SessionState.CONNECTED
         self._leave("open_desktop")
+        # ht-rqz moves the check-in onto capture_open_desktop. Until that call
+        # exists, this return is what the check-in puts on the report.
+        return cast(None, self.success_screenshot)
+
+    def capture_open_desktop(self) -> Path | None:
+        self._enter("capture_open_desktop")
         return self.success_screenshot
 
     def disconnect(self) -> None:

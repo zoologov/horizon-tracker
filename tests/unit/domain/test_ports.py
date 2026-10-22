@@ -50,7 +50,10 @@ class _FakeClient:
     def desktop_status(self, name: str) -> DesktopStatus:
         return DesktopStatus(name=name, state=SessionState.DISCONNECTED)
 
-    def open_desktop(self, name: str) -> Path | None:
+    def open_desktop(self, name: str) -> None:
+        return None
+
+    def capture_open_desktop(self) -> Path | None:
         return None
 
     def disconnect(self) -> None: ...
@@ -115,11 +118,14 @@ def test_the_horizon_client_port_never_takes_credentials() -> None:
     assert list(login.__annotations__) == ["return"]
 
 
-def test_opening_and_logging_off_answer_with_the_success_screenshot_or_none() -> None:
-    # The adapter photographs the open desktop and the list after a log off; the use
-    # case puts the path into the report. None when no screenshot could be taken.
-    for step in (HorizonClient.open_desktop, HorizonClient.log_off):
-        assert step.__annotations__["return"] == Path | None, step.__name__
+def test_open_desktop_returns_nothing_and_capture_answers_with_a_path_or_none() -> None:
+    # Opening Blast is not the photograph. The photo is a later capture, and a missing
+    # one never fails the step. Logging off still answers with its own photo or None.
+    assert HorizonClient.open_desktop.__annotations__["return"] is None
+    capture = HorizonClient.capture_open_desktop
+    assert list(capture.__annotations__) == ["return"]
+    assert capture.__annotations__["return"] == Path | None
+    assert HorizonClient.log_off.__annotations__["return"] == Path | None
 
 
 # --- the boundary: importing the ports pulls in no adapter --------------------------

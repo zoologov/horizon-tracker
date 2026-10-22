@@ -26,7 +26,7 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-22u | In Progress | Port and adapter: non-blank capture |
+| ht-22u | Done | open_desktop returns None; capture_open_desktop saves the first non-blank element frame |
 | ht-rqz | Open | Morning check-in after the hold; blocked by ht-22u |
 | ht-bic | Open | Acceptance scenarios; blocked by ht-rqz |
 | ht-7qx | Open | Review; blocked by ht-bic |
