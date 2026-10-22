@@ -29,11 +29,15 @@ module a second responsibility.
 | `ArtifactStore` | `screenshot_path(kind)`, a fresh path for one screenshot | `DirectoryArtifactStore` |
 
 `HorizonClient` answers two kinds of question. The run's methods log in and act on a
-desktop: `login`, `desktop_status`, `open_desktop`, `disconnect`, `log_off`. Of these,
-`open_desktop` and `log_off` answer with the path of a screenshot that shows the step
-succeeded (the open desktop; the desktop list without the session), or `None` when
-none could be taken: a missing screenshot never fails the step. The probe's
-methods never log in and each answers one question, so each can fail on its own:
+desktop: `login`, `desktop_status`, `open_desktop`, `capture_open_desktop`,
+`disconnect`, `log_off`. `open_desktop` returns `None` once the desktop is open and
+takes no photograph. `capture_open_desktop` answers with the path of the first
+non-blank frame of the open remote surface, or `None` when none appears in time, the
+page left the screenshot allowlist, or the shot failed. `log_off` answers with the
+path of a screenshot of the desktop list without the session, or `None` when none
+could be taken. A missing screenshot never fails the step. Checkout still calls
+`log_off` and does not call `capture_open_desktop`. The probe's methods never log in
+and each answers one question, so each can fail on its own:
 
 - `client_bundles()` — the file names of the HTML Access client bundles the portal
   serves in `index.html`;
@@ -65,8 +69,8 @@ Module `src/horizon_tracker/domain/ports.py`:
 - `HorizonClientError(reason: Reason, screenshot: Path | None = None)` — attributes
   `reason`, `screenshot`.
 - `HorizonClient` — `login() -> None`, `desktop_status(name) -> DesktopStatus`,
-  `open_desktop(name) -> Path | None`, `disconnect() -> None`,
-  `log_off(name) -> Path | None`,
+  `open_desktop(name) -> None`, `capture_open_desktop() -> Path | None`,
+  `disconnect() -> None`, `log_off(name) -> Path | None`,
   `client_bundles() -> tuple[str, ...]`, `browser_version() -> str`.
 - `WorkingDayCalendar` — `is_working_day(day: date) -> bool | None`.
 - `Notifier` — `send(report: RunReport) -> None`.
@@ -76,8 +80,9 @@ Module `src/horizon_tracker/domain/ports.py`:
 ## Testing
 
 Tests: `tests/unit/domain/test_ports.py` (every port is a `Protocol`, plain fakes
-satisfy them, the Horizon port takes no credential, `open_desktop` and `log_off` answer
-`Path | None`, importing the module loads no adapter). The adapters are checked
+satisfy them, the Horizon port takes no credential, `open_desktop` returns `None`,
+`capture_open_desktop` and `log_off` answer `Path | None`, importing the module loads
+no adapter). The adapters are checked
 against their port in their own tests, for
 example `test_the_client_satisfies_the_horizon_port` in
 `tests/integration/infrastructure/test_horizon_playwright.py`. The fakes the

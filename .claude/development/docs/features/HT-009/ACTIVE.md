@@ -30,7 +30,7 @@
 | ht-rqz | Done | Capture runs after the hold; the report time stays at open_desktop's return; an unconfirmed check-in sends no photo |
 | ht-bic | Done | The check-in photograph is taken after the hold and before disconnect; the caption time stays the open moment. All four PRD scenario names pass. Coverage 97.57% on Python 3.12.12, floor 80%. |
 | ht-7qx | Open | Review; blocked by ht-bic |
-| ht-o5u | Open | SPECs; blocked by ht-7qx |
+| ht-o5u | Done | SPECs match the code: open_desktop returns None, capture_open_desktop saves the first non-blank frame after the hold, and success_settle_ms is gone |
 
 ## Notes
 

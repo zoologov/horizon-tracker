@@ -26,7 +26,8 @@ needs it, and each `login` opens a fresh browser context on it.
 |--------|--------------|-------------------|
 | `login()` | opens `#/home`, fills `#username` and `#password`, clicks `#loginButton`, then polls: `#/launchitems` means accepted, a visible `#okDialogBtn` means rejected | `PORTAL_UNREACHABLE` (the page does not load), `LOGIN_REJECTED`, `UNEXPECTED` (no verdict in time) |
 | `desktop_status(name)` | `CONNECTED` while this client holds that desktop open; otherwise opens the named tile's "…" menu, reads whether it offers Log Off, closes the menu; logs in first when no page is live | `DESKTOP_NOT_FOUND`, `UNEXPECTED`, or the reasons of `login()` when it logs in first |
-| `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; answers with the success screenshot of the open desktop, taken after a settle (see "Success screenshots"), or `None` | `DESKTOP_DID_NOT_OPEN` |
+| `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
+| `capture_open_desktop()` | polls an element screenshot of the largest canvas or video in `#canvas-container` until a 32 by 32 sample has at least 8 pixels with `max(R, G, B) >= 24`, bounded by `desktop_paint_ms` (60 s), and saves that PNG; a blank timeout, a page outside the screenshot allowlist, or a screenshot error returns `None` (see "Success screenshots") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
 | `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, waits (bounded) for the broker's kill-session answer, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"); answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
@@ -77,7 +78,9 @@ code marks each as a hypothesis in the one method that holds it:
   WebSocket on a Blast path (`/r/…` or `/d/…`) is looked for and logged with the
   "desktop open" line, but it does not decide the verdict: the paths cannot be checked
   without a login. If the client renders the desktop into a `<video>` (H.264), the
-  canvas may stay empty; the first live run says whether that happens;
+  canvas may stay empty; the first live run says whether that happens. The success
+  photograph is a different reading: it samples the largest canvas or video inside
+  `#canvas-container`, while this signal still reads the canvas size only;
 - `_tile_session_state()`: the tile's menu offers `#menu-item-logoff-btn` (no `hidden`
   attribute) only when Windows holds a session. The bundle derives it from the
   broker's `canLogoff` and a non-empty session `state`. The attribute is read rather
@@ -138,26 +141,39 @@ broker's answer from the client's flag; a broker-side read after the check-out c
 
 ### Success screenshots
 
-`open_desktop()` and `log_off()` answer with the path of a screenshot that shows the
-step succeeded, for the use case to put into the run report; the step's verdict is
-reached first and a screenshot never changes it.
+`open_desktop()` returns `None` and does not take the success photograph.
+`capture_open_desktop()` and `log_off()` answer with the path of a screenshot the use
+case can put into the run report. A screenshot never changes a step's verdict.
+`success_settle_ms` is gone.
 
-- `open_desktop()`: once the desktop is open, the page is held still for
-  `HorizonTimeouts.success_settle_ms` (2 s by default, through the same
-  `page.wait_for_timeout` the polls use), so the photograph shows the drawn desktop
-  rather than its first frame; then the page is photographed as `RunKind.CHECKIN`.
+- `capture_open_desktop()`: polls an element screenshot of the largest canvas or video
+  inside `#canvas-container` (`#canvas-container canvas, #canvas-container video`).
+  The largest is the one whose bounding box has the greatest area, so a smaller bright
+  canvas does not paint a black desktop. A missing surface waits, as a blank frame
+  does. The sample is a 32 by 32 grid spread across that PNG. The frame counts as
+  painted when at least 8 of those pixels have `max(R, G, B) >= 24`. Alpha is ignored.
+  The first such PNG is written through `screenshot_path(RunKind.CHECKIN)`. The poll
+  is bounded by `HorizonTimeouts.desktop_paint_ms` (60 s by default) and waits
+  `poll_ms` between samples. A blank timeout logs `Horizon desktop still blank` and
+  returns `None`. A page outside the screenshot allowlist (`#/launchitems`,
+  `#/desktop`), or a page that is closed, returns `None` and does not log that line.
+  A screenshot error (`PlaywrightError`, `OSError`, or a PNG `ValueError`) is logged
+  as `Horizon screenshot failed: <Type>` and returns `None`. No file is written in
+  any of those cases.
 - `log_off()`: after the fresh launch-items list has confirmed the session gone, that
-  list is photographed as `RunKind.CHECKOUT`; no settle, the list is already loaded.
+  list is photographed as `RunKind.CHECKOUT` through the shared page screenshot. There
+  is no settle. The list is already loaded. Checkout is unchanged.
 
-Both go through the one screenshot method failures use, with its allowlist of routes.
-The route is read after the settle, so a page that fell back to `#/home` meanwhile is
-not photographed and the answer is `None`. A Playwright error or a disk error (an
-`OSError`, for instance from writing the file) while taking the screenshot is logged as
-`Horizon screenshot failed: <Type>` and answers `None`; the step still succeeds. A
-success screenshot is named by its step (`RunKind.CHECKIN` or `RunKind.CHECKOUT`), a
-failure screenshot by the `run_kind` the client was built with. Because the shared
-method catches disk errors too, a failure whose screenshot the disk refuses raises a
-`HorizonClientError` without a screenshot rather than an `OSError`.
+The shared page screenshot is what failures and `log_off` use. Its allowlist is the
+same pair of routes, read when the shot is taken, so a page on `#/home` is not
+photographed and the answer is `None`. A Playwright error or a disk error (an
+`OSError`, for instance from writing the file) while taking that screenshot is logged
+as `Horizon screenshot failed: <Type>` and answers `None`. The step still succeeds. A
+failure screenshot is named by the `run_kind` the client was built with. Because the
+shared method catches disk errors too, a failure whose screenshot the disk refuses
+raises a `HorizonClientError` without a screenshot rather than an `OSError`.
+`capture_open_desktop` catches the same disk error and returns `None` instead of
+failing the step.
 
 ### Secrets and failures
 
@@ -175,10 +191,11 @@ succeeded therefore does not exit 1 on the way out.
 
 ## Invariants
 
-- The login page is never photographed: screenshots, of a failure or of a success,
-  use an allowlist of routes, read after any settle.
-- A success screenshot never changes a step's verdict: when it cannot be taken, the
-  step answers `None`.
+- The login page is never photographed. Page screenshots and the capture sample both
+  refuse a route outside `#/launchitems` and `#/desktop`.
+- A missing photograph never changes a step's verdict. `open_desktop` returns `None`
+  and takes no success photograph. `capture_open_desktop` and `log_off` answer `None`
+  when the photograph cannot be taken.
 - No Playwright error message reaches a log or a `HorizonClientError`.
 - `client_bundles()` and `browser_version()` never log in and never open a page.
 - `disconnect()` never logs off.
@@ -197,9 +214,14 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
   the portal URL and the run kind only.
 - `HorizonTimeouts(page_load_ms=30_000, action_ms=15_000, login_ms=30_000,
   desktop_open_ms=90_000, logoff_confirm_ms=60_000, poll_ms=1_000,
-  kill_session_answer_ms=30_000, success_settle_ms=2_000)` — frozen.
-- `open_desktop(name) -> Path | None`, `log_off(name) -> Path | None` — the path of
-  the success screenshot, `None` when none could be taken.
+  kill_session_answer_ms=30_000, desktop_paint_ms=60_000)` — frozen.
+  `success_settle_ms` is not a field.
+- `open_desktop(name) -> None` — returns once the desktop is open. It takes no
+  success photograph.
+- `capture_open_desktop() -> Path | None` — the saved PNG of the first non-blank
+  remote surface, or `None`.
+- `log_off(name) -> Path | None` — the path of the success screenshot of the launch
+  list, `None` when none could be taken.
 - Route and selector constants: `LOGIN_ROUTE`, `LAUNCH_ITEMS_ROUTE`, `DESKTOP_ROUTE`,
   `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON`, `DIALOG_OK`, `DIALOG_CANCEL`,
   `ANY_TILE`, `LAUNCH_BUTTON`, `TILE_MENU_BUTTON`, `TILE_MENU`, `LOGOFF_MENU_ITEM`,
@@ -208,7 +230,8 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
 
 ## Testing
 
-Tests: `tests/integration/infrastructure/test_horizon_playwright.py`. They drive a real
+Tests: `tests/integration/infrastructure/test_horizon_playwright.py`,
+`tests/unit/infrastructure/test_desktop_paint.py`. The adapter tests drive a real
 Chromium against a local copy of the HTML Access markup
 (`tests/fixtures/htmlaccess/`) served on localhost, never the portal; CI installs the
 browser with `playwright install --with-deps chromium`. The fixture reproduces the
@@ -233,9 +256,11 @@ session only a few lists later, serve one list per login, so that a reload lands
 the login form, answer kill-session late (1.5 s, beyond the 1 s the adapter once waited
 after OK) with credential cleanup on, answer it with an error status, never answer it,
 and never show the log-off confirmation. The page can fall back to `#/home` a while
-after the desktop drew, inside the success screenshot's settle, so the allowlist's
-refusal of the login page is pinned and so is the settle before the route is read. The
-page can also post a non-UTF-8 body
+after the desktop drew. `capture_open_desktop` then saves nothing and does not log
+`Horizon desktop still blank`. The fixture also paints the remote surface black,
+painted, or with a smaller bright canvas beside a black desktop, and it can fail the
+element screenshot. A blank timeout and a screenshot error both return `None` and
+write no file. The page can also post a non-UTF-8 body
 beside the log off, answered while the adapter waits, and send kill-session as a
 synchronous XHR inside OK's click handler, so that the answer is in before the click
 returns. The real client sends it asynchronously after a hop; that extreme exists only
