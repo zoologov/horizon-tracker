@@ -40,7 +40,15 @@ PASSWORD = "Pa$$w0rd-never-shown"
 TOKEN = "123456:SECRET-token_never-shown"
 CHAT_ID = "987654321"
 
-ONE_CHECKIN = ["login", "open_desktop", "desktop_status", "disconnect", "login", "desktop_status"]
+ONE_CHECKIN = [
+    "login",
+    "open_desktop",
+    "capture_open_desktop",
+    "desktop_status",
+    "disconnect",
+    "login",
+    "desktop_status",
+]
 ONE_CHECKOUT = ["login", "desktop_status", "log_off", "desktop_status"]
 
 # The day's draw, computed by an oracle independent of the code (the RFC's formula over
