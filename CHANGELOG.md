@@ -9,6 +9,14 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-22
+
+`1.0.1` is a patch: the morning check-in photograph changes, and the public surface does not.
+
+### Fixed
+
+- **Check-in photograph.** The morning check-in photographed the desktop as soon as the canvas had a size, before Windows had finished logging on, so the Telegram photo was a black screen. It now holds the desktop, then photographs the first non-blank frame of the remote surface while the session is still open. A surface that stays blank sends the text report and no photo. The time in the report stays the moment the desktop opened. Check-out still photographs the launch list.
+
 ## [1.0.0] - 2026-10-21
 
 The first release is `1.0.0` and not `0.x`, because the service has run in production on its
@@ -58,5 +66,6 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.0
