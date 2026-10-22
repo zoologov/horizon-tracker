@@ -43,7 +43,13 @@ def _context(event: dict[str, object]) -> list[str]:
 
 def _verdict(guard: str, context: list[str]) -> tuple[str, str]:
     completed = subprocess.run(
-        ["beadloom", "guard", guard, "--json", *[arg for pair in context for arg in ("--context", pair)]],
+        [
+            "beadloom",
+            "guard",
+            guard,
+            "--json",
+            *[arg for pair in context for arg in ("--context", pair)],
+        ],
         check=False,
         capture_output=True,
         text=True,
