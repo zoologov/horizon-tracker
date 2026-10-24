@@ -52,10 +52,14 @@ dismisses it; the sabotage "do not dismiss" must go red.
 The review's findings inside the capture are closed in the same item, so that one agent
 edits the function once:
 
-- the paint rule leaves Python: the browser downsamples the largest surface to the 32×32
-  grid (a 2D canvas `drawImage` + `getImageData`) and returns the lit count, the hand-written
-  PNG codec is deleted, and the deadline holds across a sample (Major-2, Minor-5); if a
-  separate module is still needed, it gets its own graph node and the BRIEF is amended;
+- the paint rule leaves Python: the browser judges the pixels of the **element screenshot**
+  (the PNG bytes decoded in the page onto the 32×32 grid, `getImageData`, the lit count
+  returned), the hand-written PNG codec is deleted, and the deadline holds across a sample
+  (Major-2, Minor-5). The first cut (BEAD-02) read the live surface with `drawImage` instead;
+  the review measured a WebGL canvas without `preserveDrawingBuffer` reading 0 of 1024 that
+  way while its element screenshot read 1024, so BEAD-06 restores HT-009 RFC's decision
+  ("the same composited pixels Telegram would get, not a WebGL readback") and the pixels
+  judged are the pixels saved;
 - the poll loop, the largest-surface rule and "a page closed mid-capture returns `None`" are
   pinned by tests whose sabotages go red (Major-1, Minor-4, Minor-7);
 - the guard hook is restored to the generated form and the Cursor translator stays under
@@ -100,6 +104,10 @@ created, and then the id the tracker answered.
 | BEAD-03 | ht-igr | review: dialog gone from the frame, the capture bound, the disconnect untouched, no screenshot on the login page, the sabotages of BEAD-01/02 bite | P1 |
 | BEAD-04 | ht-lh0 | tech-writer: horizon-playwright-client and morning-checkin SPECs; HT-009 documents closed (Minor-8); HT-009 CONTEXT records Minor-6 | P2 |
 | BEAD-05 | ht-c7x | chore (coordinator): `beadloom-guard.sh` restored by `beadloom setup-agentic-flow`, `.cursor/` kept (Major-3); `ht-qq2` closed | P2 |
+| BEAD-06 | ht-m13.1 | fix after review ht-igr: the verdict on the screenshot decoded in the page (Major-1), the throw path pinned (Minor-1), a dialog after the screenshot discards the frame (Minor-3), a tiny budget gives up quietly (nitpick) | P1 |
+| BEAD-07 | ht-m13.2 | re-review after the fix | P1 |
+| BEAD-08 | ht-m13.3 | fix after re-review: the closed-page test pins the quiet STOP again; docstrings name the constants | P1 |
+| BEAD-09 | ht-m13.4 | re-review pass 3 | P1 |
 
 ## Acceptance Criteria
 
