@@ -1151,27 +1151,37 @@ def test_the_photo_waits_no_longer_than_the_capture_has_left(
     assert 0 < timeout <= FAST.desktop_paint_ms
 
 
-def test_a_page_closed_between_samples_leaves_no_photo_and_raises_nothing(
+def test_a_page_closed_after_a_blank_sample_stops_the_capture_without_a_failure(
     client: PlaywrightHorizonClient,
     artifacts: RecordingArtifacts,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     client.login()
     client.open_desktop(DESKTOP)
     paint_remote_surface(client, "rgb(0, 0, 0)")
     real_evaluate = Page.evaluate
+    closed_after: list[object] = []
 
-    def close_after_reading(page: Page, *args: Any, **kwargs: Any) -> Any:
-        # The page goes away right after a sample read a black surface.
-        answer = real_evaluate(page, *args, **kwargs)
-        page.close()
+    def close_once_the_frame_is_read(page: Page, expression: str, *args: Any) -> Any:
+        # The page goes away only once a sample has read its frame's lit cells, so that
+        # sample judges the black frame and waits. The pause and the next sample are the
+        # ones that find the page closed.
+        answer = real_evaluate(page, expression, *args)
+        if expression == horizon_playwright._LIT_CELLS:
+            closed_after.append(answer)
+            page.close()
         return answer
 
-    monkeypatch.setattr(Page, "evaluate", close_after_reading)
+    monkeypatch.setattr(Page, "evaluate", close_once_the_frame_is_read)
 
     assert client.capture_open_desktop() is None
 
+    assert closed_after == [0], "the page did not close after a blank sample"
     assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert "Horizon screenshot failed" not in caplog.text
+    assert "Horizon desktop still blank" not in caplog.text
 
 
 def test_capture_on_the_login_page_saves_nothing(

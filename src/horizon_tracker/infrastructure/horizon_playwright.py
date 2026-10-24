@@ -291,16 +291,17 @@ class PlaywrightHorizonClient:
         """Save the first non-blank frame of the open remote surface, or return ``None``.
 
         Polls an element screenshot of the largest canvas or video inside
-        ``#canvas-container``: the page decodes that frame onto a 32 by 32 grid, and once
-        at least 8 cells have ``max(R, G, B) >= 24`` the same frame is saved, so the
-        pixels judged are the pixels sent. A frame is taken only while no client dialog
-        shows, and kept only if none showed once it was taken: one with a Cancel button is
-        cancelled (never OK, which on the Fullscreen offer grants full screen) and the next
-        poll looks again. ``desktop_paint_ms`` bounds the whole capture: a sample starts
-        only while at least 250 ms of it are left, a pause and the screenshot wait no
-        longer than what is left. A blank or dialog-covered timeout, a page closed or
-        outside the screenshot allowlist, or a screenshot or decode error answers
-        ``None``. A missing photo never fails the step.
+        ``#canvas-container``: the page decodes that frame onto a square grid of
+        ``_SAMPLE_SIDE`` cells a side, and once at least ``_LIT_CELLS_REQUIRED`` cells have
+        ``max(R, G, B) >= _LIT_CHANNEL`` the same frame is saved, so the pixels judged are
+        the pixels sent. A frame is taken only while no client dialog shows, and kept only
+        if none showed once it was taken: one with a Cancel button is cancelled (never OK,
+        which on the Fullscreen offer grants full screen) and the next poll looks again.
+        ``desktop_paint_ms`` bounds the whole capture: a sample starts only while at least
+        ``_SAMPLE_FLOOR_MS`` of it are left, a pause and the screenshot wait no longer than
+        what is left. A blank or dialog-covered timeout, a page closed or outside the
+        screenshot allowlist, or a screenshot or decode error answers ``None``. A missing
+        photo never fails the step.
         """
         deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
         last = _Frame.WAIT
@@ -714,7 +715,7 @@ def _largest_surface(page: Page) -> Locator | None:
 
 
 def _frame_is_painted(page: Page, png: bytes) -> bool:
-    """Whether at least 8 cells of the frame's grid are lit, as the page decodes the PNG.
+    """Whether at least ``_LIT_CELLS_REQUIRED`` grid cells are lit, as the page decodes the PNG.
 
     Raises ``ValueError`` when the page answers something other than a count, and a
     Playwright error when the page cannot decode the frame.
