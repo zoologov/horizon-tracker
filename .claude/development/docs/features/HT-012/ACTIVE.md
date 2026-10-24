@@ -1,15 +1,15 @@
 # ACTIVE: HT-012 — Absences through the bot, and one notice for a skipped day
 
 > **Last updated:** 2026-10-24
-> **Phase:** Development
+> **Phase:** Completed (released as v1.1.0; the owner's live check BEAD-14 is open)
 
 ---
 
 ## Current Bead
 
-**Bead:** BEAD-13 (ht-1t7) — release 1.1.0
-**Goal:** version 1.1.0 (pyproject, uv.lock, CLAUDE.md), CHANGELOG `[1.1.0] - 2026-10-24`, PR to main, ci-ok green, merge, tag v1.1.0, the Release run green, probe and portal checked
-**Done when:** the GitHub Release v1.1.0 exists, the deploy summary shows `absences:` in the probe and the portal's landscape map shows 13 contracts
+**Bead:** BEAD-14 (ht-pwp) — owner: the first absence entered through the bot on the host; the next skipped-day morning notice
+**Goal:** the owner's live observation, recorded here from their report
+**Done when:** `/add` is answered in the chat, `/list` shows it, and a skipped day produces one morning notice and a silent evening
 
 ## Progress
 
@@ -31,7 +31,8 @@
 - [x] Final tree before the release commit: `beadloom ci` rc 0, ruff + format + mypy clean, pytest 2024 passed, 5 skipped (systemd), 4 failed (the known Mac-only 3× /proc/self/task + shellcheck)
 - [ ] Wave 5: BEAD-09
 - [ ] Test wave: BEAD-10 · Review: BEAD-11 · Docs: BEAD-12
-- [ ] Release 1.1.0: BEAD-13 (PR, merge, tag, the Release run) · Owner live check: BEAD-14
+- [x] Release 1.1.0: BEAD-13 (ht-1t7) — c262902 bump; PR #6 ci-ok green (the informative mutation-per-change reached no verdict: mutmut's stats run fails the HT-010 photo scenario under its tracer → bug ht-7f0); merged ba1e032; tag v1.1.0; Release run 40128148896 all green (verify, gate, deploy, publish, portal); GitHub Release with wheel + sdist; the host's probe answers five checks ok incl. `absences: ok - none`; `horizon-bot.service` enabled by the deploy (its running state was shown in the step summary, not read from here); portal landscape 13 contracts, all confirmed
+- [ ] Owner live check: BEAD-14 (ht-pwp)
 
 ## Results
 
@@ -49,8 +50,8 @@
 | BEAD-10 | Done | ht-h0l, ae322d8: the risk-table and decision edge cases pinned; no stub left; 1982 passed in the room |
 | BEAD-11 | Done | ht-3fz: PASSED, 0/0/6/4; fix beads ht-t28.1 (minors 4, 5, 7) and ht-t28.2 (re-review) opened under the epic |
 | BEAD-12 | Done | ht-mr9, 1adeb93: 13 files, sync-check 46/46 |
-| BEAD-13 | In progress | ht-1t7: bump + changelog committed; PR pending |
-| BEAD-14 | Open | — |
+| BEAD-13 | Done | ht-1t7: v1.1.0 on ba1e032, Release run green, GitHub Release published, portal 13/13 confirmed |
+| BEAD-14 | Open | ht-pwp: the owner's live check on the host (bot commands, the next skipped-day notice) |
 
 ## Notes
 

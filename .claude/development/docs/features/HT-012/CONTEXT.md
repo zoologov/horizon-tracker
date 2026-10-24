@@ -95,6 +95,6 @@ no evening one.
 
 ## Current Phase
 
-- **Phase:** Development
-- **Current bead:** —
-- **Blockers:** HT-010 must be merged first (the same working tree; the HT-012 scenarios would redden the gate on HT-010's branch)
+- **Phase:** Completed — released as v1.1.0 on 2026-10-24 (PR #6, merge ba1e032)
+- **Current bead:** BEAD-14 (ht-pwp), the owner's live check
+- **Blockers:** none; follow-up bug ht-7f0 (CI mutation job reaches no verdict under mutmut's tracer)
