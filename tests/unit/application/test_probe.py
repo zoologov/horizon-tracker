@@ -367,9 +367,12 @@ class Planning:
         self.calendar = FakeCalendar(calendar_answer)
         self.notifier = FakeNotifier()
         self.client = FakeHorizonClient(desktop=DESKTOP)
+        self.absences = FakeAbsenceStore()
         if moments is None:
             window = CHECKIN_WINDOW if kind is RunKind.CHECKIN else CHECKOUT_WINDOW
-            self.runner = WindowedRun(self.calendar, self.clock, self.notifier, window, POLICY)
+            self.runner = WindowedRun(
+                self.calendar, self.clock, self.notifier, window, POLICY, absences=self.absences
+            )
         else:
             moment = moments.check_in if kind is RunKind.CHECKIN else moments.check_out
             self.runner = WindowedRun(
@@ -380,6 +383,7 @@ class Planning:
                 POLICY,
                 moment=moment,
                 range_start=RANGE_STARTS[kind],
+                absences=self.absences,
             )
         self.use_case: MorningCheckin | EveningCheckout = (
             MorningCheckin(self.client, self.clock, self.runner, DESKTOP, HOLD)
@@ -537,6 +541,22 @@ def test_a_plan_names_both_of_the_days_drawn_moments(kind: RunKind) -> None:
     assert plan.moments == MOMENTS
 
 
+def test_a_plan_on_an_absence_day_would_not_run_and_asks_no_calendar() -> None:
+    planning = Planning(at(WEDNESDAY, 7, 30), moments=MOMENTS)
+    vacation = Absence(1, AbsenceKind.VACATION, WEDNESDAY, WEDNESDAY)
+    planning.absences.book = AbsenceBook.of((vacation,))
+
+    plan = planning.plan()
+
+    assert (plan.decision, plan.verdict_source, plan.waits_until) == (
+        Decision.SKIP_ABSENT,
+        None,
+        None,
+    )
+    assert not plan.would_run
+    assert planning.calendar.asked == []
+
+
 def test_a_plan_without_drawn_moments_names_none() -> None:
     assert Planning(at(WEDNESDAY, 7, 55)).plan().moments is None
 
@@ -551,7 +571,8 @@ def test_a_checkin_plan_from_the_range_start_waits_for_its_moment_then_runs() ->
     assert plan.decision is Decision.RUN
     assert plan.would_run
     assert planning.clock.sleeps == []
-    assert english(plan.steps[len(planning.use_case.steps())]) == (
+    # The loop's steps follow the attempt's: the absence check, then the wait.
+    assert english(plan.steps[len(planning.use_case.steps()) + 1]) == (
         "wait until the drawn moment 07:43 if started from 07:30; earlier is skipped as too early"
     )
 

@@ -124,78 +124,148 @@ def test_add_leaves_a_store_error_to_the_caller() -> None:
         absences.add(AbsenceKind.VACATION, NOV_3, NOV_14)
 
 
-# --- an absence for today once the check-in range is over -------------------------------
+# --- an absence for today once the check-in range has begun ------------------------------
+# The morning run may already have checked in, so an absence entered from the start of the
+# check-in range on starts tomorrow, and the evening check-out runs as usual (HT-012).
 
 TODAY = date(2026, 10, 26)  # Monday
+TOMORROW = date(2026, 10, 27)
+OCT_28 = date(2026, 10, 28)
 
 
 def at(hour: int, minute: int) -> datetime:
     return datetime.combine(TODAY, time(hour, minute), tzinfo=MSK)
 
 
-NOTE = "Today's check-in range ended at 08:10: a check-in made this morning stands"
+NOTE = (
+    "Today's check-in range began at 07:30, so an absence starts tomorrow at the earliest; "
+    "this evening's check-out runs as usual"
+)
 
 
-def test_an_absence_covering_today_entered_after_the_check_in_range_says_so() -> None:
-    absences, _ = service(now=at(8, 11))
+@pytest.mark.parametrize("now", [at(7, 30), at(8, 11), at(23, 59)])
+def test_an_absence_covering_today_entered_once_the_range_began_starts_tomorrow(
+    now: datetime,
+) -> None:
+    absences, store = service(now=now)
 
-    reply = absences.add(AbsenceKind.SICK_LEAVE, TODAY, date(2026, 10, 28))
+    reply = absences.add(AbsenceKind.SICK_LEAVE, TODAY, OCT_28)
 
     assert english(reply).splitlines() == [
-        "Absence 1 entered: sick leave from 26.10.2026 to 28.10.2026",
+        "Absence 1 entered: sick leave from 27.10.2026 to 28.10.2026",
         NOTE,
     ]
+    assert store.book.absences == (Absence(1, AbsenceKind.SICK_LEAVE, TOMORROW, OCT_28),)
 
 
 def test_the_note_reads_in_russian() -> None:
     absences, _ = service(now=at(12, 0))
 
-    reply = absences.add(AbsenceKind.DAY_OFF, TODAY, TODAY)
+    reply = absences.add(AbsenceKind.DAY_OFF, TODAY, OCT_28)
 
     assert reply.in_language(Language.RU).splitlines()[1] == (
-        "Диапазон входа на сегодня закончился в 08:10: утренний вход, если он был, остаётся в силе"
+        "Диапазон входа на сегодня начался в 07:30, поэтому отсутствие начнётся "
+        "не раньше завтрашнего дня; вечерний выход сегодня пройдёт как обычно"
     )
 
 
-def test_an_absence_started_yesterday_and_covering_today_says_so_too() -> None:
-    absences, _ = service(now=at(12, 0))
+def test_an_absence_started_yesterday_and_covering_today_starts_tomorrow_too() -> None:
+    absences, store = service(now=at(12, 0))
 
-    reply = absences.add(AbsenceKind.SICK_LEAVE, date(2026, 10, 25), TODAY)
+    reply = absences.add(AbsenceKind.SICK_LEAVE, date(2026, 10, 25), OCT_28)
 
-    assert english(reply).splitlines()[1] == NOTE
+    assert english(reply).splitlines() == [
+        "Absence 1 entered: sick leave from 27.10.2026 to 28.10.2026",
+        NOTE,
+    ]
+    assert store.book.absences[0].first_day == TOMORROW
 
 
-@pytest.mark.parametrize("now", [at(7, 0), at(7, 50), at(8, 10)])
-def test_no_note_while_the_check_in_range_is_not_over(now: datetime) -> None:
-    absences, _ = service(now=now)
+@pytest.mark.parametrize(
+    "first_day", [TODAY, date(2026, 10, 25)], ids=["today alone", "yesterday and today"]
+)
+def test_an_absence_that_would_end_today_is_refused_with_the_note(first_day: date) -> None:
+    absences, store = service(now=at(12, 0))
+
+    reply = absences.add(AbsenceKind.DAY_OFF, first_day, TODAY)
+
+    assert english(reply) == NOTE
+    assert store.saved == []
+    # The refusal issues no id: the next absence entered is still the first.
+    assert english(absences.add(AbsenceKind.DAY_OFF, NOV_20, NOV_20)).startswith("Absence 1 ")
+
+
+@pytest.mark.parametrize("now", [at(0, 0), at(7, 0), at(7, 29)])
+def test_an_absence_for_today_entered_before_the_range_begins_keeps_today(
+    now: datetime,
+) -> None:
+    absences, store = service(now=now)
 
     reply = absences.add(AbsenceKind.DAY_OFF, TODAY, TODAY)
 
+    assert english(reply) == "Absence 1 entered: day off on 26.10.2026"
+    assert store.book.absences == (Absence(1, AbsenceKind.DAY_OFF, TODAY, TODAY),)
+
+
+@pytest.mark.parametrize(
+    ("first_day", "last_day"),
+    [(TOMORROW, TOMORROW), (date(2026, 10, 25), date(2026, 10, 25))],
+    ids=["starts tomorrow", "ended yesterday"],
+)
+def test_an_absence_off_today_is_entered_as_written_without_the_note(
+    first_day: date, last_day: date
+) -> None:
+    absences, store = service(now=at(12, 0))
+
+    reply = absences.add(AbsenceKind.DAY_OFF, first_day, last_day)
+
     assert len(reply.lines) == 1
+    assert store.book.absences == (Absence(1, AbsenceKind.DAY_OFF, first_day, last_day),)
 
 
-def test_no_note_for_an_absence_that_starts_tomorrow() -> None:
-    absences, _ = service(now=at(12, 0))
+def test_the_overlap_is_judged_on_the_days_from_tomorrow() -> None:
+    today_off = Absence(1, AbsenceKind.DAY_OFF, TODAY, TODAY)
+    absences, store = service(AbsenceBook.of((today_off,)), now=at(12, 0))
 
-    reply = absences.add(AbsenceKind.DAY_OFF, date(2026, 10, 27), date(2026, 10, 27))
+    reply = absences.add(AbsenceKind.VACATION, TODAY, OCT_28)
 
-    assert len(reply.lines) == 1
-
-
-def test_no_note_for_an_absence_that_ended_yesterday() -> None:
-    absences, _ = service(now=at(12, 0))
-
-    reply = absences.add(AbsenceKind.DAY_OFF, date(2026, 10, 25), date(2026, 10, 25))
-
-    assert len(reply.lines) == 1
+    assert english(reply).splitlines()[0] == (
+        "Absence 2 entered: vacation from 27.10.2026 to 28.10.2026"
+    )
+    assert store.book.absences[1] == Absence(2, AbsenceKind.VACATION, TOMORROW, OCT_28)
 
 
-def test_an_edit_onto_today_after_the_check_in_range_says_so() -> None:
-    absences, _ = service(AbsenceBook.of((VACATION,)), now=at(9, 0))
+def test_an_edit_onto_today_once_the_range_began_starts_tomorrow() -> None:
+    absences, store = service(AbsenceBook.of((VACATION,)), now=at(9, 0))
 
     reply = absences.edit(1, None, TODAY, NOV_14)
 
-    assert english(reply).splitlines()[1] == NOTE
+    assert english(reply).splitlines() == [
+        "Absence 1 changed: vacation from 27.10.2026 to 14.11.2026",
+        NOTE,
+    ]
+    assert store.book.absences == (Absence(1, AbsenceKind.VACATION, TOMORROW, NOV_14),)
+
+
+def test_an_edit_onto_today_alone_once_the_range_began_is_refused_with_the_note() -> None:
+    absences, store = service(AbsenceBook.of((VACATION,)), now=at(9, 0))
+
+    reply = absences.edit(1, None, TODAY, TODAY)
+
+    assert english(reply) == NOTE
+    assert store.saved == []
+
+
+def test_an_edit_of_an_absence_already_covering_today_keeps_today() -> None:
+    # Today's morning run was skipped for this absence, so the evening must stay silent:
+    # moving its start to tomorrow would send the evening run to a desktop never opened.
+    running = Absence(1, AbsenceKind.VACATION, date(2026, 10, 20), OCT_28)
+    absences, store = service(AbsenceBook.of((running,)), now=at(12, 0))
+
+    reply = absences.edit(1, None, date(2026, 10, 20), NOV_14)
+
+    assert english(reply) == "Absence 1 changed: vacation from 20.10.2026 to 14.11.2026"
+    assert store.book.absences == (Absence(1, AbsenceKind.VACATION, date(2026, 10, 20), NOV_14),)
 
 
 # --- list -----------------------------------------------------------------------------

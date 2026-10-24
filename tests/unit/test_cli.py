@@ -20,7 +20,7 @@ from click.testing import CliRunner
 
 from horizon_tracker import __version__
 from horizon_tracker.cli import build_bot_transport, build_notifier, main, open_adapters
-from horizon_tracker.domain.absence import Absence, AbsenceKind
+from horizon_tracker.domain.absence import Absence, AbsenceBook, AbsenceKind
 from horizon_tracker.domain.ports import (
     BotTransportError,
     HorizonClientError,
@@ -359,6 +359,137 @@ def test_checkout_dry_run_lists_the_plan_and_never_logs_in(env: dict[str, str | 
     assert "dry run: checkout" in result.stdout
     assert "log off from the tile menu" in result.stdout
     assert "hold" not in result.stdout
+
+
+# --- absences, and the evening's silence on a skipped day --------------------------------
+
+VACATION = Absence(1, AbsenceKind.VACATION, date(2026, 10, 19), date(2026, 10, 23))
+
+
+def enter(env: dict[str, str | None], *absences: Absence) -> JsonAbsenceStore:
+    """Enter ``absences`` in the file the command reads, as the bot would have left it."""
+    store = JsonAbsenceStore(Path(env["HT_STATE_DIR"] or "") / "absences.json")
+    store.save(AbsenceBook.of(absences))
+    return store
+
+
+def test_checkin_on_an_absence_day_skips_names_the_absence_and_asks_no_calendar(
+    env: dict[str, str | None],
+) -> None:
+    enter(env, VACATION)
+    world = World(at(*CHECK_IN))
+
+    result = world.invoke(["checkin"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.calendar.asked == []
+    assert world.client.calls == []
+    (report,) = world.notifier.sent
+    assert (report.outcome, report.reason, report.absence) == (
+        Outcome.SKIPPED,
+        Reason.ON_VACATION,
+        VACATION,
+    )
+
+
+def test_checkout_on_an_absence_day_sends_nothing_and_exits_zero(
+    env: dict[str, str | None],
+) -> None:
+    enter(env, VACATION)
+    world = World(at(*CHECK_OUT), state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == []
+    assert world.calendar.asked == []
+    assert world.notifier.sent == []
+
+
+def test_checkout_on_a_day_off_sends_nothing(env: dict[str, str | None]) -> None:
+    world = World(at(16, 30, day=24), calendar_answer=False, state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == []
+    assert world.notifier.sent == []
+
+
+@pytest.mark.parametrize(
+    ("start", "reason"),
+    [(at(16, 0), Reason.TOO_EARLY), (at(18, 0), Reason.WINDOW_MISSED)],
+    ids=["too early", "window missed"],
+)
+def test_an_anomalous_checkout_skip_still_reaches_the_owner(
+    env: dict[str, str | None], start: datetime, reason: Reason
+) -> None:
+    world = World(start, state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    (report,) = world.notifier.sent
+    assert report.reason is reason
+
+
+def test_forced_checkin_ignores_an_absence(env: dict[str, str | None]) -> None:
+    enter(env, VACATION)
+    world = World(at(12, 0))
+
+    result = world.invoke(["checkin", "--force"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == ONE_CHECKIN
+
+
+def test_an_unreadable_absences_file_does_not_stop_the_checkin(
+    env: dict[str, str | None],
+) -> None:
+    state = Path(env["HT_STATE_DIR"] or "")
+    state.mkdir()
+    (state / "absences.json").write_text("{not json", encoding="utf-8")
+    world = World(at(*CHECK_IN))
+
+    result = world.invoke(["checkin"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == ONE_CHECKIN
+    assert "absences could not be read (AbsenceStoreError)" in result.stderr
+
+
+def test_a_dry_run_on_an_absence_day_says_it_would_skip_and_asks_no_calendar(
+    env: dict[str, str | None],
+) -> None:
+    enter(env, VACATION)
+    world = World(at(*CHECK_IN))
+
+    result = world.invoke(["checkin", "--dry-run"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.calendar.asked == []
+    assert "would run now: no (skip_absent)" in result.stdout
+    assert "calendar: not asked (an absence covers today)" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("command", "report_step"),
+    [
+        ("checkin", "send one report to Telegram\n"),
+        (
+            "checkout",
+            "send one report to Telegram, unless the day is skipped: the morning reports it\n",
+        ),
+    ],
+)
+def test_a_dry_run_names_the_absence_check_and_which_reports_it_sends(
+    env: dict[str, str | None], command: str, report_step: str
+) -> None:
+    result = World(at(*CHECK_IN)).invoke([command, "--dry-run"], env)
+
+    assert result.exit_code == 0, result.output
+    assert "skip the day if an absence entered through the bot covers it" in result.stdout
+    assert result.stdout.endswith(report_step)
 
 
 # --- the day's drawn moments -----------------------------------------------------------
@@ -712,18 +843,20 @@ def test_the_bot_replies_in_the_configured_language(env: dict[str, str | None]) 
     assert world.bot.replies == [(CHAT_ID, "Отсутствий не внесено")]
 
 
-def test_the_bot_notes_an_absence_for_today_after_the_configured_check_in_range(
+def test_the_bot_starts_an_absence_tomorrow_once_the_configured_check_in_range_began(
     env: dict[str, str | None],
 ) -> None:
-    world = World(at(8, 11))
-    world.bot.deliver([owner_writes(1, "/add sick 21.10")])
+    world = World(at(9, 0))
+    world.bot.deliver([owner_writes(1, "/add sick 21.10-23.10")])
 
-    world.invoke(["bot"], env)
+    world.invoke(["bot"], {**env, "HT_CHECKIN_RANGE": "09:00-09:30"})
 
     [(_, text)] = world.bot.replies
-    assert text.splitlines()[1] == (
-        "Today's check-in range ended at 08:10: a check-in made this morning stands"
-    )
+    assert text.splitlines() == [
+        "Absence 1 entered: sick leave from 22.10.2026 to 23.10.2026",
+        "Today's check-in range began at 09:00, so an absence starts tomorrow at the earliest; "
+        "this evening's check-out runs as usual",
+    ]
 
 
 def test_the_bot_rides_out_a_failed_poll(env: dict[str, str | None]) -> None:
@@ -968,10 +1101,11 @@ def test_a_dry_run_reads_in_the_configured_language(env: dict[str, str | None]) 
         "  3. держать стол открытым 120 секунд, чтобы завершился вход в Windows",
         "  4. прочитать состояние сессии, затем отключиться (сессия Windows продолжает работать)",
         "  5. войти снова и убедиться, что сессия в состоянии DISCONNECTED",
-        "  6. ждать разыгранного момента 07:41, если запуск начат от 07:30; "
+        "  6. пропустить день, на который через бота внесено отсутствие, ещё до вопроса календарю",
+        "  7. ждать разыгранного момента 07:41, если запуск начат от 07:30; "
         "более ранний запуск пропускается как слишком ранний",
-        "  7. повторять неудачную попытку, до 3 попыток через 30 секунд, пока позволяет окно",
-        "  8. отправить один отчёт в Telegram",
+        "  8. повторять неудачную попытку, до 3 попыток через 30 секунд, пока позволяет окно",
+        "  9. отправить один отчёт в Telegram",
     ]
 
 

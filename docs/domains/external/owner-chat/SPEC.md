@@ -27,7 +27,9 @@ Declared from both ends in `landscape.yml`. The portal's map shows it as a depen
 with a presence verdict. The surface is the text the owner reads.
 
 - **One message per run.** A photo with the text as its caption when the run carries a
-  screenshot, otherwise the text alone (see the `telegram-bot-api` SPEC).
+  screenshot, otherwise the text alone (see the `telegram-bot-api` SPEC). A day skipped
+  for itself (a non-working day, an absence) is reported once, by the morning check-in;
+  the evening check-out of that day sends nothing (HT-012, the owner's ruling).
 - **The text.** Rendered by the domain's `render(report, language)` in the language
   `HT_LANGUAGE` names (`en` by default, `ru`), every word from the message catalogue.
   Three lines, and a fourth when the run did not succeed. A skip for the day itself (a

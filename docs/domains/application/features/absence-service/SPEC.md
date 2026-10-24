@@ -42,21 +42,35 @@ A reply names an absence by `bot.kind.<kind>` and `bot.days.single` (one day) or
 `bot.days.span`, with the dates as `dd.mm.yyyy`, so a date typed without a year is read
 back in full: `Absence 1 entered: vacation from 03.11.2026 to 14.11.2026`.
 
-### An absence for today after the check-in range
+### An absence for today once the check-in range has begun
 
-When an `add` or `edit` leaves an absence covering today and the clock is past the end of
-today's check-in range (`HT_CHECKIN_RANGE`, both ends included), the reply gets a second
-line, `bot.note.after_checkin_range`: `Today's check-in range ended at 08:10: a check-in
-made this morning stands`. This is the RFC's mitigation for an absence entered after the
-morning run already logged on. The note states only what is certain from the clock; it
-says nothing about the evening run, which is the run loop's decision (BEAD-05).
+From the start of today's check-in range (`HT_CHECKIN_RANGE`, its start included) the
+morning run may already have checked in, so an `add` or `edit` whose days cover today
+starts the absence tomorrow: `first_day` becomes tomorrow, the overlap is judged on the
+days from tomorrow, and the reply gets a second line, `bot.note.after_checkin_range`:
+`Today's check-in range began at 07:30, so an absence starts tomorrow at the earliest;
+this evening's check-out runs as usual`. Days that would end today (a one-day absence
+for today, or yesterday and today) leave nothing to enter: the call is refused with that
+line alone, saves nothing and issues no id.
+
+An `edit` of an absence that already covers today keeps today: the morning run was
+skipped for it, so the evening run stays a silent skip, and moving its start to tomorrow
+would send the evening run to a desktop never opened. Before the range begins, an
+absence for today is entered as written and the morning run skips for it.
+
+With this rule the run loop needs no state for the evening: an absence covering today
+was there before the morning run, so a morning logon belongs to a day no absence covers
+(CONTEXT, the coordinator's ruling of 2026-10-24).
 
 ## Invariants
 
 - Two absences in the store never share a day.
 - An id is never issued twice: `delete` keeps `last_issued`, and `add` allocates above it.
 - `edit` keeps the absence's id.
-- A refused call (overlap, not found) saves nothing.
+- A refused call (overlap, not found, an absence that would end today once the range
+  began) saves nothing.
+- From the start of today's check-in range, no `add` or `edit` makes an absence cover
+  today that did not already.
 - Every call loads the store once; a call that changes nothing saves nothing.
 - The service picks no language: a `Reply` is messages, rendered by the caller.
 - A store that cannot be read or written raises `AbsenceStoreError` to the caller.

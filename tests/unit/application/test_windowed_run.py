@@ -14,7 +14,7 @@ from horizon_tracker.domain.messages import Language, Message
 from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import Decision, RetryPolicy, RunKind, Window, window_from
-from tests.support.fakes import FakeCalendar, FakeClock, FakeNotifier
+from tests.support.fakes import FakeAbsenceStore, FakeCalendar, FakeClock, FakeNotifier
 
 MSK = ZoneInfo("Europe/Moscow")
 WEDNESDAY = date(2026, 10, 21)
@@ -29,6 +29,9 @@ RANGE_START = time(7, 30)
 MOMENT = time(7, 43)
 GRACE = timedelta(minutes=5)
 DRAWN_WINDOW = window_from(MOMENT, GRACE)
+ABSENCE_STEP = (
+    "skip the day if an absence entered through the bot covers it, before the calendar is asked"
+)
 
 
 def at(day: date, hour: int, minute: int, second: int = 0) -> datetime:
@@ -69,6 +72,7 @@ class World:
             notifier=self.notifier,
             window=WINDOW,
             policy=POLICY,
+            absences=FakeAbsenceStore(),
         )
 
     @classmethod
@@ -89,6 +93,7 @@ class World:
             policy=POLICY,
             moment=moment,
             range_start=range_start,
+            absences=FakeAbsenceStore(),
         )
         return world
 
@@ -429,6 +434,7 @@ def test_a_forced_first_decision_runs_and_asks_no_calendar() -> None:
 
 def test_the_loop_names_its_retries_and_its_one_report() -> None:
     assert english(World(at(WEDNESDAY, 7, 55)).runner.steps()) == (
+        ABSENCE_STEP,
         "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
         "send one report to Telegram",
     )
@@ -620,6 +626,7 @@ def test_a_forced_first_decision_does_not_wait() -> None:
 
 def test_a_scheduled_loop_names_its_wait_before_its_retries() -> None:
     assert english(World.drawn(at(WEDNESDAY, 7, 30)).runner.steps()) == (
+        ABSENCE_STEP,
         "wait until the drawn moment 07:43 if started from 07:30; earlier is skipped as too early",
         "retry a failed attempt, up to 3 attempts 30 s apart, while the window allows",
         "send one report to Telegram",
@@ -635,6 +642,7 @@ def make_runner(window: Window, moment: time | None, range_start: time | None) -
         policy=POLICY,
         moment=moment,
         range_start=range_start,
+        absences=FakeAbsenceStore(),
     )
 
 

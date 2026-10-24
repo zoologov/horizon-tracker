@@ -9,16 +9,21 @@ the absence in the way, and the owner edits or deletes it first.
 
 Every call answers with a ``Reply``: catalogue messages, one per line, with no language
 yet. A reply names an absence with its id, its kind and its days with the year, so a date
-typed without one is read back in full. An absence entered or moved onto today once
-today's check-in range is over gets a second line saying a morning check-in stands. A store
-that cannot be read or written raises ``AbsenceStoreError`` to the caller.
+typed without one is read back in full. A store that cannot be read or written raises
+``AbsenceStoreError`` to the caller.
+
+Today's morning run may already have checked in once today's check-in range has begun, so
+an ``add`` or ``edit`` from then on that would cover today starts the absence tomorrow and
+says so in a second line: this evening's check-out runs as usual. An absence that would
+have ended today is refused with that line alone. An absence already covering today keeps
+today under ``edit``: the morning skipped for it, and the evening stays silent.
 """
 
 # beadloom:domain=application
 # beadloom:feature=absence-service
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from horizon_tracker.domain.absence import Absence, AbsenceBook, AbsenceKind, overlaps
 from horizon_tracker.domain.messages import Language, Message
@@ -28,6 +33,7 @@ from horizon_tracker.domain.schedule import TimeRange
 _DAY_FORMAT = "%d.%m.%Y"  # a reply gives the year, as the bot.days.* texts expect
 _TIME_FORMAT = "%H:%M"
 _LINE_BREAK = "\n"
+_ONE_DAY = timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -62,12 +68,15 @@ class AbsenceService:
     def add(self, kind: AbsenceKind, first_day: date, last_day: date) -> Reply:
         """Enter an absence under a new id, unless another one holds any of its days."""
         book = self._store.load()
-        entered = Absence(book.next_id(), kind, first_day, last_day)
+        first = self._first_day_to_enter(first_day, last_day, held=None)
+        if first > last_day:
+            return Reply.of(self._note())
+        entered = Absence(book.next_id(), kind, first, last_day)
         clash = _first_overlap(book.absences, entered)
         if clash is not None:
             return _overlap(clash)
         self._store.save(AbsenceBook((*book.absences, entered), last_issued=entered.id))
-        return self._with_note(entered, _naming("bot.added", entered))
+        return self._answer(_naming("bot.added", entered), moved=first != first_day)
 
     def list(self) -> Reply:
         """Name every absence entered, earliest first; say so when there is none."""
@@ -95,7 +104,10 @@ class AbsenceService:
         held = _find(book.absences, absence_id)
         if held is None:
             return _not_found(absence_id)
-        edited = Absence(absence_id, kind or held.kind, first_day, last_day)
+        first = self._first_day_to_enter(first_day, last_day, held=held)
+        if first > last_day:
+            return Reply.of(self._note())
+        edited = Absence(absence_id, kind or held.kind, first, last_day)
         others = tuple(absence for absence in book.absences if absence.id != absence_id)
         clash = _first_overlap(others, edited)
         if clash is not None:
@@ -104,15 +116,28 @@ class AbsenceService:
             edited if absence.id == absence_id else absence for absence in book.absences
         )
         self._store.save(AbsenceBook(changed, last_issued=book.last_issued))
-        return self._with_note(edited, _naming("bot.edited", edited))
+        return self._answer(_naming("bot.edited", edited), moved=first != first_day)
 
-    def _with_note(self, absence: Absence, line: Message) -> Reply:
-        """``line``, and the note when ``absence`` covers today after the check-in range."""
+    def _first_day_to_enter(self, first_day: date, last_day: date, *, held: Absence | None) -> date:
+        """``first_day``, or tomorrow when the days cover today and today's range has begun.
+
+        ``held`` is the absence an edit changes: one that already covers today keeps today.
+        """
         now = self._clock.now()
-        if absence.covers(now.date()) and now.time() > self._checkin_range.end:
-            end = f"{self._checkin_range.end:{_TIME_FORMAT}}"
-            return Reply.of(line, Message("bot.note.after_checkin_range", {"end": end}))
-        return Reply.of(line)
+        today = now.date()
+        if held is not None and held.covers(today):
+            return first_day
+        if first_day <= today <= last_day and now.time() >= self._checkin_range.start:
+            return today + _ONE_DAY
+        return first_day
+
+    def _answer(self, line: Message, *, moved: bool) -> Reply:
+        """``line``, and the note under it when the absence was moved to start tomorrow."""
+        return Reply.of(line, self._note()) if moved else Reply.of(line)
+
+    def _note(self) -> Message:
+        start = f"{self._checkin_range.start:{_TIME_FORMAT}}"
+        return Message("bot.note.after_checkin_range", {"start": start})
 
 
 def _find(absences: tuple[Absence, ...], absence_id: int) -> Absence | None:

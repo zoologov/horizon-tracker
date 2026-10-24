@@ -258,6 +258,12 @@ def message_reads(scene: Scene, line: str) -> None:
     assert line in text.splitlines(), f"{line!r} is not a line of:\n{text}"
 
 
+@then(parsers.parse('no line of the message starts with "{prefix}"'))
+def no_line_starts_with(scene: Scene, prefix: str) -> None:
+    text = scene.only_message().text
+    assert not [line for line in text.splitlines() if line.startswith(prefix)], text
+
+
 @then("the portal was never contacted")
 def portal_untouched(scene: Scene) -> None:
     assert scene.ran.client.calls == []

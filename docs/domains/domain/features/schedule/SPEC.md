@@ -88,7 +88,9 @@ Module `src/horizon_tracker/domain/schedule.py`:
   message; `str()` is `reason` in English.
 - `RunKind` — `StrEnum`: `CHECKIN`, `CHECKOUT`, named after the CLI commands.
 - `Decision` — `StrEnum`: `RUN`, `RETRY`, `SKIP_EARLY`, `SKIP_LATE`,
-  `SKIP_NON_WORKING_DAY`, `GIVE_UP`.
+  `SKIP_NON_WORKING_DAY`, `SKIP_ABSENT`, `GIVE_UP`. `decide` never answers
+  `SKIP_ABSENT`: the run loop takes it from the owner's absences before `decide` is asked
+  (HT-012), and the dry run names it.
 - `Window(start: time, end: time)` — frozen; `contains(moment: time) -> bool`.
 - `RetryPolicy(max_attempts: int, backoff: timedelta)` — frozen.
 - `decide(now, window, verdict, attempt, policy) -> Decision` — the rule above;

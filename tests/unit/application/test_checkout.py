@@ -15,7 +15,13 @@ from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
 from horizon_tracker.domain.session import SessionState
-from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
+from tests.support.fakes import (
+    FakeAbsenceStore,
+    FakeCalendar,
+    FakeClock,
+    FakeHorizonClient,
+    FakeNotifier,
+)
 
 MSK = ZoneInfo("Europe/Moscow")
 DESKTOP = "DEV desktop"
@@ -50,6 +56,7 @@ class Evening:
             notifier=self.notifier,
             window=Window(start=time(17, 0), end=time(17, 5)),
             policy=POLICY,
+            absences=FakeAbsenceStore(),
         )
         self.checkout = EveningCheckout(
             client=self.client, clock=self.clock, runner=runner, desktop=DESKTOP

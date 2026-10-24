@@ -63,6 +63,7 @@ from horizon_tracker.domain.ports import (
 from horizon_tracker.domain.report import Outcome
 from horizon_tracker.domain.schedule import (
     DailyMoments,
+    Decision,
     RetryPolicy,
     RunKind,
     TimeRange,
@@ -107,6 +108,7 @@ _SOURCE_KEY = {
     VerdictSource.WEEKDAY_FALLBACK: "plan.source.weekday_fallback",
     None: "plan.source.not_asked",
 }
+_ABSENT_SOURCE_KEY = "plan.source.absent"
 
 
 class PrunableArtifactStore(ArtifactStore, Protocol):
@@ -315,6 +317,9 @@ def _use_case(
         policy=RETRY_POLICY,
         moment=moment,
         range_start=_draw_range(settings, kind).start,
+        absences=adapters.absences,
+        # The owner's ruling (HT-012): the morning reports a skipped day, the evening is silent.
+        notify_day_skips=kind is RunKind.CHECKIN,
     )
     if kind is RunKind.CHECKIN:
         return MorningCheckin(
@@ -379,7 +384,7 @@ def _echo_plan(plan: RunPlan, language: Language) -> None:
     )
     if plan.waits_until is not None:
         click.echo(text("plan.waits_until", language, moment=f"{plan.waits_until:%H:%M}"))
-    source = text(_SOURCE_KEY[plan.verdict_source], language)
+    source = text(_source_key(plan), language)
     click.echo(text("plan.calendar", language, source=source))
     if plan.moments is not None:
         detail = schedule_detail(plan.moments).in_language(language)
@@ -387,6 +392,13 @@ def _echo_plan(plan: RunPlan, language: Language) -> None:
     click.echo(text("plan.steps", language))
     for number, step in enumerate(plan.steps, start=1):
         click.echo(f"  {number}. {step.in_language(language)}")
+
+
+def _source_key(plan: RunPlan) -> str:
+    """The key of the plan's calendar line: an absence day asks no calendar, as a forced run."""
+    if plan.decision is Decision.SKIP_ABSENT:
+        return _ABSENT_SOURCE_KEY
+    return _SOURCE_KEY[plan.verdict_source]
 
 
 def _echo_probe(settings: Settings, report: ProbeReport) -> None:

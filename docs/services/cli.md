@@ -108,10 +108,13 @@ steps of one attempt:
 when the run would first wait for its drawn moment, at that moment. `would wait until`
 appears only then. Under `--force` the parenthesis reads
 `(run, forced: window and calendar ignored)` and nothing is waited for. The calendar
-line is `isdayoff.ru`, `isdayoff.ru unreachable, Mon-Fri rule` or `not asked (forced)`.
+line is `isdayoff.ru`, `isdayoff.ru unreachable, Mon-Fri rule`, `not asked (forced)` or,
+on a day an absence covers, `not asked (an absence covers today)` beside
+`would run now: no (skip_absent)`.
 `schedule:` names the day's drawn check-in and check-out moments, as the probe does.
-The steps are the use case's own list followed by the loop's: the wait for the moment,
-the retries and the one Telegram report.
+The steps are the use case's own list followed by the loop's: the absence check, the wait
+for the moment, the retries and the one Telegram report, which the check-out names as
+`send one report to Telegram, unless the day is skipped: the morning reports it`.
 
 ## Environment
 
@@ -145,6 +148,13 @@ The composition root builds the notifier with `build_notifier(settings, http)`: 
 `TelegramNotifier` in `settings.language`, and a token the adapter refuses becomes a
 configuration error for `TELEGRAM_BOT_TOKEN`. The acceptance suite builds its notifier
 through the same function.
+
+`horizon checkin` and `horizon checkout` build their `WindowedRun` with
+`absences=adapters.absences` and `notify_day_skips` `True` for the check-in, `False` for
+the check-out: a day skipped for an absence or by the calendar is reported once, by the
+morning run, and the evening run logs it and sends nothing. `TOO_EARLY`,
+`WINDOW_MISSED` and every run that made an attempt still reach the chat in the evening.
+An unreadable absences file is logged by type and the run goes on as if none were entered.
 
 `open_adapters` also builds the absence store, `JsonAbsenceStore(settings.absences_file)`,
 and the bot transport, `build_bot_transport(settings, http)`: a `TelegramBotTransport` over

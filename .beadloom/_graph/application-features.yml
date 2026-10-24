@@ -5,7 +5,7 @@
 nodes:
   - ref_id: windowed-run
     kind: feature
-    summary: "The run loop both use cases share: asks the calendar once, decides each attempt, retries failures inside the window, sends exactly one report"
+    summary: "The run loop both use cases share: skips a day an absence covers before asking the calendar, asks the calendar once, decides each attempt, retries failures inside the window, builds exactly one report and sends it unless it is a day-level skip of a run that keeps those silent (the evening)"
     source: src/horizon_tracker/application/windowed_run.py
     docs:
       - docs/domains/application/features/windowed-run/SPEC.md
@@ -33,7 +33,7 @@ nodes:
 
   - ref_id: absence-service
     kind: feature
-    summary: "The owner's absences on command: add (refuses an overlap naming the absence in the way), list, delete (an id never reissued), edit (keeps the id); each answers with a Reply of catalogue messages"
+    summary: "The owner's absences on command: add (refuses an overlap naming the absence in the way), list, delete (an id never reissued), edit (keeps the id); from the start of today's check-in range an absence covering today starts tomorrow; each answers with a Reply of catalogue messages"
     source: src/horizon_tracker/application/absence_service.py
     docs:
       - docs/domains/application/features/absence-service/SPEC.md

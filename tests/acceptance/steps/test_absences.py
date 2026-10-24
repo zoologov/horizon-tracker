@@ -4,8 +4,8 @@ The bot scenarios run ``horizon bot`` over the real Telegram transport, posting 
 scene's recording Bot API: each message a Given step writes is handed out by one
 ``getUpdates``, and once all of them are, the operator stops the bot. A Then step reads
 what an observer could see: the replies in the chat, the absences file on the disk and the
-service log. The scenarios of the runs (BEAD-05 of HT-012, ht-fzd) still skip with their
-reason until that bead replaces their steps.
+service log. The scenarios of the runs enter their absence straight into the absences file,
+the state the bot leaves behind, and run the check-in or the check-out over it.
 """
 
 from __future__ import annotations
@@ -13,23 +13,25 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from horizon_tracker.domain.absence import Absence, AbsenceKind
+from horizon_tracker.domain.absence import Absence, AbsenceBook, AbsenceKind
 from horizon_tracker.infrastructure.absence_store import JsonAbsenceStore
 from tests.acceptance.steps.conftest import CHAT_ID, Scene, moment
 from tests.support.bot_api import SentMessage
 
 scenarios("absences.feature")
 
-_REASON = "HT-012 is approved and not built yet: BEAD-05 (ht-fzd) implements this scenario"
 _ABSENCES_FILE = "absences.json"
 _KINDS = {"vacation": AbsenceKind.VACATION, "sick leave": AbsenceKind.SICK_LEAVE}
 
 
 def _store(scene: Scene) -> JsonAbsenceStore:
     return JsonAbsenceStore(Path(scene.env()["HT_STATE_DIR"] or "") / _ABSENCES_FILE)
+
+
+def _absence(id_: int, kind: str, first_day: str, last_day: str) -> Absence:
+    return Absence(id_, _KINDS[kind], date.fromisoformat(first_day), date.fromisoformat(last_day))
 
 
 def _replies(scene: Scene) -> list[SentMessage]:
@@ -49,9 +51,10 @@ def stranger_writes(scene: Scene, chat_id: str, text: str) -> None:
     scene.bot.write(chat_id, text)
 
 
-@given("the absences of HT-012 are not built yet")
-def _not_built_yet() -> None:
-    pytest.skip(_REASON)
+@given(parsers.parse("a {kind} from {first_day} to {last_day} is entered as absence {id_:d}"))
+def absence_entered(scene: Scene, kind: str, first_day: str, last_day: str, id_: int) -> None:
+    entered = _absence(id_, kind, first_day, last_day)
+    _store(scene).save(AbsenceBook.of((entered,)))
 
 
 # --- When -----------------------------------------------------------------------------
@@ -89,9 +92,7 @@ def no_reply(scene: Scene) -> None:
     )
 )
 def file_holds(scene: Scene, kind: str, first_day: str, last_day: str, id_: int) -> None:
-    expected = Absence(
-        id_, _KINDS[kind], date.fromisoformat(first_day), date.fromisoformat(last_day)
-    )
+    expected = _absence(id_, kind, first_day, last_day)
     assert _store(scene).load().absences == (expected,)
 
 
@@ -113,6 +114,6 @@ def checkin_opened_the_desktop(scene: Scene) -> None:
     assert "open_desktop" in scene.ran.client.calls
 
 
-@then("the scenario is skipped until HT-012 builds it")
-def _skipped() -> None:  # pragma: no cover - never reached, the Given skips first
-    pytest.skip(_REASON)
+@then("the production calendar was never asked")
+def calendar_never_asked(scene: Scene) -> None:
+    assert scene.ran.calendar.asked == []

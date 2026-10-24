@@ -192,6 +192,10 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "not asked (forced)",
         _RU: "не спрашивали (принудительно)",
     },
+    "plan.source.absent": {
+        _EN: "not asked (an absence covers today)",
+        _RU: "не спрашивали (сегодня внесено отсутствие)",
+    },
     "plan.schedule": {_EN: "schedule: {detail}", _RU: "расписание: {detail}"},
     "plan.steps": {_EN: "steps of one attempt:", _RU: "шаги одной попытки:"},
     "plan.step.login": {
@@ -226,6 +230,15 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "confirm the session is gone (NO_SESSION)",
         _RU: "убедиться, что сессии больше нет (NO_SESSION)",
     },
+    "plan.step.absences": {
+        _EN: (
+            "skip the day if an absence entered through the bot covers it, "
+            "before the calendar is asked"
+        ),
+        _RU: (
+            "пропустить день, на который через бота внесено отсутствие, ещё до вопроса календарю"
+        ),
+    },
     "plan.step.wait": {
         _EN: (
             "wait until the drawn moment {moment} if started from {start}; "
@@ -249,6 +262,11 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "plan.step.report": {
         _EN: "send one report to Telegram",
         _RU: "отправить один отчёт в Telegram",
+    },
+    # The evening run: a skipped day was already reported by the morning run.
+    "plan.step.report.no_day_skip": {
+        _EN: "send one report to Telegram, unless the day is skipped: the morning reports it",
+        _RU: "отправить один отчёт в Telegram, кроме пропущенного дня: такой отчёт шлёт утро",
     },
     # --- the bot: the help, the replies to the owner's commands and the refusals ------
     "bot.help": {
@@ -294,11 +312,17 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "Absence {id} deleted: {kind} {days}",
         _RU: "Отсутствие {id} удалено: {kind}, {days}",
     },
-    # Added under an absence entered or edited onto today once today's check-in range is over.
+    # Under an absence that would have covered today, entered once today's check-in range
+    # has begun: it starts tomorrow (or, for today alone, is not entered).
     "bot.note.after_checkin_range": {
-        _EN: "Today's check-in range ended at {end}: a check-in made this morning stands",
-        _RU: "Диапазон входа на сегодня закончился в {end}: утренний вход, если он был, "
-        "остаётся в силе",
+        _EN: (
+            "Today's check-in range began at {start}, so an absence starts tomorrow "
+            "at the earliest; this evening's check-out runs as usual"
+        ),
+        _RU: (
+            "Диапазон входа на сегодня начался в {start}, поэтому отсутствие начнётся "
+            "не раньше завтрашнего дня; вечерний выход сегодня пройдёт как обычно"
+        ),
     },
     "bot.list.empty": {_EN: "No absences entered", _RU: "Отсутствий не внесено"},
     "bot.list.header": {_EN: "Absences entered: {count}", _RU: "Внесено отсутствий: {count}"},
