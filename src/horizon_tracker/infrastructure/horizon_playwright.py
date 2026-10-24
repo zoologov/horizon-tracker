@@ -24,7 +24,7 @@ import struct
 import time
 import zlib
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -66,6 +66,10 @@ PASSWORD_FIELD = "#password"
 LOGIN_BUTTON = "#loginButton"
 DIALOG_OK = "#okDialogBtn"
 DIALOG_CANCEL = "#cancelDialogBtn"
+# A dialog the client shows over the remote surface, read by its buttons: the page holds
+# them only inside a dialog. The capture clicks Cancel, never OK, and waits out the rest.
+_SHOWN_DIALOG_CANCEL = f"{DIALOG_CANCEL}:visible"
+_SHOWN_DIALOG_OK = f"{DIALOG_OK}:visible"
 # A tile is ``li#<id>`` with no title; the name is on its launch button, which also holds
 # the overflow button and, while it is open, the tile menu.
 LAUNCH_BUTTON = "button[id^='launch-']"
@@ -133,7 +137,15 @@ class _Frame(Enum):
     """What one capture sample decided, when it did not save a file."""
 
     WAIT = "wait"
+    DIALOG = "dialog"
     STOP = "stop"
+
+
+# What the capture logs when its bound runs out on a sample that would have polled again.
+_GAVE_UP = {
+    _Frame.WAIT: "Horizon desktop still blank",
+    _Frame.DIALOG: "Horizon client dialog still open",
+}
 
 
 class PlaywrightHorizonClient:
@@ -230,22 +242,24 @@ class PlaywrightHorizonClient:
 
         Polls an element screenshot of the largest canvas or video inside
         ``#canvas-container`` until a 32 by 32 sample has at least 8 pixels with
-        ``max(R, G, B) >= 24``, or ``desktop_paint_ms`` runs out. A blank timeout,
-        a page outside the screenshot allowlist, or a screenshot error answers
-        ``None``. A missing photo never fails the step.
+        ``max(R, G, B) >= 24``, or ``desktop_paint_ms`` runs out. A sample is taken only
+        while no client dialog shows: one with a Cancel button is cancelled (never OK,
+        which on the Fullscreen offer grants full screen) and the next poll looks again.
+        A blank or dialog-covered timeout, a page outside the screenshot allowlist, or a
+        screenshot error answers ``None``. A missing photo never fails the step.
         """
         deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
         while True:
             try:
-                frame = self._nonblank_frame()
+                frame = self._nonblank_frame(deadline)
             except (PlaywrightError, OSError, ValueError) as error:
                 _log_screenshot_failure(error)
                 return None
             if isinstance(frame, Path):
                 return frame
             if frame is _Frame.STOP or time.monotonic() >= deadline:
-                if frame is _Frame.WAIT:
-                    logger.warning("Horizon desktop still blank")
+                if frame in _GAVE_UP:
+                    logger.warning(_GAVE_UP[frame])
                 return None
             try:
                 self._live_page().wait_for_timeout(self._timeouts.poll_ms)
@@ -253,11 +267,13 @@ class PlaywrightHorizonClient:
                 _log_screenshot_failure(error)
                 return None
 
-    def _nonblank_frame(self) -> Path | _Frame:
-        """One sample: a saved path, ``WAIT`` to poll again, or ``STOP`` with no photo."""
+    def _nonblank_frame(self, deadline: float) -> Path | _Frame:
+        """One sample: a saved path, ``WAIT`` or ``DIALOG`` to poll again, or ``STOP``."""
         page = self._page
         if page is None or page.is_closed() or _route(page.url) not in _SCREENSHOT_ROUTES:
             return _Frame.STOP
+        if self._dialog_in_the_way(page, deadline):
+            return _Frame.DIALOG
         surface = _largest_surface(page.locator(_DESKTOP_SURFACE))
         if surface is None:
             return _Frame.WAIT
@@ -267,6 +283,23 @@ class PlaywrightHorizonClient:
         path = self._artifacts.screenshot_path(RunKind.CHECKIN)
         path.write_bytes(png)
         return path
+
+    def _dialog_in_the_way(self, page: Page, deadline: float) -> bool:
+        """Cancel a client dialog over the desktop; True while one may still be in the frame.
+
+        The client can show its Fullscreen offer again after ``open_desktop`` cancelled
+        it. Cancel is clicked, within what is left of the capture's bound, and the sample
+        is not taken: the next poll looks again, so a dialog that closes slowly or comes
+        straight back is not photographed. A dialog with no Cancel is never answered with
+        OK; it stays in the way until it goes or the bound runs out.
+        """
+        cancel = page.locator(_SHOWN_DIALOG_CANCEL)
+        if cancel.count() > 0:
+            with suppress(PlaywrightTimeoutError):
+                cancel.first.click(timeout=_remaining_ms(deadline))
+                logger.info("Horizon client dialog cancelled before the photo")
+            return True
+        return page.locator(_SHOWN_DIALOG_OK).count() > 0
 
     def disconnect(self) -> None:
         """Close the browser context: the client lets go, the Windows session keeps running."""
@@ -591,6 +624,11 @@ class PlaywrightHorizonClient:
 def _log_screenshot_failure(error: BaseException) -> None:
     """Log a screenshot failure by the error's type, never by its message."""
     logger.warning("Horizon screenshot failed: %s", type(error).__name__)
+
+
+def _remaining_ms(deadline: float) -> int:
+    """Milliseconds left until ``deadline``, at least 1: Playwright reads 0 as no timeout."""
+    return max(1, round((deadline - time.monotonic()) * 1000))
 
 
 def _largest_surface(surfaces: Locator) -> Locator | None:

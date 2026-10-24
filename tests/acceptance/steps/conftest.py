@@ -236,6 +236,13 @@ def no_message(scene: Scene) -> None:
     assert scene.bot.messages == []
 
 
+@then("the message is text without a photo")
+def text_without_a_photo(scene: Scene) -> None:
+    message = scene.only_message()
+    assert message.method == "sendMessage"
+    assert message.photo is None
+
+
 @then(parsers.parse('the message reads "{line}"'))
 def message_reads(scene: Scene, line: str) -> None:
     text = scene.only_message().text
