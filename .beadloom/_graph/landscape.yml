@@ -52,7 +52,7 @@ nodes:
   - ref_id: vps-host
     kind: service
     lifecycle: external
-    summary: "The VPS the service runs on: the horizon user and its home, the .env systemd reads, the four units, the artifacts directory"
+    summary: "The VPS the service runs on: the horizon user and its home, the .env systemd reads, the five units, the artifacts directory and the state directory that holds absences.json"
     source: docs/domains/external/vps-host/SPEC.md
     docs:
       - docs/domains/external/vps-host/SPEC.md
@@ -112,6 +112,10 @@ edges:
   # env:github-environment: the secrets and variables the deploy writes into .env.
   - { src: github-environment, dst: vps-host, kind: produces, contract: { protocol: env, name: github-environment } }
   - { src: vps-host, dst: github-environment, kind: consumes, contract: { protocol: env, name: github-environment } }
+
+  # file:absences: HT_STATE_DIR/absences.json, the absences the bot writes and the runs read.
+  - { src: vps-host, dst: absence-store, kind: produces, contract: { protocol: file, name: absences } }
+  - { src: absence-store, dst: vps-host, kind: consumes, contract: { protocol: file, name: absences } }
 
   # systemd:units: the two timers and the two oneshot services that start `horizon`, and the bot's service.
   - { src: vps-host, dst: cli, kind: produces, contract: { protocol: systemd, name: units } }

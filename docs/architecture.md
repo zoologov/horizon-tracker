@@ -116,8 +116,8 @@ The service is bound to six systems outside this repository. Each is a graph nod
 `service` with lifecycle `external`, declared in `.beadloom/_graph/landscape.yml`, and each
 has a SPEC under `docs/domains/external/<node>/SPEC.md` that states in words the surface the
 service reads or writes: the URLs, fields and status codes, the selectors, the variables,
-the units. An external node is not part of `horizon-tracker`, so it carries no `part_of`
-edge and is listed in the `exclude` of the rule `service-needs-parent`.
+the units, the files. An external node is not part of `horizon-tracker`, so it carries no
+`part_of` edge and is listed in the `exclude` of the rule `service-needs-parent`.
 
 | Contract (`protocol:name`) | Producer → consumer | What it binds |
 |----------------------------|---------------------|---------------|
@@ -132,12 +132,13 @@ edge and is listed in the `exclude` of the rule `service-needs-parent`.
 | `command:bot-text` | `owner-chat` → `bot-commands` | the text of one command the owner types: `/add`, `/list`, `/edit`, `/del`, `/help` |
 | `env:dot-env` | [`vps-host`](domains/external/vps-host/SPEC.md) → `settings` | every variable of the host's `.env` |
 | `env:github-environment` | [`github-environment`](domains/external/github-environment/SPEC.md) → `vps-host` | the secrets and variables the Release's deploy writes into `.env` |
+| `file:absences` | `vps-host` → `absence-store` | `HT_STATE_DIR/absences.json`, mode 0600, owner `horizon`: `{"last_issued": N, "absences": [...]}`, written atomically by the bot and read by the runs |
 | `systemd:units` | `vps-host` → `cli` | the two timers and the two oneshot services that start `horizon`, and `horizon-bot.service`, which runs `horizon bot` |
 
 **The map.** `beadloom docs site` writes these contracts into the portal's
 `landscape.data.json`, and the portal's Landscape page draws them: the six external nodes,
-the seven nodes of this package that sit at the other end, and one link per contract with
-its verdict: twelve contracts, all `confirmed`. `landscape-diagram` is the same map as a static Mermaid diagram. The portal is
+the eight nodes of this package that sit at the other end, and one link per contract with
+its verdict: thirteen contracts, all `confirmed`. `landscape-diagram` is the same map as a static Mermaid diagram. The portal is
 rebuilt on every release, so the map shows the released tree.
 
 **What the verdict rests on.** Every contract is declared from both ends: a `produces` edge

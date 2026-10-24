@@ -18,6 +18,10 @@ a file outside the checkout: `HT_STATE_DIR/absences.json`, by default
 and the scheduled runs read it. A write that fails must not destroy the absences already
 entered, and a file the store cannot make sense of must be refused, not half-read.
 
+On the host the file is owned by `horizon`, the user every unit runs as, with mode 0600,
+in a state directory of mode 0700. That surface is the contract `file:absences`, which the
+[`vps-host`](../../../external/vps-host/SPEC.md) SPEC states from the host's side.
+
 ### How it works
 
 The file holds one JSON object:
@@ -100,6 +104,8 @@ Derived from the imports on reindex.
 - Depends on: `absence`, `ports`
 - Used by: `cli` (built once in `open_adapters` for every command: the runs read it, the
   probe's `absences` check reads it, `horizon bot` reads and writes it)
+- External contract (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
+  `file:absences` from [`vps-host`](../../../external/vps-host/SPEC.md)
 
 ## Parent
 

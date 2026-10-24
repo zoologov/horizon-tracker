@@ -15,7 +15,7 @@ file, so the graph has no sourceless node. The host's address is the secret `VPS
 ### Purpose
 
 The host gives the service a user of its own, a home, the settings and a schedule. Every
-binding between the code and the machine passes through one of the three contracts below,
+binding between the code and the machine passes through one of the four contracts below,
 which is where a change on the host breaks a run.
 
 What `bootstrap.sh` sets up:
@@ -34,7 +34,7 @@ enables the bot once it has written `.env`.
 
 ### Contracts
 
-Three contracts, each declared from both ends in `landscape.yml`. The portal's map shows
+Four contracts, each declared from both ends in `landscape.yml`. The portal's map shows
 each as a dependency with a presence verdict. The surface below is the one the code and
 the deploy hold.
 
@@ -96,6 +96,21 @@ the deploy hold.
   (`enable --now`), where the timers are only restarted when already enabled. `SIGINT` is
   its stop signal because `horizon bot` treats an interrupt as its clean stop.
 
+#### `file:absences` — vps-host → absence-store
+
+- **The file.** `HT_STATE_DIR/absences.json`, by default
+  `/opt/horizon-tracker/state/absences.json`, outside the checkout so that a deploy never
+  replaces it. The directory is `horizon:horizon`, mode `0700`, made by `bootstrap.sh`.
+  The file is owned by `horizon`, mode `0600`.
+- **The writer and the readers.** `horizon bot` writes the file, and the scheduled runs and
+  the probe's `absences` check read it. All of them run as `horizon`.
+- **The layout.** One JSON object, `{"last_issued": N, "absences": [...]}`. Each absence is
+  `{"id", "kind", "first_day", "last_day"}`, with a kind of `vacation`, `sick_leave` or
+  `day_off` and the days as `YYYY-MM-DD`. The checks of each field are in the
+  `absence-store` SPEC.
+- **The write.** Atomic: a temporary file in the same directory, flushed and `fsync`ed, then
+  renamed over `absences.json`. A failed write leaves the previous file as it was.
+
 #### `env:github-environment` — github-environment → vps-host
 
 The host consumes what the Release's `deploy` job writes into `.env` from the GitHub
@@ -114,10 +129,11 @@ the host over SSH as `VPS_USER`, with the host key pinned by `VPS_KNOWN_HOSTS`.
 Declared in `.beadloom/_graph/landscape.yml` as contract edges, not derived from
 imports: an external system has no code here.
 
-- Produces: `env:dot-env` for `settings`, and `systemd:units` for `cli`
+- Produces: `env:dot-env` for `settings`, `systemd:units` for `cli`, and `file:absences`
+  for `absence-store`
 - Consumes: `env:github-environment` from `github-environment`
 
 ## Parent
 
-None: an external system, not part of `horizon-tracker`. The consumers are `settings`
-and `cli`, and the producer it consumes from is `github-environment`.
+None: an external system, not part of `horizon-tracker`. The consumers are `settings`,
+`cli` and `absence-store`, and the producer it consumes from is `github-environment`.
