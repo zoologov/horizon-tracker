@@ -18,17 +18,21 @@ The host gives the service a user of its own, a home, the settings and a schedul
 binding between the code and the machine passes through one of the three contracts below,
 which is where a change on the host breaks a run.
 
-What `bootstrap.sh` sets up: the system user `horizon` (`useradd -r`, shell
-`/usr/sbin/nologin`) with the home `/opt/horizon-tracker`, which holds the clone and its
-`.venv` built by `uv sync --locked`; the directory `/opt/horizon-tracker/artifacts`
-(`horizon:horizon`, `0750`) for screenshots, which the service rotates after 14 days; the
-units in `/etc/systemd/system`. It checks for Chrome at `/usr/bin/google-chrome` and never
+What `bootstrap.sh` sets up:
+
+- the system user `horizon` (`useradd -r`, shell `/usr/sbin/nologin`) with the home
+  `/opt/horizon-tracker`, which holds the clone and its `.venv` built by `uv sync --locked`
+- the directory `/opt/horizon-tracker/artifacts` (`horizon:horizon`, `0750`) for
+  screenshots, which the service rotates after 14 days
+- the units in `/etc/systemd/system`
+
+It checks for Chrome at `/usr/bin/google-chrome` and never
 installs it, and it writes neither `.env` nor an enabled timer.
 
 ### Contracts
 
 Three contracts, each declared from both ends in `landscape.yml`. The portal's map shows
-each as a dependency with a presence verdict; the surface below is the one the code and
+each as a dependency with a presence verdict. The surface below is the one the code and
 the deploy hold.
 
 #### `env:dot-env` — vps-host → settings
@@ -37,7 +41,7 @@ the deploy hold.
   read by systemd as the units' `EnvironmentFile` (systemd's format, not a shell's:
   values double-quoted, with `\`, `"`, `` ` `` and `$` escaped by a backslash).
 - **The variables** `Settings.from_env` reads, with their defaults. A secret is never
-  written in a document; the column says only whether a variable is one.
+  written in a document. The column says only whether a variable is one.
 
 | Variable | Default | Secret |
 |----------|---------|--------|
@@ -47,7 +51,7 @@ the deploy hold.
 | `HORIZON_DESKTOP` | `DEV desktop` | no |
 | `TELEGRAM_BOT_TOKEN` | required | yes |
 | `TELEGRAM_CHAT_ID` | required | yes |
-| `HT_TIMEZONE` | `Europe/Moscow` in the code; the deploy writes `UTC` when the variable is unset | no |
+| `HT_TIMEZONE` | `Europe/Moscow` in the code, and the deploy writes `UTC` when the variable is unset | no |
 | `HT_CHECKIN_RANGE` | `07:30-08:10` | no |
 | `HT_CHECKOUT_RANGE` | `16:30-17:10` | no |
 | `HT_SESSION_LENGTH_MINUTES` | `540` | no |
@@ -68,9 +72,9 @@ the deploy hold.
 
 | Unit | What it holds |
 |------|---------------|
-| `horizon-checkin.timer` | `OnCalendar=*-*-* 07:30:00 Europe/Moscow`, `Persistent=no`, `AccuracySec=1s`; starts `horizon-checkin.service` |
+| `horizon-checkin.timer` | `OnCalendar=*-*-* 07:30:00 Europe/Moscow`, `Persistent=no`, `AccuracySec=1s`, starts `horizon-checkin.service` |
 | `horizon-checkin.service` | `Type=oneshot`, `User=horizon`, `Group=horizon`, `WorkingDirectory=/opt/horizon-tracker`, `EnvironmentFile=/opt/horizon-tracker/.env`, `ExecStart=/opt/horizon-tracker/.venv/bin/horizon checkin`, `TimeoutStartSec=60min`, after `network-online.target` |
-| `horizon-checkout.timer` | `OnCalendar=*-*-* 16:30:00 Europe/Moscow`, `Persistent=no`, `AccuracySec=1s`; starts `horizon-checkout.service` |
+| `horizon-checkout.timer` | `OnCalendar=*-*-* 16:30:00 Europe/Moscow`, `Persistent=no`, `AccuracySec=1s`, starts `horizon-checkout.service` |
 | `horizon-checkout.service` | the same as the check-in service, with `ExecStart=… horizon checkout` |
 
 - **The exit code.** `horizon` exits 1 only when the run's report is FAILED, and 0 on a
@@ -80,20 +84,20 @@ the deploy hold.
   deploy refuses a run whose `HT_TIMEZONE` differs from it, because two zones would start
   every run outside its range.
 - **The bound.** `TimeoutStartSec=60min` covers the wait for the drawn moment (at most the
-  40-minute range), the 5-minute window and the run itself; `tests/unit/deploy` checks
+  40-minute range), the 5-minute window and the run itself. `tests/unit/deploy` checks
   the sum.
 
 #### `env:github-environment` — github-environment → vps-host
 
 The host consumes what the Release's `deploy` job writes into `.env` from the GitHub
-Environment `horizon-vps`. The names are in the `github-environment` SPEC; the job reaches
+Environment `horizon-vps`. The names are in the `github-environment` SPEC. The job reaches
 the host over SSH as `VPS_USER`, with the host key pinned by `VPS_KNOWN_HOSTS`.
 
 ## Invariants
 
 - The service touches nothing of the neighbouring service: it has its own user, home and
   units.
-- `.env` is rewritten by every deploy; a hand edit on the host lasts until the next one.
+- `.env` is rewritten by every deploy. A hand edit on the host lasts until the next one.
 - Nothing in the repository holds a value of `.env`: it is in `.gitignore`.
 
 ## Dependencies
@@ -101,10 +105,10 @@ the host over SSH as `VPS_USER`, with the host key pinned by `VPS_KNOWN_HOSTS`.
 Declared in `.beadloom/_graph/landscape.yml` as contract edges, not derived from
 imports: an external system has no code here.
 
-- Produces: `env:dot-env` for `settings`; `systemd:units` for `cli`
+- Produces: `env:dot-env` for `settings`, and `systemd:units` for `cli`
 - Consumes: `env:github-environment` from `github-environment`
 
 ## Parent
 
 None: an external system, not part of `horizon-tracker`. The consumers are `settings`
-and `cli`; the producer it consumes from is `github-environment`.
+and `cli`, and the producer it consumes from is `github-environment`.

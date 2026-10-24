@@ -103,7 +103,7 @@ edge and is listed in the `exclude` of the rule `service-needs-parent`.
 
 | Contract (`protocol:name`) | Producer → consumer | What it binds |
 |----------------------------|---------------------|---------------|
-| `http:horizon-client-bundle` | [`horizon-portal`](domains/external/horizon-portal/SPEC.md) → `probe`, `horizon-playwright-client` | the client bundle read without logging in, and the markup the adapter's selectors come from |
+| `http:horizon-client-bundle` | [`horizon-portal`](domains/external/horizon-portal/SPEC.md) → `horizon-playwright-client` | the client bundle read without logging in, and the markup the adapter's selectors come from |
 | `http:horizon-broker-session` | `horizon-portal` → `horizon-playwright-client` | the login, the launch items and `kill-session` over the broker's XML API |
 | `blast:desktop-session` | `horizon-portal` → `horizon-playwright-client` | the WebSocket the check-in holds, whose closing is the disconnect |
 | `http:isdayoff-day` | [`isdayoff`](domains/external/isdayoff/SPEC.md) → `isdayoff-calendar` | `GET /YYYYMMDD` answered with a one-character day code |
@@ -116,7 +116,7 @@ edge and is listed in the `exclude` of the rule `service-needs-parent`.
 
 **The map.** `beadloom docs site` writes these contracts into the portal's
 `landscape.data.json`, and the portal's Landscape page draws them: the six external nodes,
-the six nodes of this package that sit at the other end, and one link per contract with its
+the five nodes of this package that sit at the other end, and one link per contract with its
 verdict. `landscape-diagram` is the same map as a static Mermaid diagram. The portal is
 rebuilt on every release, so the map shows the released tree.
 

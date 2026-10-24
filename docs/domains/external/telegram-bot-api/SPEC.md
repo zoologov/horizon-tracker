@@ -14,13 +14,13 @@ file, so the graph has no sourceless node.
 ### Purpose
 
 Every run sends one report to the owner's chat as the notification bot whose token the
-service holds. The Bot API is how that report leaves the host; `telegram-notifier` is the
-only caller.
+service holds. The Bot API is how that report leaves the host, and `telegram-notifier` is
+the only caller.
 
 ### Contracts
 
 Two contracts, one per method, each declared from both ends in `landscape.yml`. The
-portal's map shows each as a dependency with a presence verdict; the surface below is the
+portal's map shows each as a dependency with a presence verdict. The surface below is the
 one `telegram-notifier` sends.
 
 Common to both:
@@ -31,9 +31,10 @@ Common to both:
   in every error it logs.
 - **Body.** A form with `chat_id` (`TELEGRAM_CHAT_ID`) and the method's own fields.
 - **Timeout.** 20 seconds, so a hung API cannot hold the run.
-- **Answer.** Status 200 is delivered. Any other status, or a network error, is logged
-  with the API's `description` field (or `(no description)`) and answers `False`; it is
-  never raised, so a run never fails on its notification.
+- **Answer.** Status 200 is delivered. A status other than 200 is logged with the API's
+  `description` field (or `(no description)`). A network error has no response, so it is
+  logged by the error's type and its redacted message. Either answers `False` and is never
+  raised, so a run never fails on its notification.
 
 #### `http:telegram-sendPhoto` — telegram-bot-api → telegram-notifier
 
@@ -50,11 +51,11 @@ Common to both:
 
 - **Fields.** `chat_id` and `text` (the rendered report).
 - **When.** A report without a screenshot, and every fallback from `sendPhoto`. A
-  refused `sendMessage` is logged and the report is lost; nothing retries it.
+  refused `sendMessage` is logged and the report is lost. Nothing retries it.
 
 ## Invariants
 
-- The token never reaches a log, a bead comment or a document; this SPEC names only its
+- The token never reaches a log, a bead comment or a document. This SPEC names only its
   shape.
 - No other method is called: the service does not read updates (HT-012 adds
   `getUpdates` and declares that contract then).

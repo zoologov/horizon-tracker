@@ -6,8 +6,8 @@ person reading messages, not code. This document declares what the service sends
 ## Source
 
 None in this repository. The node's `source` in `.beadloom/_graph/landscape.yml` is this
-file, so the graph has no sourceless node. The chat's id is the secret `TELEGRAM_CHAT_ID`;
-it lives only in the GitHub Environment `horizon-vps` and the host's `.env`.
+file, so the graph has no sourceless node. The chat's id is the secret `TELEGRAM_CHAT_ID`.
+It lives only in the GitHub Environment `horizon-vps` and the host's `.env`.
 
 ## Specification
 
@@ -22,7 +22,7 @@ the neighbouring service on the host.
 
 #### `notification:run-report` — telegram-notifier → owner-chat
 
-Declared from both ends in `landscape.yml`; the portal's map shows it as a dependency
+Declared from both ends in `landscape.yml`. The portal's map shows it as a dependency
 with a presence verdict. The surface is the text the owner reads.
 
 - **One message per run.** A photo with the text as its caption when the run carries a
@@ -51,7 +51,7 @@ with a presence verdict. The surface is the text the owner reads.
 Declared in `.beadloom/_graph/landscape.yml` as contract edges, not derived from
 imports: an external system has no code here.
 
-- Produces: (none today; HT-012 adds `command:bot-text`)
+- Produces: (none today: HT-012 adds `command:bot-text`)
 - Consumes: `notification:run-report` from `telegram-notifier`
 
 ## Parent

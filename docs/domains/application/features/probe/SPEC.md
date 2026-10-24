@@ -145,8 +145,6 @@ Derived from the imports on reindex.
 
 - Depends on: `messages`, `ports`, `schedule`, `windowed-run`, `working-day-calendar`
 - Used by: `cli`
-- External contract (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
-  `http:horizon-client-bundle` from [`horizon-portal`](../../../external/horizon-portal/SPEC.md)
 
 ## Parent
 

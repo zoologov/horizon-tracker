@@ -66,10 +66,9 @@ nodes:
       - docs/domains/external/github-environment/SPEC.md
 
 edges:
-  # http:horizon-client-bundle: index.html and the bundle names, read without logging in
-  # (the probe), and the 2312.1 markup the adapter's selectors were taken from.
-  - { src: horizon-portal, dst: probe, kind: produces, contract: { protocol: http, name: horizon-client-bundle } }
-  - { src: probe, dst: horizon-portal, kind: consumes, contract: { protocol: http, name: horizon-client-bundle } }
+  # http:horizon-client-bundle: index.html and the bundle names, read without logging in, and
+  # the 2312.1 markup the adapter's selectors were taken from. The probe reaches it through
+  # the HorizonClient port, so the contract sits on the adapter only, as the calendar's does.
   - { src: horizon-portal, dst: horizon-playwright-client, kind: produces, contract: { protocol: http, name: horizon-client-bundle } }
   - { src: horizon-playwright-client, dst: horizon-portal, kind: consumes, contract: { protocol: http, name: horizon-client-bundle } }
 

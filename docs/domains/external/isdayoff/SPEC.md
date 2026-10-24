@@ -14,19 +14,21 @@ file, so the graph has no sourceless node.
 ### Purpose
 
 Holidays fall on weekdays and some Saturdays are working, so the Monday-Friday rule alone
-would check in on a holiday. isdayoff.ru gives the verdict for one date; when it gives no
+would check in on a holiday. isdayoff.ru gives the verdict for one date. When it gives no
 clean answer, the domain falls back to the Monday-Friday rule and the report says so.
 
 ### Contracts
 
 #### `http:isdayoff-day` — isdayoff → isdayoff-calendar
 
-Declared from both ends in `landscape.yml`; the portal's map shows it as a dependency
+Declared from both ends in `landscape.yml`. The portal's map shows it as a dependency
 with a presence verdict, and the surface below is the one `isdayoff-calendar` reads.
 
 - **Request.** `GET https://isdayoff.ru/YYYYMMDD` (for example `/20261026`), no
-  authentication, no query, a 5-second timeout. One request per run: the run loop asks
-  the calendar once, and the probe asks it once for today.
+  authentication, no query, a 5-second timeout. At most one request per run. The run
+  loop asks the calendar once, and a `--force` run asks it nothing. The dry run
+  (`checkin|checkout --dry-run`, through `WindowedRun.first_decision`) also asks it once,
+  and the probe asks it once for today.
 - **Answer.** Status 200 with a one-character body:
 
 | Body | Meaning | The adapter's answer |

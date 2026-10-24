@@ -7,7 +7,7 @@ the repository holds the workflow that reads it, never a value of it.
 
 None in this repository. The node's `source` in `.beadloom/_graph/landscape.yml` is this
 file, so the graph has no sourceless node. The reader is the `deploy` job of
-`.github/workflows/release.yml`; the procedure is `docs/guides/deployment.md`, section 3.
+`.github/workflows/release.yml`. The procedure is `docs/guides/deployment.md`, section 3.
 
 ## Specification
 
@@ -24,8 +24,8 @@ started from another branch reaches none of its secrets.
 
 #### `env:github-environment` — github-environment → vps-host
 
-Declared from both ends in `landscape.yml`; the portal's map shows it as a dependency
-with a presence verdict. The surface is the list of names the `deploy` job reads; no
+Declared from both ends in `landscape.yml`. The portal's map shows it as a dependency
+with a presence verdict. The surface is the list of names the `deploy` job reads. No
 value appears in this document.
 
 **Secrets** (`secrets.<NAME>` in the job):
@@ -48,8 +48,8 @@ value appears in this document.
 |------|----------|---------------|
 | `HORIZON_URL` | yes, the preflight refuses the run without it | `.env` |
 | `HORIZON_DESKTOP` | yes, the preflight refuses the run without it | `.env` |
-| `HT_TIMEZONE` | no; `UTC` when unset, and it must equal the timers' zone | `.env` |
-| `HT_LANGUAGE` | no; left out of `.env` when unset | `.env` |
+| `HT_TIMEZONE` | no, `UTC` when unset, and it must equal the timers' zone | `.env` |
+| `HT_LANGUAGE` | no, left out of `.env` when unset | `.env` |
 
 **What the job adds itself.** The schedule values are literals of the workflow's
 `Build .env` step, not Environment entries: `HT_CHECKIN_RANGE=07:30-08:10`,
@@ -65,8 +65,8 @@ names it.
 ## Invariants
 
 - A value never reaches a commit, an issue, a chat, a log or a document.
-- The deploy reads this Environment and nothing else; a merge to `main` deploys nothing,
-  a release tag does.
+- The deploy reads this Environment and nothing else. A merge to `main` deploys nothing,
+  and a release tag does.
 - `tests/unit/deploy` holds the workflow's `.env` block, the deployment guide's `.env`
   contract and the timers equal.
 
