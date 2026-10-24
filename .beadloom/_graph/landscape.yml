@@ -1,0 +1,108 @@
+# The landscape: the systems outside this repository the service is bound to, and the
+# contracts that bind them (HT-013).
+#
+# Every external system is a `service` node with `lifecycle: external`: it is not part of
+# horizon-tracker, so it has no `part_of` edge and is listed in the `exclude` of
+# `service-needs-parent` (rules.yml). Each node's `source` is its own SPEC, so no node is
+# sourceless and `reindex` keeps `horizon-tracker` as the root.
+#
+# A contract is declared from both ends, so the reconciler reads both and the portal's
+# map says `confirmed`:
+#   the producer side  { src: <producer>, dst: <consumer>, kind: produces, contract }
+#   the consumer side  { src: <consumer>, dst: <producer>, kind: consumes, contract }
+# The endpoint the reconciler reads is the edge's `src`. The edges stay `active` (the
+# default): an `external` edge is painted grey by the Mermaid fallback.
+#
+# Beadloom compares a surface only for `amqp` and `graphql`. Every protocol here is a
+# plain dependency with a presence verdict, so each surface is stated in words in the
+# external node's SPEC under docs/domains/external/.
+nodes:
+  - ref_id: horizon-portal
+    kind: service
+    lifecycle: external
+    summary: "The VMware Horizon HTML Access web client and its connection broker: the client bundle, the broker's XML session commands and the Blast desktop session"
+    source: docs/domains/external/horizon-portal/SPEC.md
+    docs:
+      - docs/domains/external/horizon-portal/SPEC.md
+
+  - ref_id: isdayoff
+    kind: service
+    lifecycle: external
+    summary: "The isdayoff.ru production calendar: answers GET /YYYYMMDD with a one-character day code"
+    source: docs/domains/external/isdayoff/SPEC.md
+    docs:
+      - docs/domains/external/isdayoff/SPEC.md
+
+  - ref_id: telegram-bot-api
+    kind: service
+    lifecycle: external
+    summary: "The Telegram Bot API: the sendMessage and sendPhoto methods the notifier posts to, the bot token in the path of every URL"
+    source: docs/domains/external/telegram-bot-api/SPEC.md
+    docs:
+      - docs/domains/external/telegram-bot-api/SPEC.md
+
+  - ref_id: owner-chat
+    kind: service
+    lifecycle: external
+    summary: "The owner's private Telegram chat: the reader of every run report, in the language HT_LANGUAGE names"
+    source: docs/domains/external/owner-chat/SPEC.md
+    docs:
+      - docs/domains/external/owner-chat/SPEC.md
+
+  - ref_id: vps-host
+    kind: service
+    lifecycle: external
+    summary: "The VPS the service runs on: the horizon user and its home, the .env systemd reads, the four units, the artifacts directory"
+    source: docs/domains/external/vps-host/SPEC.md
+    docs:
+      - docs/domains/external/vps-host/SPEC.md
+
+  - ref_id: github-environment
+    kind: service
+    lifecycle: external
+    summary: "The GitHub Environment horizon-vps: the secrets and variables the Release's deploy job turns into the host's .env"
+    source: docs/domains/external/github-environment/SPEC.md
+    docs:
+      - docs/domains/external/github-environment/SPEC.md
+
+edges:
+  # http:horizon-client-bundle: index.html and the bundle names, read without logging in
+  # (the probe), and the 2312.1 markup the adapter's selectors were taken from.
+  - { src: horizon-portal, dst: probe, kind: produces, contract: { protocol: http, name: horizon-client-bundle } }
+  - { src: probe, dst: horizon-portal, kind: consumes, contract: { protocol: http, name: horizon-client-bundle } }
+  - { src: horizon-portal, dst: horizon-playwright-client, kind: produces, contract: { protocol: http, name: horizon-client-bundle } }
+  - { src: horizon-playwright-client, dst: horizon-portal, kind: consumes, contract: { protocol: http, name: horizon-client-bundle } }
+
+  # http:horizon-broker-session: the login, the launch items and kill-session over /broker/xml.
+  - { src: horizon-portal, dst: horizon-playwright-client, kind: produces, contract: { protocol: http, name: horizon-broker-session } }
+  - { src: horizon-playwright-client, dst: horizon-portal, kind: consumes, contract: { protocol: http, name: horizon-broker-session } }
+
+  # blast:desktop-session: the WebSocket the check-in holds; closing it is the disconnect.
+  - { src: horizon-portal, dst: horizon-playwright-client, kind: produces, contract: { protocol: blast, name: desktop-session } }
+  - { src: horizon-playwright-client, dst: horizon-portal, kind: consumes, contract: { protocol: blast, name: desktop-session } }
+
+  # http:isdayoff-day: GET /YYYYMMDD answered with 0, 1 or 2.
+  - { src: isdayoff, dst: isdayoff-calendar, kind: produces, contract: { protocol: http, name: isdayoff-day } }
+  - { src: isdayoff-calendar, dst: isdayoff, kind: consumes, contract: { protocol: http, name: isdayoff-day } }
+
+  # http:telegram-sendMessage and http:telegram-sendPhoto: the two Bot API methods.
+  - { src: telegram-bot-api, dst: telegram-notifier, kind: produces, contract: { protocol: http, name: telegram-sendMessage } }
+  - { src: telegram-notifier, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendMessage } }
+  - { src: telegram-bot-api, dst: telegram-notifier, kind: produces, contract: { protocol: http, name: telegram-sendPhoto } }
+  - { src: telegram-notifier, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendPhoto } }
+
+  # notification:run-report: the text the owner reads (HT-012 changes it).
+  - { src: telegram-notifier, dst: owner-chat, kind: produces, contract: { protocol: notification, name: run-report } }
+  - { src: owner-chat, dst: telegram-notifier, kind: consumes, contract: { protocol: notification, name: run-report } }
+
+  # env:dot-env: every variable of /opt/horizon-tracker/.env the settings read.
+  - { src: vps-host, dst: settings, kind: produces, contract: { protocol: env, name: dot-env } }
+  - { src: settings, dst: vps-host, kind: consumes, contract: { protocol: env, name: dot-env } }
+
+  # env:github-environment: the secrets and variables the deploy writes into .env.
+  - { src: github-environment, dst: vps-host, kind: produces, contract: { protocol: env, name: github-environment } }
+  - { src: vps-host, dst: github-environment, kind: consumes, contract: { protocol: env, name: github-environment } }
+
+  # systemd:units: the two timers and the two oneshot services that start `horizon`.
+  - { src: vps-host, dst: cli, kind: produces, contract: { protocol: systemd, name: units } }
+  - { src: cli, dst: vps-host, kind: consumes, contract: { protocol: systemd, name: units } }

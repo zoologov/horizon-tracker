@@ -19,10 +19,24 @@ rules:
       has_edge_to: { kind: domain }
       edge_kind: part_of
 
+  # The six external systems of landscape.yml are `service` nodes with
+  # `lifecycle: external`, and this rule ignores lifecycle. They are excluded because
+  # they are not part of horizon-tracker: a `part_of` edge would claim the service owns
+  # the Horizon portal, isdayoff.ru, the Bot API, the owner's chat, the host and the
+  # GitHub Environment. Their bindings are the produces/consumes edges there.
   - name: service-needs-parent
-    description: "Every service (except root) must be part_of the horizon-tracker service"
+    description: "Every service (except the root and the external systems of landscape.yml) must be part_of the horizon-tracker service"
     require:
-      for: { kind: service, exclude: [horizon-tracker] }
+      for:
+        kind: service
+        exclude:
+          - horizon-tracker
+          - horizon-portal
+          - isdayoff
+          - telegram-bot-api
+          - owner-chat
+          - vps-host
+          - github-environment
       has_edge_to: { ref_id: horizon-tracker }
       edge_kind: part_of
 
