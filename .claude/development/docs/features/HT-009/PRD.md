@@ -26,12 +26,12 @@ Windows logon; only the proof in Telegram is wrong. Leaving it unfixed keeps a f
 
 ## Goals
 
-- [ ] A successful check-in's success photo is taken **after** the hold, while Blast is still
+- [x] A successful check-in's success photo is taken **after** the hold, while Blast is still
       open, and before disconnect, and only from a non-blank frame of the remote surface.
-- [ ] `open_desktop` no longer returns a success screenshot; a separate capture on the open
+- [x] `open_desktop` no longer returns a success screenshot; a separate capture on the open
       desktop supplies the path (or `None`).
-- [ ] Check-out success photos and failure screenshots behave as today.
-- [ ] A missing success photo still yields a text success report; the run does not fail for it.
+- [x] Check-out success photos and failure screenshots behave as today.
+- [x] A missing success photo still yields a text success report; the run does not fail for it.
 
 ## Non-goals
 
@@ -48,29 +48,34 @@ Windows logon; only the proof in Telegram is wrong. Leaving it unfixed keeps a f
 **so that** I see a drawn Windows session, not a black Blast frame.
 
 **Acceptance criteria** (each references a scenario in `tests/acceptance/features/`):
-- [ ] Scenario: `A successful check-in sends a screenshot of the opened desktop`
-- [ ] Scenario: `A successful check-in's screenshot is taken after the desktop was held`
-- [ ] Scenario: `A check-in whose screenshot failed still reports success as text`
+- [x] Scenario: `A successful check-in sends a screenshot of the opened desktop`
+- [x] Scenario: `A successful check-in's screenshot is taken after the desktop was held`
+- [x] Scenario: `A check-in whose screenshot failed still reports success as text`
 
 ### US-2: Check-out unchanged
 **As** the owner, **I want** evening check-out photos to stay as they are,
 **so that** this fix does not regress the launch-list preview.
 
 **Acceptance criteria**:
-- [ ] Scenario: `A successful check-out sends a screenshot of the launch list without a session`
+- [x] Scenario: `A successful check-out sends a screenshot of the launch list without a session`
 
 ## Acceptance Criteria (overall)
 
 Behaviour-bearing criteria are scenarios; the suite holds their text and this list references
 them by name. `beadloom lint` reports a referenced scenario the suite does not contain.
 
-- [ ] Scenario: `A successful check-in sends a screenshot of the opened desktop`
-- [ ] Scenario: `A successful check-in's screenshot is taken after the desktop was held`
-- [ ] Scenario: `A check-in whose screenshot failed still reports success as text`
-- [ ] Scenario: `A successful check-out sends a screenshot of the launch list without a session`
+- [x] Scenario: `A successful check-in sends a screenshot of the opened desktop`
+- [x] Scenario: `A successful check-in's screenshot is taken after the desktop was held`
+- [x] Scenario: `A check-in whose screenshot failed still reports success as text`
+- [x] Scenario: `A successful check-out sends a screenshot of the launch list without a session`
 
 **Non-behavioural criteria** stay checkboxes and are labelled, so the absence of a scenario is
 a stated decision rather than a gap:
 
-- [ ] Released as `1.0.1` (PATCH: no public-surface change) with the fix in one PR — non-behavioural: version and change log are release process, not a Gherkin observer
-- [ ] Live `ht checkin --force` after the `v1.0.1` deploy shows a non-black desktop photo in Telegram — non-behavioural: observer outside the suite (owner's chat on the VPS)
+- [x] Released as `1.0.1` (PATCH: no public-surface change) with the fix in one PR — non-behavioural: version and change log are release process, not a Gherkin observer
+  - Met on 2026-10-22: PR #3, merged as da3ac21 and tagged `v1.0.1`.
+- [x] Live `ht checkin --force` after the `v1.0.1` deploy shows a non-black desktop photo in Telegram — non-behavioural: observer outside the suite (owner's chat on the VPS)
+  - Met on 2026-10-24: the check-in photo of 07:36 MSK in the owner's chat, taken on the
+    host after the `v1.0.1` deploy, shows the painted Windows desktop. The record names the
+    photo, not whether that run was forced. The HTML Access Fullscreen dialog in the same
+    photo is HT-010's.

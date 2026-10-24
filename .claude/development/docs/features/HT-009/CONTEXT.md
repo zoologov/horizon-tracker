@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Created:** 2026-10-22
-> **Last updated:** 2026-10-22
+> **Last updated:** 2026-10-24
 
 ---
 
@@ -56,6 +56,8 @@ so the owner sees a drawn desktop rather than a black early frame; ship as PATCH
 | 2026-10-22 | `opened_at` is when `open_desktop` returns, not when the photo is taken | otherwise «Время» shifts by `HT_HOLD_SECONDS` (default 120); only the old 2 s settle leaves that instant |
 | 2026-10-22 | One PR for fix + `1.0.1`; live after deploy | owner; PATCH, no public-surface change |
 | 2026-10-22 | Tech-writer edits `docs/` only; the version bump is the landing of the same PR | the role does not own `pyproject.toml`, the lock, or `CHANGELOG.md` |
+| 2026-10-24 | Known trade-off, left to the owner (independent review of `v1.0.1`, Minor-6): the capture runs in every attempt that reaches the hold, including one the broker will not confirm, and spends up to `desktop_paint_ms` (60 s) of the window before the retry | the confirmation needs the disconnect, which ends the Blast connection the photo is taken over, so the capture cannot wait for it. Skipping the capture on an attempt already unconfirmed would mean reading the session state before the capture, an application-layer change; HT-010 kept `application/` untouched. Taking it costs at most 60 s of the window per unconfirmed attempt, and changing it is the owner's call |
+| 2026-10-24 | HT-010 restored the RFC's "the same composited pixels Telegram would get, not a WebGL readback" (Approach, step 2) after briefly reversing it: the verdict judges the element screenshot, decoded in the page, and the frame judged is the frame saved | HT-010 BEAD-02 read the live surface with `drawImage`; its review (`ht-igr`, Major-1) measured a 1920×1080 WebGL canvas without `preserveDrawingBuffer` reading 0 of 1024 lit cells that way and 1024 through its element screenshot (Chrome 155 and Chromium 156, headless). The owner receives the composited screenshot, and nothing records how the 2312.1 client draws, so only that screenshot can decide whether the photo is blank. Decoding it in the page keeps the PNG codec out of the adapter |
 
 ## Related Files
 
@@ -64,6 +66,7 @@ so the owner sees a drawn desktop rather than a black early frame; ship as PATCH
 
 ## Current Phase
 
-- **Phase:** Development
-- **Current bead:** BEAD-01 (ht-22u)
-- **Blockers:** none
+- **Phase:** Completed (released as `v1.0.1` on 2026-10-22; the live check-in photo of
+  2026-10-24 is painted)
+- **Current bead:** none — every bead and the epic `ht-qq2` are closed
+- **Blockers:** none. The capture's follow-ups are HT-010 (`ht-m13`)
