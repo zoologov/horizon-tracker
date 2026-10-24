@@ -58,6 +58,18 @@ Module `src/horizon_tracker/infrastructure/telegram.py`:
 - `BOT_API_URL` — `"https://api.telegram.org/bot{token}/{method}"`.
 - `TIMEOUT_SECONDS` — `20.0`.
 
+The token discipline is public because the bot transport (`telegram-bot`) calls the same
+API with the same token and imports it from here instead of repeating it:
+
+- `check_bot_token(token: str) -> None` — raises `ValueError` for a token not shaped
+  `<bot id>:<secret>`, without echoing it;
+- `redact_token(text: str, token: str) -> str` — the text with the token masked as
+  `<token>`;
+- `mask_token_in_httpx_log() -> None` — installs the masking filter on the `httpx`
+  logger, once per process;
+- `bot_api_description(response: httpx.Response) -> str` — the API's `description` of a
+  failure, or `(no description)`.
+
 ## Testing
 
 Tests: `tests/unit/infrastructure/test_telegram.py`, on `httpx.MockTransport`.
@@ -90,7 +102,7 @@ Scenarios (`tests/acceptance/features/language.feature`):
 Derived from the imports on reindex.
 
 - Depends on: `messages`, `run-report`
-- Used by: `cli`
+- Used by: `cli`, `telegram-bot`
 - External contracts (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
   `http:telegram-sendMessage` and `http:telegram-sendPhoto` from
   [`telegram-bot-api`](../../../external/telegram-bot-api/SPEC.md), and produces

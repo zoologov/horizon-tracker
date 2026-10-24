@@ -36,7 +36,7 @@ nodes:
   - ref_id: telegram-bot-api
     kind: service
     lifecycle: external
-    summary: "The Telegram Bot API: the sendMessage and sendPhoto methods the notifier posts to, the bot token in the path of every URL"
+    summary: "The Telegram Bot API: the sendMessage and sendPhoto methods the notifier posts to, the getUpdates long poll and sendMessage replies of the bot transport, the bot token in the path of every URL"
     source: docs/domains/external/telegram-bot-api/SPEC.md
     docs:
       - docs/domains/external/telegram-bot-api/SPEC.md
@@ -84,11 +84,18 @@ edges:
   - { src: isdayoff, dst: isdayoff-calendar, kind: produces, contract: { protocol: http, name: isdayoff-day } }
   - { src: isdayoff-calendar, dst: isdayoff, kind: consumes, contract: { protocol: http, name: isdayoff-day } }
 
-  # http:telegram-sendMessage and http:telegram-sendPhoto: the two Bot API methods.
+  # http:telegram-sendMessage and http:telegram-sendPhoto: the notifier's two Bot API methods.
   - { src: telegram-bot-api, dst: telegram-notifier, kind: produces, contract: { protocol: http, name: telegram-sendMessage } }
   - { src: telegram-notifier, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendMessage } }
   - { src: telegram-bot-api, dst: telegram-notifier, kind: produces, contract: { protocol: http, name: telegram-sendPhoto } }
   - { src: telegram-notifier, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendPhoto } }
+
+  # http:telegram-getUpdates: the bot transport's long poll for the owner's text messages.
+  - { src: telegram-bot-api, dst: telegram-bot, kind: produces, contract: { protocol: http, name: telegram-getUpdates } }
+  - { src: telegram-bot, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-getUpdates } }
+  # The bot's replies go out through the same sendMessage the notifier posts to.
+  - { src: telegram-bot-api, dst: telegram-bot, kind: produces, contract: { protocol: http, name: telegram-sendMessage } }
+  - { src: telegram-bot, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendMessage } }
 
   # notification:run-report: the text the owner reads (HT-012 changes it).
   - { src: telegram-notifier, dst: owner-chat, kind: produces, contract: { protocol: notification, name: run-report } }

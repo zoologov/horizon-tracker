@@ -29,7 +29,7 @@ module a second responsibility.
 | `Clock` | `now()` (aware, in the service's zone) and `sleep(seconds)` | `SystemClock` |
 | `ArtifactStore` | `screenshot_path(kind)`, a fresh path for one screenshot | `DirectoryArtifactStore` |
 | `AbsenceStore` | `load()` the `AbsenceBook` last saved (empty when none was), `save(book)` the whole book or nothing | `JsonAbsenceStore` |
-| `BotTransport` | `poll(offset)` the owner's messages as `IncomingMessage`s, `reply(chat_id, text)` | none yet: HT-012 BEAD-06 builds it |
+| `BotTransport` | `poll(offset)` the owner's messages as `IncomingMessage`s, `reply(chat_id, text)` | `TelegramBotTransport` |
 
 `HorizonClient` answers two kinds of question. The run's methods log in and act on a
 desktop: `login`, `desktop_status`, `open_desktop`, `capture_open_desktop`,
