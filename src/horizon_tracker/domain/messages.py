@@ -8,8 +8,8 @@ Logs are not in here: the operator reads them in English whatever the language.
 
 Every key has a text in every ``Language`` -- ``missing_translations()`` names any pair
 that does not, and a test holds the catalogue to an empty answer. The catalogue holds
-the texts of the notification, the probe, the dry run and the configuration errors:
-English is the default language, Russian the other one.
+the texts of the notification, the probe, the dry run, the bot and the configuration
+errors: English is the default language, Russian the other one.
 """
 
 # beadloom:domain=domain
@@ -249,6 +249,111 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "plan.step.report": {
         _EN: "send one report to Telegram",
         _RU: "отправить один отчёт в Telegram",
+    },
+    # --- the bot: the help, the replies to the owner's commands and the refusals ------
+    "bot.help": {
+        _EN: (
+            "Commands:\n"
+            "/add <kind> <from>[-<to>] - enter an absence\n"
+            "/list - every absence entered\n"
+            "/edit <id> [<kind>] <from>[-<to>] - change an absence\n"
+            "/del <id> - delete an absence\n"
+            "/help - this text\n"
+            "Kinds: vacation, sick, dayoff\n"
+            "Dates: 03.11, 03.11.2026 or 2026-11-03; a date without a year is the next such day\n"
+            "Example: /add vacation 03.11-14.11"
+        ),
+        _RU: (
+            "Команды:\n"
+            "/add <вид> <начало>[-<конец>] - внести отсутствие\n"
+            "/list - все внесённые отсутствия\n"
+            "/edit <номер> [<вид>] <начало>[-<конец>] - изменить отсутствие\n"
+            "/del <номер> - удалить отсутствие\n"
+            "/help - этот текст\n"
+            "Виды: отпуск, больничный, отгул\n"
+            "Даты: 03.11, 03.11.2026 или 2026-11-03; дата без года - ближайший такой день\n"
+            "Пример: /add отпуск 03.11-14.11"
+        ),
+    },
+    # One name per AbsenceKind, keyed by its value, as a reply names the kind.
+    "bot.kind.vacation": {_EN: "vacation", _RU: "отпуск"},
+    "bot.kind.sick_leave": {_EN: "sick leave", _RU: "больничный"},
+    "bot.kind.day_off": {_EN: "day off", _RU: "отгул"},
+    # An absence's days with the year, so a date typed without one is read back in full.
+    "bot.days.single": {_EN: "on {day}", _RU: "день {day}"},
+    "bot.days.span": {_EN: "from {first} to {last}", _RU: "дни {first}–{last}"},
+    "bot.added": {
+        _EN: "Absence {id} entered: {kind} {days}",
+        _RU: "Отсутствие {id} внесено: {kind}, {days}",
+    },
+    "bot.edited": {
+        _EN: "Absence {id} changed: {kind} {days}",
+        _RU: "Отсутствие {id} изменено: {kind}, {days}",
+    },
+    "bot.deleted": {
+        _EN: "Absence {id} deleted: {kind} {days}",
+        _RU: "Отсутствие {id} удалено: {kind}, {days}",
+    },
+    "bot.list.empty": {_EN: "No absences entered", _RU: "Отсутствий не внесено"},
+    "bot.list.header": {_EN: "Absences entered: {count}", _RU: "Внесено отсутствий: {count}"},
+    "bot.list.item": {_EN: "Absence {id}: {kind} {days}", _RU: "Отсутствие {id}: {kind}, {days}"},
+    "bot.error.not_a_command": {
+        _EN: "Not a command; /help lists the commands",
+        _RU: "Это не команда; список команд покажет /help",
+    },
+    "bot.error.unknown_command": {
+        _EN: "Unknown command {command}; /help lists the commands",
+        _RU: "Неизвестная команда {command}; список команд покажет /help",
+    },
+    "bot.error.usage.add": {
+        _EN: "Usage: /add <kind> <from>[-<to>], for example /add vacation 03.11-14.11",
+        _RU: "Формат: /add <вид> <начало>[-<конец>], например /add отпуск 03.11-14.11",
+    },
+    "bot.error.usage.del": {
+        _EN: "Usage: /del <id>, the id /list shows",
+        _RU: "Формат: /del <номер>, номер показывает /list",
+    },
+    "bot.error.usage.edit": {
+        _EN: "Usage: /edit <id> [<kind>] <from>[-<to>], for example /edit 4 05.11-16.11",
+        _RU: "Формат: /edit <номер> [<вид>] <начало>[-<конец>], например /edit 4 05.11-16.11",
+    },
+    "bot.error.unknown_kind": {
+        _EN: "Unknown kind {kind!r}: expected vacation, sick or dayoff",
+        _RU: "Неизвестный вид {kind!r}: ожидается отпуск, больничный или отгул",
+    },
+    "bot.error.malformed_date": {
+        _EN: (
+            "Not a date {text!r}: expected 03.11, 03.11.2026 or 2026-11-03; "
+            "a range is written 03.11-14.11"
+        ),
+        _RU: (
+            "Это не дата {text!r}: ожидается 03.11, 03.11.2026 или 2026-11-03; "
+            "диапазон пишется как 03.11-14.11"
+        ),
+    },
+    "bot.error.no_such_day": {
+        _EN: "No such day {text!r} in the calendar",
+        _RU: "Такого дня в календаре нет: {text!r}",
+    },
+    "bot.error.reversed_range": {
+        _EN: "The range ends on {last}, before it starts on {first}",
+        _RU: "Диапазон кончается {last}, раньше своего начала {first}",
+    },
+    "bot.error.bad_id": {
+        _EN: "Not an id {text!r}: expected a whole number from 1, the one /list shows",
+        _RU: "Это не номер {text!r}: ожидается целое число от 1, какое показывает /list",
+    },
+    "bot.error.not_found": {
+        _EN: "No absence {id}; /list shows the ones entered",
+        _RU: "Отсутствия {id} нет; внесённые покажет /list",
+    },
+    "bot.error.overlap": {
+        _EN: "These days overlap absence {id}; change or delete it first",
+        _RU: "Эти дни уже заняты отсутствием {id}; сначала измените или удалите это отсутствие",
+    },
+    "bot.error.internal": {
+        _EN: "Something went wrong; the details are in the journal",
+        _RU: "Что-то пошло не так; подробности в журнале",
     },
     # --- configuration errors: the line a reader gets, then the problem after "<VARIABLE>: "
     "config.error": {_EN: "configuration error: {error}", _RU: "ошибка настройки: {error}"},

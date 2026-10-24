@@ -12,11 +12,11 @@ language yet.
 
 ### Purpose
 
-The owner reads the notifications and the output of `horizon probe` and `--dry-run`, and
-chooses the language they are written in. One catalogue in the domain holds every such
+The owner reads the notifications, the output of `horizon probe` and `--dry-run` and the
+bot's replies, and chooses the language they are written in. One catalogue in the domain holds every such
 text in every supported language, so no text is a literal inside the logic that decides
 when to show it, and a missing translation is found by a test rather than by the owner at
-07:43. The catalogue is plain data in code: two languages and 83 keys do not earn gettext.
+07:43. The catalogue is plain data in code: two languages and 116 keys do not earn gettext.
 
 ### How it works
 
@@ -37,6 +37,15 @@ place a person reads them:
   languages);
 - `plan.*` - the dry-run plan: its header, verdict, calendar sources and the steps of
   one attempt;
+- `bot.*` - the bot's texts (HT-012): the help (`bot.help`); one name per `AbsenceKind`,
+  keyed by its value (`bot.kind.vacation`, `bot.kind.sick_leave`, `bot.kind.day_off`); an
+  absence's days with the year (`bot.days.single` `{day}`, `bot.days.span` `{first}`
+  `{last}`), so a date typed without a year is read back in full; the replies to the
+  commands, each naming `{id}`, `{kind}` and `{days}` (`bot.added`, `bot.edited`,
+  `bot.deleted`, `bot.list.item`), the list's `bot.list.header` `{count}` and
+  `bot.list.empty`; and the refusals `bot.error.*`: the parser's ten (see the
+  `bot-commands` SPEC) and the service's `bot.error.not_found` `{id}`,
+  `bot.error.overlap` `{id}` and `bot.error.internal`;
 - `config.*` - the line a reader gets for a configuration error (`config.error`) and the
   problem it names after `<VARIABLE>: `. A problem the domain's own check refused carries
   the domain's reason as its `{error}` field, and that reason is itself a message, so it
@@ -118,7 +127,8 @@ bodies only. The texts are pinned elsewhere: the render tests in
 `tests/unit/domain/test_report.py` pin `report.*` and `reason.*` in both languages, and
 `tests/unit/test_cli.py`, `tests/unit/infrastructure/test_config.py`,
 `tests/unit/domain/test_moments.py` and the language scenarios pin `plan.*`, `probe.*`,
-`config.*` and `schedule.*`.
+`config.*` and `schedule.*`; `tests/unit/domain/test_bot_commands.py` and the bot section of
+`test_messages.py` pin `bot.*`.
 
 Scenarios (`tests/acceptance/features/language.feature`):
 
@@ -132,8 +142,8 @@ Scenarios (`tests/acceptance/features/language.feature`):
 Derived from the imports on reindex.
 
 - Depends on: (none)
-- Used by: `schedule`, `run-report`, `morning-checkin`, `evening-checkout`, `windowed-run`, `probe`,
-  `settings`, `telegram-notifier`, `cli`
+- Used by: `schedule`, `run-report`, `bot-commands`, `morning-checkin`, `evening-checkout`,
+  `windowed-run`, `probe`, `settings`, `telegram-notifier`, `cli`
 
 ## Parent
 

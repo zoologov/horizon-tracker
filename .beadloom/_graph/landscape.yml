@@ -44,7 +44,7 @@ nodes:
   - ref_id: owner-chat
     kind: service
     lifecycle: external
-    summary: "The owner's private Telegram chat: the reader of every run report, in the language HT_LANGUAGE names"
+    summary: "The owner's private Telegram chat: the reader of every run report, in the language HT_LANGUAGE names, and the writer of the text commands the bot takes"
     source: docs/domains/external/owner-chat/SPEC.md
     docs:
       - docs/domains/external/owner-chat/SPEC.md
@@ -100,6 +100,10 @@ edges:
   # notification:run-report: the text the owner reads (HT-012 changes it).
   - { src: telegram-notifier, dst: owner-chat, kind: produces, contract: { protocol: notification, name: run-report } }
   - { src: owner-chat, dst: telegram-notifier, kind: consumes, contract: { protocol: notification, name: run-report } }
+
+  # command:bot-text: the owner's text commands to the bot (HT-012), read by the parser.
+  - { src: owner-chat, dst: bot-commands, kind: produces, contract: { protocol: command, name: bot-text } }
+  - { src: bot-commands, dst: owner-chat, kind: consumes, contract: { protocol: command, name: bot-text } }
 
   # env:dot-env: every variable of /opt/horizon-tracker/.env the settings read.
   - { src: vps-host, dst: settings, kind: produces, contract: { protocol: env, name: dot-env } }

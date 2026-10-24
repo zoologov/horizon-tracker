@@ -19,6 +19,7 @@ deterministic and unit-tested first.
 | `messages.py` | the message catalogue: `Language` (EN, RU), `DEFAULT_LANGUAGE` (EN, Russian being the other language), `MESSAGES` (every text a person reads, keyed, in both languages), `text(key, language, /, **fields)`, `Message(key, fields)` (a text with no language yet, its fields read-only; `in_language(language)`, which reads a field that is a message in the same language), `missing_translations()` |
 | `ports.py` | the Protocols the adapters implement: `HorizonClient` (the run's `login`, `desktop_status`, `open_desktop`, `capture_open_desktop`, `disconnect`, `log_off`, where `open_desktop` returns `None`, `capture_open_desktop` and `log_off` answer with a screenshot path or `None`, and the probe's `client_bundles()` and `browser_version()`), `WorkingDayCalendar`, `Notifier` (`send(report)`, the screenshot travels inside the report), `Clock`, `ArtifactStore`, `AbsenceStore` (`load() -> AbsenceBook`, `save(book)`), `BotTransport` (`poll(offset)`, `reply(chat_id, text)`); `HorizonClientError(reason, screenshot)`, `AbsenceStoreError(path, detail)`, `BotTransportError`; the value `IncomingMessage(update_id, chat_id, text)` |
 | `absence.py` | the owner's absences and the decisions over a set of them: `AbsenceKind` (VACATION, SICK_LEAVE, DAY_OFF), `Absence(id, kind, first_day, last_day)` (a range of whole days, both ends included; `covers(day)`), `FIRST_ID`, `covering(absences, day)`, `next_after(absences, day)`, `allocate_id(absences, *, last_issued=0)`, `overlaps(first, second)`; `AbsenceBook(absences, last_issued)`, the absences with the highest id ever issued, as the store keeps them (`of(absences)`, `next_id()`) |
+| `bot_commands.py` | the bot's text command parser: `parse(text, today)` → `Add(kind, first_day, last_day)`, `List`, `Delete(id)`, `Edit(id, kind, first_day, last_day)`, `Help` (the union `Command`) or `CommandError(problem)`, its problem a `bot.error.*` `Message`; `KIND_WORDS` (the kind words in both languages); dates `dd.mm`, `dd.mm.yyyy`, `yyyy-mm-dd`, a yearless date placed from today |
 
 The domain picks no language: `render(report, language)` and `Message.in_language`
 take it as an argument, and the settings read it from `HT_LANGUAGE`. The use cases and the
@@ -48,6 +49,9 @@ Each feature has a `SPEC.md` (Purpose, How it works, Invariants, API, Testing):
 - **[Absence](features/absence/SPEC.md)** — `absence.py`: the owner's absences as day
   ranges, which one covers a day, which one comes next, the id a new one gets and whether
   two share a day, and the book the store keeps them in.
+- **[Bot commands](features/bot-commands/SPEC.md)** — `bot_commands.py`: one message
+  from the owner into an absence command with its kind, id and days, or a refusal as a
+  catalogue message; a date without a year placed from today.
 
 ## Dependencies
 

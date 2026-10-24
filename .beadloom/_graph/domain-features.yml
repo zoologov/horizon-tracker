@@ -53,6 +53,13 @@ nodes:
     docs:
       - docs/domains/domain/features/absence/SPEC.md
 
+  - ref_id: bot-commands
+    kind: feature
+    summary: "The bot's text command parser: one message from the owner into /add, /list, /del, /edit or /help with its kind, id and days, or a refusal as a catalogue message; a date without a year placed from today"
+    source: src/horizon_tracker/domain/bot_commands.py
+    docs:
+      - docs/domains/domain/features/bot-commands/SPEC.md
+
 edges:
   - { src: schedule,             dst: domain, kind: part_of }
   - { src: working-day-calendar, dst: domain, kind: part_of }
@@ -61,3 +68,4 @@ edges:
   - { src: messages,             dst: domain, kind: part_of }
   - { src: ports,                dst: domain, kind: part_of }
   - { src: absence,              dst: domain, kind: part_of }
+  - { src: bot-commands,         dst: domain, kind: part_of }
