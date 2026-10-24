@@ -104,14 +104,19 @@ after the table.
 | — (authored) | horizon-playwright-client | the adapter (not a seed of these runs; HT-010's derivation covers it) | none | yes | the consumer end of the three Horizon contracts |
 | callers | ports, schedule, windowed-run, messages | constructor arguments and the port protocols | none | no | the contracts bind adapters, not the ports or the use cases |
 | callers | horizon-tracker | run 4: no site found, the graph directory holds YAML only; the root node is the one the graph describes | the whole directory | yes | the work site: `.beadloom/_graph/landscape.yml` and `rules.yml`'s exclude list |
+| — (authored) | horizon-portal | created by this item: `docs/domains/external/horizon-portal/SPEC.md` and its edges in `landscape.yml` | the SPEC (no code) | yes | the producer end of the three Horizon contracts |
+| — (authored) | isdayoff | created by this item: `docs/domains/external/isdayoff/SPEC.md` and its edges in `landscape.yml` | the SPEC (no code) | yes | the producer end of `http:isdayoff-day` |
+| — (authored) | telegram-bot-api | created by this item: `docs/domains/external/telegram-bot-api/SPEC.md` and its edges in `landscape.yml` | the SPEC (no code) | yes | the producer end of `http:telegram-sendMessage` / `sendPhoto` |
+| — (authored) | owner-chat | created by this item: `docs/domains/external/owner-chat/SPEC.md` and its edges in `landscape.yml` | the SPEC (no code) | yes | the consumer end of `notification:run-report` |
+| — (authored) | vps-host | created by this item: `docs/domains/external/vps-host/SPEC.md` and its edges in `landscape.yml` | the SPEC (no code) | yes | the producer end of `env:dot-env` and `systemd:units`, the consumer end of `env:github-environment` |
+| — (authored) | github-environment | created by this item: `docs/domains/external/github-environment/SPEC.md` and its edges in `landscape.yml` | the SPEC (no code) | yes | the producer end of `env:github-environment` |
 
-New nodes this work item declares: `horizon-portal`, `isdayoff`, `telegram-bot-api`,
-`owner-chat`, `vps-host`, `github-environment` (kind `service`, lifecycle `external`), each
-with a SPEC under `docs/domains/external/<node>/SPEC.md`.
-
-Kept axes name several existing nodes, but the change is one artifact (the graph file and
-its documents) and no code: it is a chore on the graph, declared non-behavioural below, and the
-simplified flow carries it as HT-008 carried its repository-wide chore.
+The six external nodes above exist only once this item lands, so no derivation could list
+them: their rows are authored and marked so. The route check reports that the simplified
+route holds one node while the kept axes name more. That is recorded here as the crossing it
+is: the item writes one graph file and its documents and changes no code node, so one BRIEF
+carries it, as HT-008 carried its repository-wide chore; the nodes kept are the endpoints the
+new edges name, not nodes whose code changes.
 
 ## Beads
 
@@ -124,6 +129,7 @@ created, and then the id the tracker answered.
 | BEAD-01 | ht-azz | dev: `landscape.yml` (nodes + contract edges), the external SPECs, the portal built once to a scratch directory and its `landscape.data.json` checked | P2 |
 | BEAD-02 | ht-y3f | review: every contract has both ends and a `confirmed` verdict; the surfaces in the SPECs match the code's actual calls (status codes, methods, variables); no secret value in any SPEC | P2 |
 | BEAD-03 | ht-2q0 | tech-writer: `docs/architecture.md` and the README's "What it is made of" name the landscape and the external systems; the portal section of `releasing.md` names the map | P3 |
+| BEAD-04 | ht-lsb.1 | fix after review ht-y3f: the probe's client-bundle edges dropped (the contract sits on the adapter, as the calendar's), the telegram and isdayoff SPEC wordings, the semicolons split | P2 |
 
 ## Acceptance Criteria
 
