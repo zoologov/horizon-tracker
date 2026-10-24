@@ -9,7 +9,7 @@ import re
 import struct
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -679,6 +679,18 @@ def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logge
 
 # --- the success screenshot ------------------------------------------------------------
 
+DESKTOP_BLUE = (0, 120, 215)
+# The side of the grid the capture reads a surface on.
+PAINT_GRID_SIDE = 32
+# A remote surface the page paints this long after the capture's first sample.
+PAINTED_AFTER_MS = 300
+# A bound long enough for several samples after that paint.
+PAINT_WAIT_MS = 5_000
+# A bound shorter than a poll interval set to twice it, and the time one sample, the
+# start and the return may add on this machine.
+SHORT_PAINT_MS = 1_500
+SAMPLE_SLACK_MS = 500
+
 
 def png_size(data: bytes) -> tuple[int, int]:
     """The width and height stored in a PNG's IHDR."""
@@ -710,7 +722,11 @@ def paint_remote_surface(
 
 
 def add_small_bright_canvas(client: PlaywrightHorizonClient) -> None:
-    """A 64 by 64 red canvas beside the remote surface, smaller than the Blast canvas."""
+    """A 64 by 64 red canvas ahead of the remote surface, smaller than the Blast canvas.
+
+    It is the container's first child, so the first surface in document order is the
+    small one: a capture that read the first surface instead of the largest would see red.
+    """
     page = client._page
     assert page is not None
     page.evaluate(
@@ -721,8 +737,45 @@ def add_small_bright_canvas(client: PlaywrightHorizonClient) -> None:
             const context = canvas.getContext("2d");
             context.fillStyle = "rgb(255, 0, 0)";
             context.fillRect(0, 0, 64, 64);
-            document.querySelector("#canvas-container").appendChild(canvas);
+            const container = document.querySelector("#canvas-container");
+            container.insertBefore(canvas, container.firstChild);
         }"""
+    )
+
+
+def light_the_first_row(client: PlaywrightHorizonClient, pixels: int, channel: int) -> None:
+    """A black 32 by 32 Blast canvas whose first ``pixels`` of row 0 are rgb(channel, 0, 0).
+
+    At 32 by 32 the paint grid is the bitmap itself, so the count is exact.
+    """
+    paint_remote_surface(client, "rgb(0, 0, 0)", width=PAINT_GRID_SIDE, height=PAINT_GRID_SIDE)
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """({ pixels, channel }) => {
+            const canvas = document.querySelector("#canvas-container canvas");
+            const context = canvas.getContext("2d");
+            context.fillStyle = `rgb(${channel}, 0, 0)`;
+            context.fillRect(0, 0, pixels, 1);
+        }""",
+        {"pixels": pixels, "channel": channel},
+    )
+
+
+def paint_remote_surface_later(client: PlaywrightHorizonClient, color: str, after_ms: int) -> None:
+    """Fill the Blast canvas with ``color`` once ``after_ms`` have passed, from a page timer."""
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """({ color, afterMs }) => {
+            setTimeout(() => {
+                const canvas = document.querySelector("#canvas-container canvas");
+                const context = canvas.getContext("2d");
+                context.fillStyle = color;
+                context.fillRect(0, 0, canvas.width, canvas.height);
+            }, afterMs);
+        }""",
+        {"color": color, "afterMs": after_ms},
     )
 
 
@@ -757,8 +810,7 @@ def test_a_black_remote_surface_is_not_saved(
 
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
-    assert photographed
-    assert set(photographed) == {"#/desktop"}
+    assert photographed == [], "a black surface was photographed"
     assert "Horizon desktop still blank" in caplog.text
 
 
@@ -796,6 +848,151 @@ def test_a_smaller_bright_canvas_does_not_paint_a_black_desktop(
     assert "Horizon desktop still blank" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("pixels", "channel", "painted"),
+    [(7, 24, False), (8, 23, False), (8, 24, True)],
+    ids=["seven-lit-cells", "a-channel-below-24", "eight-cells-at-24"],
+)
+def test_a_surface_is_painted_from_eight_lit_cells_of_its_grid(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    pixels: int,
+    channel: int,
+    painted: bool,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    light_the_first_row(client, pixels, channel)
+
+    shot = client.capture_open_desktop()
+
+    assert (shot is not None) is painted
+    assert artifacts.asked == ([RunKind.CHECKIN] if painted else [])
+
+
+def test_a_surface_lit_only_past_its_top_left_corner_is_painted(
+    client: PlaywrightHorizonClient,
+) -> None:
+    # 64 by 32, black on the left and red on the right: a 32 by 32 crop of the top-left
+    # corner is black, a grid spread across the whole surface reaches the lit half.
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)", width=2 * PAINT_GRID_SIDE, height=PAINT_GRID_SIDE)
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """(side) => {
+            const canvas = document.querySelector("#canvas-container canvas");
+            const context = canvas.getContext("2d");
+            context.fillStyle = "rgb(255, 0, 0)";
+            context.fillRect(side, 0, side, side);
+        }""",
+        PAINT_GRID_SIDE,
+    )
+
+    assert client.capture_open_desktop() is not None
+
+
+def test_the_photo_is_of_the_largest_surface_not_the_first(
+    client: PlaywrightHorizonClient,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE), width=200, height=100)
+    add_small_bright_canvas(client)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None
+    assert png_size(shot.read_bytes()) == (200, 100)
+
+
+def test_a_surface_black_at_the_first_sample_and_painted_later_is_photographed(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    artifacts: RecordingArtifacts,
+) -> None:
+    client = make_client(timeouts=replace(FAST, desktop_paint_ms=PAINT_WAIT_MS))
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    paint_remote_surface_later(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE), PAINTED_AFTER_MS)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None, "the capture gave up after its first, black, sample"
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == []
+    assert artifacts.asked == [RunKind.CHECKIN]
+
+
+def test_a_pause_between_samples_never_outlasts_the_capture_bound(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A poll interval twice the bound: a pause that is not cut to what is left of the
+    # bound starts one more sample long after it.
+    timeouts = replace(FAST, desktop_paint_ms=SHORT_PAINT_MS, poll_ms=2 * SHORT_PAINT_MS)
+    client = make_client(timeouts=timeouts)
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    started = time.monotonic()
+
+    assert client.capture_open_desktop() is None
+
+    elapsed_ms = (time.monotonic() - started) * 1000
+    assert elapsed_ms < SHORT_PAINT_MS + SAMPLE_SLACK_MS, f"the capture took {elapsed_ms:.0f} ms"
+    assert "Horizon desktop still blank" in caplog.text
+
+
+def test_the_photo_waits_no_longer_than_the_capture_has_left(
+    client: PlaywrightHorizonClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+    timeouts: list[object] = []
+    real_screenshot = Locator.screenshot
+
+    def spy(locator: Locator, *args: Any, **kwargs: Any) -> bytes:
+        timeouts.append(kwargs.get("timeout"))
+        return real_screenshot(locator, *args, **kwargs)
+
+    monkeypatch.setattr(Locator, "screenshot", spy)
+
+    assert client.capture_open_desktop() is not None
+
+    assert len(timeouts) == 1
+    timeout = timeouts[0]
+    assert isinstance(timeout, int | float), "the photo waits on the action timeout instead"
+    assert 0 < timeout <= FAST.desktop_paint_ms
+
+
+def test_a_page_closed_between_samples_leaves_no_photo_and_raises_nothing(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    real_evaluate = Page.evaluate
+
+    def close_after_reading(page: Page, *args: Any, **kwargs: Any) -> Any:
+        # The page goes away right after a sample read a black surface.
+        answer = real_evaluate(page, *args, **kwargs)
+        page.close()
+        return answer
+
+    monkeypatch.setattr(Page, "evaluate", close_after_reading)
+
+    assert client.capture_open_desktop() is None
+
+    assert artifacts.asked == []
+
+
 def test_capture_on_the_login_page_saves_nothing(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
@@ -820,7 +1017,6 @@ def test_capture_on_the_login_page_saves_nothing(
     assert "Horizon desktop still blank" not in caplog.text
 
 
-DESKTOP_BLUE = (0, 120, 215)
 # Long after open_desktop has seen the paint (it polls every FAST.poll_ms), so the second
 # offer comes while the desktop is held, as on the live portal.
 FULLSCREEN_AGAIN_AFTER_MS = 500

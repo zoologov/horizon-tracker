@@ -20,16 +20,14 @@ the same thread, so a client is closed (it is a context manager) before the next
 
 import logging
 import re
-import struct
 import time
-import zlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import Self, TypeVar
+from typing import Self, TypeVar, cast
 from urllib.parse import urljoin, urlsplit
 
 from playwright.sync_api import (
@@ -86,16 +84,54 @@ DESKTOP_CANVAS = "#canvas-container canvas"
 # the container and are not part of it. The largest of these is the one a frame is
 # read from: a small overlay must not look painted while the desktop is black.
 _DESKTOP_SURFACE = "#canvas-container canvas, #canvas-container video"
-_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# The paint rule: the largest surface drawn onto a 32 by 32 grid, painted once at least
+# 8 of its 1024 cells have max(R, G, B) >= 24.
 _SAMPLE_SIDE = 32
 _LIT_CHANNEL = 24
-_LIT_PIXELS_REQUIRED = 8
+_LIT_CELLS_REQUIRED = 8
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
 # The client posts every broker command as one XML document to ``…/broker/xml``; a log
 # off's carries ``<kill-session>`` (``Kw.setRequestXML`` and ``Oi.createXML`` in the bundle).
 BROKER_XML_PATH = "/broker/xml"
 KILL_SESSION_TAG = "<kill-session"
 
+# Reads the paint of the largest remote surface in the page, so no frame is decoded here.
+# Answers null when no surface has a box, else the surface's index among the selector's
+# matches and the count of lit cells of its grid. Smoothing is off: each cell is one
+# pixel of the surface, the same on every rasteriser. A surface with no bitmap yet
+# (a canvas of width 0, a video with no frame) counts no cell.
+_PAINTED_CELLS = """({ selector, side, channel }) => {
+    let largest = -1;
+    let largestArea = 0;
+    const surfaces = Array.from(document.querySelectorAll(selector));
+    surfaces.forEach((surface, index) => {
+        const box = surface.getBoundingClientRect();
+        if (box.width * box.height > largestArea) {
+            largest = index;
+            largestArea = box.width * box.height;
+        }
+    });
+    if (largest < 0) { return null; }
+    const surface = surfaces[largest];
+    const isVideo = surface instanceof HTMLVideoElement;
+    const width = isVideo ? surface.videoWidth : surface.width;
+    const height = isVideo ? surface.videoHeight : surface.height;
+    if (!width || !height) { return { index: largest, lit: 0 }; }
+    const grid = document.createElement("canvas");
+    grid.width = side;
+    grid.height = side;
+    const context = grid.getContext("2d");
+    context.imageSmoothingEnabled = false;
+    context.drawImage(surface, 0, 0, side, side);
+    const cells = context.getImageData(0, 0, side, side).data;
+    let lit = 0;
+    for (let offset = 0; offset < cells.length; offset += 4) {
+        if (Math.max(cells[offset], cells[offset + 1], cells[offset + 2]) >= channel) {
+            lit += 1;
+        }
+    }
+    return { index: largest, lit: lit };
+}"""
 _CANVAS_IS_DRAWN = """(selector) => Array.from(document.querySelectorAll(selector)).some(
     (canvas) => {
         const box = canvas.getBoundingClientRect();
@@ -240,32 +276,32 @@ class PlaywrightHorizonClient:
     def capture_open_desktop(self) -> Path | None:
         """Save the first non-blank frame of the open remote surface, or return ``None``.
 
-        Polls an element screenshot of the largest canvas or video inside
-        ``#canvas-container`` until a 32 by 32 sample has at least 8 pixels with
-        ``max(R, G, B) >= 24``, or ``desktop_paint_ms`` runs out. A sample is taken only
-        while no client dialog shows: one with a Cancel button is cancelled (never OK,
-        which on the Fullscreen offer grants full screen) and the next poll looks again.
-        A blank or dialog-covered timeout, a page outside the screenshot allowlist, or a
-        screenshot error answers ``None``. A missing photo never fails the step.
+        Polls the largest canvas or video inside ``#canvas-container``: the page draws it
+        onto a 32 by 32 grid, and once at least 8 cells have ``max(R, G, B) >= 24`` an
+        element screenshot of it is saved. A sample is taken only while no client dialog
+        shows: one with a Cancel button is cancelled (never OK, which on the Fullscreen
+        offer grants full screen) and the next poll looks again. ``desktop_paint_ms``
+        bounds the whole capture: a sample starts only while some of it is left, a pause
+        and the screenshot wait no longer than what is left. A blank or dialog-covered
+        timeout, a page closed or outside the screenshot allowlist, or a screenshot error
+        answers ``None``. A missing photo never fails the step.
         """
         deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
-        while True:
-            try:
-                frame = self._nonblank_frame(deadline)
-            except (PlaywrightError, OSError, ValueError) as error:
-                _log_screenshot_failure(error)
-                return None
-            if isinstance(frame, Path):
-                return frame
-            if frame is _Frame.STOP or time.monotonic() >= deadline:
-                if frame in _GAVE_UP:
-                    logger.warning(_GAVE_UP[frame])
-                return None
-            try:
-                self._live_page().wait_for_timeout(self._timeouts.poll_ms)
-            except PlaywrightError as error:
-                _log_screenshot_failure(error)
-                return None
+        last = _Frame.WAIT
+        try:
+            while time.monotonic() < deadline:
+                sample = self._nonblank_frame(deadline)
+                if isinstance(sample, Path):
+                    return sample
+                if sample is _Frame.STOP:
+                    return None
+                last = sample
+                self._pause_between_samples(deadline)
+        except (PlaywrightError, OSError, ValueError) as error:
+            _log_screenshot_failure(error)
+            return None
+        logger.warning(_GAVE_UP[last])
+        return None
 
     def _nonblank_frame(self, deadline: float) -> Path | _Frame:
         """One sample: a saved path, ``WAIT`` or ``DIALOG`` to poll again, or ``STOP``."""
@@ -274,15 +310,23 @@ class PlaywrightHorizonClient:
             return _Frame.STOP
         if self._dialog_in_the_way(page, deadline):
             return _Frame.DIALOG
-        surface = _largest_surface(page.locator(_DESKTOP_SURFACE))
-        if surface is None:
+        painted = _painted_surface(page)
+        if painted is None:
             return _Frame.WAIT
-        png = surface.screenshot(type="png")
-        if not _png_frame_is_nonblank(png):
-            return _Frame.WAIT
+        png = painted.screenshot(type="png", timeout=_remaining_ms(deadline))
         path = self._artifacts.screenshot_path(RunKind.CHECKIN)
         path.write_bytes(png)
         return path
+
+    def _pause_between_samples(self, deadline: float) -> None:
+        """Wait one poll interval, or what is left of the bound when that is shorter.
+
+        A page that closed is not waited on: the next sample finds it closed and stops.
+        """
+        page = self._page
+        if page is None or page.is_closed():
+            return
+        page.wait_for_timeout(min(self._timeouts.poll_ms, _remaining_ms(deadline)))
 
     def _dialog_in_the_way(self, page: Page, deadline: float) -> bool:
         """Cancel a client dialog over the desktop; True while one may still be in the frame.
@@ -631,20 +675,26 @@ def _remaining_ms(deadline: float) -> int:
     return max(1, round((deadline - time.monotonic()) * 1000))
 
 
-def _largest_surface(surfaces: Locator) -> Locator | None:
-    """The canvas or video with the greatest box area, or ``None`` when none is shown."""
-    best: Locator | None = None
-    best_area = 0.0
-    for index in range(surfaces.count()):
-        candidate = surfaces.nth(index)
-        box = candidate.bounding_box()
-        if box is None:
-            continue
-        area = box["width"] * box["height"]
-        if area > best_area:
-            best = candidate
-            best_area = area
-    return best
+def _painted_surface(page: Page) -> Locator | None:
+    """The largest remote surface once its grid has enough lit cells, else ``None``.
+
+    Raises ``ValueError`` when the page answers something other than the reading.
+    """
+    reading = page.evaluate(
+        _PAINTED_CELLS,
+        {"selector": _DESKTOP_SURFACE, "side": _SAMPLE_SIDE, "channel": _LIT_CHANNEL},
+    )
+    if reading is None:
+        return None
+    if not isinstance(reading, dict):
+        raise ValueError("paint reading")
+    fields = cast(dict[str, object], reading)
+    index, lit = fields.get("index"), fields.get("lit")
+    if not isinstance(index, int) or not isinstance(lit, int):
+        raise ValueError("paint reading")
+    if lit < _LIT_CELLS_REQUIRED:
+        return None
+    return page.locator(_DESKTOP_SURFACE).nth(index)
 
 
 def _close_quietly(part: str, close: Callable[[], None]) -> None:
@@ -681,120 +731,3 @@ def _route(url: str) -> str:
     """The client's hash route of a URL (``#/desktop``), without any query part."""
     fragment = urlsplit(url).fragment.split("?", 1)[0]
     return f"#{fragment}" if fragment else ""
-
-
-def _png_frame_is_nonblank(png: bytes) -> bool:
-    """Whether a 32 by 32 sample of ``png`` has at least 8 pixels with a channel >= 24.
-
-    The sample is a grid spread across the whole frame, so a painted desktop whose
-    corner is black still counts. Alpha is ignored. ``max(R, G, B)`` is the channel.
-    """
-    width, height, rows, channels = _decode_png(png)
-    if width < 1 or height < 1:
-        return False
-    lit = 0
-    for grid_y in range(_SAMPLE_SIDE):
-        row = rows[(grid_y * height) // _SAMPLE_SIDE]
-        for grid_x in range(_SAMPLE_SIDE):
-            offset = ((grid_x * width) // _SAMPLE_SIDE) * channels
-            if max(row[offset], row[offset + 1], row[offset + 2]) >= _LIT_CHANNEL:
-                lit += 1
-                if lit >= _LIT_PIXELS_REQUIRED:
-                    return True
-    return False
-
-
-def _decode_png(png: bytes) -> tuple[int, int, list[bytes], int]:
-    """The 8-bit RGB or RGBA rows of ``png``. Raises ``ValueError`` when it cannot."""
-    try:
-        width, height, channels, compressed = _png_image(png)
-        raw = zlib.decompress(compressed)
-    except (struct.error, zlib.error) as error:
-        raise ValueError("png") from error
-    stride = width * channels
-    row_size = stride + 1
-    if height < 0 or width < 0 or len(raw) != height * row_size:
-        raise ValueError("png size")
-    rows: list[bytes] = []
-    previous = bytes(stride)
-    offset = 0
-    for _ in range(height):
-        row = bytearray(raw[offset + 1 : offset + row_size])
-        _unfilter(raw[offset], row, previous, channels)
-        offset += row_size
-        previous = bytes(row)
-        rows.append(previous)
-    return width, height, rows, channels
-
-
-def _png_image(png: bytes) -> tuple[int, int, int, bytes]:
-    """Width, height, channel count and the concatenated IDAT bytes."""
-    if not png.startswith(_PNG_SIGNATURE):
-        raise ValueError("not a png")
-    position = len(_PNG_SIGNATURE)
-    width: int | None = None
-    height = 0
-    channels = 0
-    idat = bytearray()
-    while position + 8 <= len(png):
-        length = struct.unpack(">I", png[position : position + 4])[0]
-        kind = png[position + 4 : position + 8]
-        start = position + 8
-        end = start + length
-        if end + 4 > len(png):
-            raise ValueError("truncated png")
-        data = png[start:end]
-        position = end + 4
-        if kind == b"IHDR":
-            width, height, channels = _png_header(data)
-        elif kind == b"IDAT":
-            idat.extend(data)
-        elif kind == b"IEND":
-            break
-    if width is None or not idat:
-        raise ValueError("png missing image data")
-    return width, height, channels, bytes(idat)
-
-
-def _png_header(data: bytes) -> tuple[int, int, int]:
-    """Width, height and channel count from an IHDR chunk. 8-bit truecolor only."""
-    width, height, bit_depth, color_type, compression, _method, interlace = struct.unpack(
-        ">IIBBBBB", data
-    )
-    if bit_depth != 8 or color_type not in (2, 6) or compression != 0 or interlace != 0:
-        raise ValueError("unsupported png")
-    return width, height, 3 if color_type == 2 else 4
-
-
-def _unfilter(filter_type: int, row: bytearray, previous: bytes, channels: int) -> None:
-    """Undo one PNG row filter in place. ``previous`` is the prior reconstructed row."""
-    if filter_type == 0:
-        return
-    for index in range(len(row)):
-        left = row[index - channels] if index >= channels else 0
-        up = previous[index]
-        up_left = previous[index - channels] if index >= channels else 0
-        if filter_type == 1:
-            predictor = left
-        elif filter_type == 2:
-            predictor = up
-        elif filter_type == 3:
-            predictor = (left + up) // 2
-        elif filter_type == 4:
-            predictor = _paeth(left, up, up_left)
-        else:
-            raise ValueError("png filter")
-        row[index] = (row[index] + predictor) & 255
-
-
-def _paeth(left: int, up: int, up_left: int) -> int:
-    """The PNG Paeth predictor: the neighbour closest to ``left + up - up_left``."""
-    estimate = left + up - up_left
-    distance_left = abs(estimate - left)
-    distance_up = abs(estimate - up)
-    distance_up_left = abs(estimate - up_left)
-    if distance_left <= distance_up and distance_left <= distance_up_left:
-        return left
-    if distance_up <= distance_up_left:
-        return up
-    return up_left
