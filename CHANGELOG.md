@@ -9,6 +9,10 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-24
+
+`1.1.0` is a minor release: the public surface gains the `horizon bot` command, the `horizon-bot.service` unit, the `HT_STATE_DIR` setting and the probe's `absences:` line, and nothing on it is removed or renamed.
+
 ### Added
 
 - **Absences through the bot.** The owner enters a vacation, a sick leave or a day off in
@@ -114,6 +118,7 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.0

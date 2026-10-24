@@ -69,11 +69,14 @@ table and declared in the graph by the beads that create them.
 | branches | telegram-notifier | `send`, `_call`, `_redact`, `_mask_httpx_request_lines`, `filter`, `_description`, `__init__` | none | yes | the token redaction and the `_call` shape are shared with the new transport: the redaction moves to a module both adapters import |
 | callers | ports | `src/horizon_tracker/domain/ports.py:26` | none | yes | two new Protocols: `AbsenceStore`, `BotTransport` |
 | callers | settings | `src/horizon_tracker/infrastructure/config.py:92` | none | yes | `state_dir` (`HT_STATE_DIR`, default `/opt/horizon-tracker/state`) |
-| callers | schedule | `src/horizon_tracker/domain/schedule.py:48` | none | no | surfaced through a shared constructor argument; the draw does not change |
+| callers | schedule | `src/horizon_tracker/domain/schedule.py:48` | none | yes | ruled out at first (the draw does not change); BEAD-05 added `Decision.SKIP_ABSENT`, which `decide()` never returns, so that the dry run prints the absence decision — one enum member, no change to the draw |
 | — (authored) | run-report | `render`, `_time_line` (HT-011's derivation, run over `render`) | none | yes | no time line for a day-level skip; the calendar line renamed; the absence reason with its span |
 | — (authored) | messages | the catalogue (HT-011's derivation) | none | yes | new keys `report.reason.vacation/sick_leave/day_off`, `report.calendar.*` renamed, `bot.*` replies |
 | — (authored) | probe | `probe.py` (the run-report derivation's caller list) | none | yes | a fifth check line `absences:` |
 | — (authored) | cli | `cli.py` | none | yes | `horizon bot`; the notify-skips flag per command |
+| — (authored) | telegram-bot-api | `docs/domains/external/telegram-bot-api/SPEC.md` (HT-013's node) | none | yes | gains the contracts `http:telegram-getUpdates` and `http:telegram-sendMessage` towards the new `telegram-bot` node |
+| — (authored) | owner-chat | `docs/domains/external/owner-chat/SPEC.md` (HT-013's node) | none | yes | gains `command:bot-text` towards `bot-commands`; the notice it reads changes |
+| — (authored) | vps-host | `docs/domains/external/vps-host/SPEC.md` (HT-013's node) | none | yes | gains `file:absences` towards `absence-store` and the new unit under `systemd:units` |
 | — (authored) | deploy (no node) | `deploy/bootstrap.sh`, `deploy/*.service`, `.github/workflows/release.yml:457-463`, `tests/unit/deploy/*` | the whole directory: no Python, no node | yes | a new unit installed and enabled, the state directory created |
 
 New nodes this work item declares in `.beadloom/_graph/` (each with a SPEC under
@@ -115,8 +118,12 @@ Kept axes name more than one node: the full flow carries the change.
   (03.11–14.11)`.
 - `domain/messages.py` — the keys above and the `bot.*` replies (added, listed, deleted,
   edited, not found, help, the errors), both languages; the completeness test holds.
-- `domain/ports.py` — `AbsenceStore` (`load() -> tuple[Absence, ...]`,
-  `save(absences: tuple[Absence, ...]) -> None`) and `BotTransport`
+- `domain/ports.py` — `AbsenceStore` (`load() -> AbsenceBook`, `save(book: AbsenceBook) -> None`,
+  where `AbsenceBook(absences: tuple[Absence, ...], last_issued: int)` is a frozen domain
+  value: BEAD-01 found that "max + 1 over the absences held" would re-issue a deleted top
+  id, so the book carries the highest id ever issued and `allocate_id(absences,
+  last_issued=...)` takes it; the JSON file holds `{"last_issued": N, "absences": [...]}`)
+  and `BotTransport`
   (`poll(offset: int | None) -> tuple[IncomingMessage, ...]`, `reply(chat_id: str, text:
   str) -> None`); `IncomingMessage(update_id: int, chat_id: str, text: str)` frozen.
 
