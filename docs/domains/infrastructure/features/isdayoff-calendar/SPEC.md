@@ -59,6 +59,8 @@ Derived from the imports on reindex.
 
 - Depends on: (none)
 - Used by: `cli`
+- External contract (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
+  `http:isdayoff-day` from [`isdayoff`](../../../external/isdayoff/SPEC.md)
 
 ## Parent
 

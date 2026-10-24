@@ -1,6 +1,6 @@
 # ACTIVE: HT-010 — No client dialog in the check-in photo
 
-> **Last updated:** 2026-10-24 (all waves landed; PR pending)
+> **Last updated:** 2026-10-24 (merged; live observation pending)
 > **Phase:** Development
 
 ---
@@ -24,7 +24,8 @@
 - [x] BEAD-09 re-review pass 3 (ht-m13.4) → OK (0 critical, 0 major): the STOP sabotage red, the src diff docstrings only; combined tree at eeaa64c: 1325 passed + 4 known, ruff/format/mypy clean, gate red on sync-check only
 - [x] Wave 4: BEAD-04 tech-writer (ht-lh0, 0df8326) — sync-check 2 → 0 stale pairs; `beadloom ci` rc 0 on the tree; suite on the final tree: the 4 known failures only
 - [x] Gate green on 0df8326 (2026-10-24)
-- [ ] PR features/HT-010 → main; CI; the owner merges (no release; v1.1.0 is cut after HT-013 and HT-012)
+- [x] PR #4 features/HT-010 → main: CI green (8 checks), merged by the coordinator under the owner's delegation of 2026-10-24 (b999ba0); no release — v1.1.0 is cut after HT-013 and HT-012
+- [ ] Live: the next working day's check-in photo shows no dialog
 
 ## Results
 

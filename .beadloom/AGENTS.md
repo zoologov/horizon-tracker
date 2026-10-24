@@ -51,7 +51,7 @@
 
 - **domain-needs-parent** (require): Every domain must be part_of the horizon-tracker service
 - **feature-needs-domain** (require): Every feature must be part_of a domain
-- **service-needs-parent** (require): Every service (except root) must be part_of the horizon-tracker service
+- **service-needs-parent** (require): Every service (except the root and the external systems of landscape.yml) must be part_of the horizon-tracker service
 - **no-dependency-cycles** (forbid_cycles): No circular depends_on chains
 - **architecture-layers** (layers): cli (composition root) → adapters → application → domain — never the reverse
 - **scenario-coverage** (scenario_coverage): Every layer with behaviour is pinned by a scenario, and every scenario a PRD names exists in the suite

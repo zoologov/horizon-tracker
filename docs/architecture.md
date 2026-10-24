@@ -92,6 +92,45 @@ at start. The CLI renders the probe and dry-run lines in that language and build
 configured language is another, also printed on stderr in that language. The logs are
 always English: they are the operator's, whatever language the notifications use.
 
+## Landscape
+
+The service is bound to six systems outside this repository. Each is a graph node of kind
+`service` with lifecycle `external`, declared in `.beadloom/_graph/landscape.yml`, and each
+has a SPEC under `docs/domains/external/<node>/SPEC.md` that states in words the surface the
+service reads or writes: the URLs, fields and status codes, the selectors, the variables,
+the units. An external node is not part of `horizon-tracker`, so it carries no `part_of`
+edge and is listed in the `exclude` of the rule `service-needs-parent`.
+
+| Contract (`protocol:name`) | Producer → consumer | What it binds |
+|----------------------------|---------------------|---------------|
+| `http:horizon-client-bundle` | [`horizon-portal`](domains/external/horizon-portal/SPEC.md) → `horizon-playwright-client` | the client bundle read without logging in, and the markup the adapter's selectors come from |
+| `http:horizon-broker-session` | `horizon-portal` → `horizon-playwright-client` | the login, the launch items and `kill-session` over the broker's XML API |
+| `blast:desktop-session` | `horizon-portal` → `horizon-playwright-client` | the WebSocket the check-in holds, whose closing is the disconnect |
+| `http:isdayoff-day` | [`isdayoff`](domains/external/isdayoff/SPEC.md) → `isdayoff-calendar` | `GET /YYYYMMDD` answered with a one-character day code |
+| `http:telegram-sendMessage` | [`telegram-bot-api`](domains/external/telegram-bot-api/SPEC.md) → `telegram-notifier` | the text report |
+| `http:telegram-sendPhoto` | `telegram-bot-api` → `telegram-notifier` | the report with its screenshot |
+| `notification:run-report` | `telegram-notifier` → [`owner-chat`](domains/external/owner-chat/SPEC.md) | the report the owner reads, in `HT_LANGUAGE` |
+| `env:dot-env` | [`vps-host`](domains/external/vps-host/SPEC.md) → `settings` | every variable of the host's `.env` |
+| `env:github-environment` | [`github-environment`](domains/external/github-environment/SPEC.md) → `vps-host` | the secrets and variables the Release's deploy writes into `.env` |
+| `systemd:units` | `vps-host` → `cli` | the two timers and the two oneshot services that start `horizon` |
+
+**The map.** `beadloom docs site` writes these contracts into the portal's
+`landscape.data.json`, and the portal's Landscape page draws them: the six external nodes,
+the five nodes of this package that sit at the other end, and one link per contract with its
+verdict. `landscape-diagram` is the same map as a static Mermaid diagram. The portal is
+rebuilt on every release, so the map shows the released tree.
+
+**What the verdict rests on.** Every contract is declared from both ends: a `produces` edge
+whose `src` is the producer and a `consumes` edge whose `src` is the consumer. The
+reconciler reads the `src` of each edge as an endpoint, and `confirmed` means that both ends
+are declared (`verdict_basis: presence`). Beadloom compares a declared surface only for the
+protocols `amqp` and `graphql`, and none of the protocols here is one of them. The map
+therefore shows each contract as a plain dependency with an empty surface, which the view
+renders as "undeclared", never as an invented field list. A `confirmed` verdict says that
+both ends are declared. It does not say that the code's calls match the SPEC. That match is
+read by review against the code, and the SPEC under `docs/domains/external/` is where it is
+written down.
+
 ## Source
 
 `src/horizon_tracker/`
@@ -99,5 +138,7 @@ always English: they are the operator's, whatever language the notifications use
 ## Dependencies
 
 - Runtime: Python 3.12, Playwright over the system Chrome, systemd timers on the VPS
-- External services: VMware Horizon HTML Access (UAG), isdayoff.ru, Telegram Bot API
+- External systems: the Horizon portal (VMware Horizon HTML Access (UAG) and its broker),
+  isdayoff.ru, the Telegram Bot API, the owner's chat, the VPS host and the GitHub
+  Environment `horizon-vps`. Their contracts are in [Landscape](#landscape).
 - Operations: [`docs/guides/deployment.md`](guides/deployment.md) (installing and running the service on a host)

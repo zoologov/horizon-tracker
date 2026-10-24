@@ -186,7 +186,9 @@ The owner cuts releases.
      `settings: ok`, `portal: ok` and `chrome: ok` (the `ht` wrapper is section 4.2 of the
      [deployment guide](deployment.md#42-running-horizon-by-hand));
    - the portal at <https://zoologov.github.io/horizon-tracker/> shows the released tree with
-     its assets loading.
+     its assets loading, and its landscape map
+     (<https://zoologov.github.io/horizon-tracker/landscape.html>) shows the contracts
+     `.beadloom/_graph/landscape.yml` declares, each `confirmed`.
 
 Two releases never run at once: the workflow's concurrency group holds the next one until the
 running one ends, and of several waiting runs GitHub keeps the newest.
@@ -274,9 +276,12 @@ gh api repos/zoologov/horizon-tracker/rulesets
 ## The portal
 
 `portal-build` and `portal-deploy` publish the Beadloom portal of the released tree (the
-architecture overview, a page per graph node and the dashboard) to GitHub Pages at
-<https://zoologov.github.io/horizon-tracker/>. The portal follows releases, not pushes to
-`main`.
+architecture overview, a page per graph node, the dashboard and the landscape map) to GitHub
+Pages at <https://zoologov.github.io/horizon-tracker/>. The portal follows releases, not
+pushes to `main`. The landscape map, `landscape.html`, draws the external systems and the
+contracts declared in `.beadloom/_graph/landscape.yml`. Its data is `landscape.data.json`,
+which `beadloom docs site` writes, so a contract added to the graph reaches the map with the
+next release ([architecture: Landscape](../architecture.md#landscape)).
 
 - **The repository settings it needs**, which the owner sets once: Settings -> Pages -> Build
   and deployment -> Source = GitHub Actions; and the `github-pages` environment allowing

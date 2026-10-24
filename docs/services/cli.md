@@ -157,3 +157,5 @@ notification and of a configuration error is held by
   renders every message in `HT_LANGUAGE`), `schedule`, `ports`, `run-report` and
   `working-day-calendar`
 - Used by: the systemd timers on the VPS
+- External contract (declared in `.beadloom/_graph/landscape.yml`): consumes `systemd:units`
+  from [`vps-host`](../domains/external/vps-host/SPEC.md)

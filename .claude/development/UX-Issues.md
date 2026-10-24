@@ -91,3 +91,27 @@ Entry template: `## #N — short name` · **Tool** · **What happened** · **Wha
 - **What happened:** the generated `beadloom-portal.yml` triggers on `push: main` (+ dispatch) and refuses any ref that is not the default branch. A project that deploys on tags wants the portal to show the released tree, so the generated file cannot be used; its steps have to be copied into the release workflow by hand, and the generator's "an edited copy is never written over" protection is then lost (no file to protect). `--pages-workflow` also refuses `--out` outside the project, so reading the template means writing into the repository and cleaning up (`site/`, the workflow, and an untracked `.beadloom/metrics_history.json` that `docs site` leaves behind).
 - **What was expected:** a `--on tag|main` (or `site.deploy_on`) choice for the trigger, a dry-run or `--stdout` for the template, and `metrics_history.json` either gitignored by `beadloom init` or not written by a read-only generation.
 - **Where:** planning HT-008, 2026-10-21. **Class:** missing.
+
+## #16 — `beadloom impact` finds no effect sink in this project, so every `## Axes` section is unresolved
+- **Tool:** beadloom `impact`
+- **What happened:** eleven runs over this tree (adapters that call `httpx`, a Playwright page, `Path.write_bytes`; the domain's `render`; the graph directory) all returned `Seed: none — no name the target reaches performs a declared effect under rule reaches-an-effect-sink`. The co-writers axis is therefore never derivable here, and the branches axis lists every function of every node reached (90 rows for one adapter), which is pasted into a BRIEF only after collapsing it by hand.
+- **What was expected:** a way to declare the project's effect sinks (an `httpx.Client` call, a Playwright action, a file write) in `.beadloom/config.yml`, or a `--sink` option; and a `--collapse-branches` rendering that gives one row per node.
+- **Where:** HT-008, HT-010, HT-011, HT-012, HT-013 task-init, 2026-10-21 and 2026-10-24. **Class:** friction / false signal (an axis that is always "unresolved" stops carrying information).
+
+## #17 — `beadloom axes --refs` takes a dash for a node name
+- **Tool:** beadloom `axes --refs`
+- **What happened:** a `## Axes` row whose Node cell was `—` (the derivation found no node) and whose In scope cell was `yes` produced `refs: ..., — (run 4)`. Written into a bead's notes it would be "a name the graph does not have" and serialise the bead against everything.
+- **What was expected:** a row without a node is skipped by `--refs`, or reported as a finding.
+- **Where:** HT-013 task-init, 2026-10-24. **Class:** false signal.
+
+## #18 — populating the Landscape of a single repository needs five facts the documentation does not state
+- **Tool:** beadloom `docs site` (landscape), the graph loader, `rules.yml`
+- **What happened:** to put the service's external contracts on the map we had to read the installed package: (1) the reconciler's endpoint is the edge's `src`, so the consumer side is `src: <consumer>, kind: consumes`; (2) any protocol other than `amqp`/`graphql` reaches `landscape.data.json` only through the legacy path, with `protocol: ""` and a presence verdict; (3) an edge with `lifecycle: external` is `confirmed` in the JSON and grey in the Mermaid fallback; (4) `service-needs-parent` ignores lifecycle, so an external `service` node needs an `exclude` entry; (5) `reindex` writes the root's deep config into the first node without a `source`, so a sourceless external node can become the root. The federation SPEC describes the hub; the single-repo landscape has no guide.
+- **What was expected:** a short "declare an external contract" guide with a YAML example for a non-AMQP protocol, and a loader warning when a node has no `source`.
+- **Where:** HT-013 task-init, 2026-10-24. **Class:** missing (documentation).
+
+## #19 — `review-brief --release` exits 1 when every role writes under one tracker identity
+- **Tool:** beadloom `review-brief`
+- **What happened:** the re-review ran `beadloom review-brief <bead> --release` and got exit 1 on both beads, because the verdict and the authors' comments were all written as `v.zoologov` (every subagent on this machine inherits the git identity). The reviewer noted that the tracker cannot prove the verdict preceded the release.
+- **What was expected:** a documented way to name the role (`BEADS_ACTOR=review`) in the agent files, or a `--release` that reads the verdict comment's position rather than its author.
+- **Where:** HT-010 re-review ht-m13.2, 2026-10-24. **Class:** friction.
