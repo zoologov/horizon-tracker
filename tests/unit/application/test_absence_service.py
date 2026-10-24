@@ -268,6 +268,18 @@ def test_an_edit_of_an_absence_already_covering_today_keeps_today() -> None:
     assert store.book.absences == (Absence(1, AbsenceKind.VACATION, date(2026, 10, 20), NOV_14),)
 
 
+def test_an_edit_ending_an_absence_already_covering_today_on_today_is_kept() -> None:
+    # The owner is back early: the absence ends today, and today stays in it, so the
+    # evening run stays silent for the morning that was skipped.
+    running = Absence(1, AbsenceKind.SICK_LEAVE, date(2026, 10, 20), OCT_28)
+    absences, store = service(AbsenceBook.of((running,)), now=at(12, 0))
+
+    reply = absences.edit(1, None, date(2026, 10, 20), TODAY)
+
+    assert english(reply) == "Absence 1 changed: sick leave from 20.10.2026 to 26.10.2026"
+    assert store.book.absences == (Absence(1, AbsenceKind.SICK_LEAVE, date(2026, 10, 20), TODAY),)
+
+
 # --- list -----------------------------------------------------------------------------
 
 

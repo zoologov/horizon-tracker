@@ -443,18 +443,29 @@ def test_forced_checkin_ignores_an_absence(env: dict[str, str | None]) -> None:
     assert world.client.calls == ONE_CHECKIN
 
 
-def test_an_unreadable_absences_file_does_not_stop_the_checkin(
+@pytest.mark.parametrize(
+    ("command", "moment", "state", "calls"),
+    [
+        ("checkin", CHECK_IN, SessionState.NO_SESSION, ONE_CHECKIN),
+        ("checkout", CHECK_OUT, SessionState.DISCONNECTED, ONE_CHECKOUT),
+    ],
+)
+def test_an_unreadable_absences_file_does_not_stop_the_run(
     env: dict[str, str | None],
+    command: str,
+    moment: tuple[int, int],
+    state: SessionState,
+    calls: list[str],
 ) -> None:
-    state = Path(env["HT_STATE_DIR"] or "")
-    state.mkdir()
-    (state / "absences.json").write_text("{not json", encoding="utf-8")
-    world = World(at(*CHECK_IN))
+    state_dir = Path(env["HT_STATE_DIR"] or "")
+    state_dir.mkdir()
+    (state_dir / "absences.json").write_text("{not json", encoding="utf-8")
+    world = World(at(*moment), state=state)
 
-    result = world.invoke(["checkin"], env)
+    result = world.invoke([command], env)
 
     assert result.exit_code == 0, result.output
-    assert world.client.calls == ONE_CHECKIN
+    assert world.client.calls == calls
     assert "absences could not be read (AbsenceStoreError)" in result.stderr
 
 

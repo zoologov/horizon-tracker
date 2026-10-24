@@ -116,6 +116,35 @@ def test_a_day_outside_every_absence_runs_after_asking_the_calendar(day: date) -
     assert report.absence is None
 
 
+NEW_YEAR = Absence(2, AbsenceKind.VACATION, date(2026, 12, 30), date(2027, 1, 2))
+
+
+@pytest.mark.parametrize(
+    ("day", "outcome"),
+    [
+        (date(2026, 12, 29), Outcome.SUCCEEDED),
+        (date(2026, 12, 31), Outcome.SKIPPED),
+        (date(2027, 1, 2), Outcome.SKIPPED),
+        (date(2027, 1, 3), Outcome.SUCCEEDED),
+    ],
+    ids=["the day before", "new year's eve", "the last day", "the day after"],
+)
+def test_an_absence_across_new_year_covers_its_days_in_both_years(
+    day: date, outcome: Outcome
+) -> None:
+    report = World(at(day, 7, 30), NEW_YEAR).run()
+
+    assert report.outcome is outcome
+
+
+def test_an_absence_across_new_year_is_named_without_the_years() -> None:
+    world = World(at(date(2027, 1, 1), 7, 30), NEW_YEAR)
+
+    text = render(world.run(), Language.RU)
+
+    assert text.splitlines() == ["Вход пропущен", "Причина: отпуск (30.12–02.01)"]
+
+
 def test_the_store_is_read_once_per_run() -> None:
     world = World(at(TUESDAY, 7, 30), VACATION)
 
