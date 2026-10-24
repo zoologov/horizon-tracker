@@ -106,6 +106,8 @@ class Scene:
             "HT_HOLD_SECONDS": "120",
             "HT_CHROME_PATH": str(chrome),
             "HT_ARTIFACTS_DIR": str(self.root / "artifacts"),
+            # The absences file stays inside the scenario, never the host's state directory.
+            "HT_STATE_DIR": str(self.root / "state"),
             # Unset whatever the host exports: command output is in the default language.
             "HT_LANGUAGE": None,
             **self.env_overrides,

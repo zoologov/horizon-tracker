@@ -2,11 +2,13 @@
 
 ``Probe`` asks each dependency the one question it can answer without credentials: the
 portal names the client bundles it serves, the calendar answers for today, the Chrome
-binary is where the settings say, starts headless and names its version. What is
-measured is the client bundles and the browser version; no portal version is read. An
-unreachable calendar degrades the probe rather than failing it, because a run falls back
-to the Mon-Fri rule. Given the day's drawn moments, the probe names them last, as the
-``schedule`` check; it does not draw them, the composition root does.
+binary is where the settings say, starts headless and names its version, and the
+absences file can be read. What is measured is the client bundles and the browser
+version; no portal version is read. An unreachable calendar degrades the probe rather than
+failing it, because a run falls back to the Mon-Fri rule. An absences file that cannot be
+read or parsed fails it, because the owner's absences are then unknown. Given the day's
+drawn moments, the probe names them last, as the ``schedule`` check; it does not draw
+them, the composition root does.
 
 ``DryRun`` names what a run would do now and calls nothing on the Horizon client at
 all, so it cannot log in. It plans the very use case a run would execute: the decision
@@ -23,20 +25,24 @@ configuration the composition root could read.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
 from horizon_tracker.application.windowed_run import WindowedRun
+from horizon_tracker.domain.absence import Absence, next_after
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.messages import Message
 from horizon_tracker.domain.ports import (
+    AbsenceStore,
+    AbsenceStoreError,
     Clock,
     HorizonClient,
     HorizonClientError,
     WorkingDayCalendar,
 )
+from horizon_tracker.domain.report import absence_reason, absence_span
 from horizon_tracker.domain.schedule import DailyMoments, Decision, RunKind
 
 _WOULD_RUN = frozenset({Decision.RUN, Decision.RETRY})
@@ -84,9 +90,11 @@ class ProbeReport:
 
 @dataclass(frozen=True)
 class Probe:
-    """Asks the portal, the calendar and Chrome whether a run could go ahead.
+    """Asks the portal, the calendar, Chrome and the absences whether a run could go ahead.
 
-    ``moments`` are today's drawn moments; given, they are named as the last check.
+    ``absences_file`` is the file ``absences`` reads, named on the line so the owner knows
+    which file was read. ``moments`` are today's drawn moments; given, they are named as the
+    last check.
     """
 
     client: HorizonClient
@@ -94,11 +102,13 @@ class Probe:
     clock: Clock
     chrome_path: Path
     file_exists: Callable[[Path], bool]
+    absences: AbsenceStore
+    absences_file: Path
     moments: DailyMoments | None = None
 
     def run(self) -> ProbeReport:
         """Probe every dependency once, whatever the others answered."""
-        checks = (self._portal(), self._calendar(), self._chrome())
+        checks = (self._portal(), self._calendar(), self._chrome(), self._absences())
         if self.moments is None:
             return ProbeReport(checks)
         schedule = Check("schedule", CheckStatus.OK, schedule_detail(self.moments))
@@ -138,6 +148,31 @@ class Probe:
             return Check("chrome", CheckStatus.FAILED, detail)
         detail = Message("probe.chrome.started", {"version": version, "path": where})
         return Check("chrome", CheckStatus.OK, detail)
+
+    def _absences(self) -> Check:
+        """How many absences are entered and which comes next; a file that cannot be read fails."""
+        try:
+            book = self.absences.load()
+        except AbsenceStoreError as error:
+            detail = Message(
+                "probe.absences.unreadable", {"path": error.path, "reason": error.detail}
+            )
+            return Check("absences", CheckStatus.FAILED, detail)
+        today = self.clock.now().date()
+        detail = _absences_detail(book.absences, today, self.absences_file)
+        return Check("absences", CheckStatus.OK, detail)
+
+
+def _absences_detail(held: tuple[Absence, ...], today: date, where: Path) -> Message:
+    """The absences held, counted, with the first one that starts after ``today``."""
+    if not held:
+        return Message("probe.absences.none", {"path": where})
+    ahead = next_after(held, today)
+    if ahead is None:
+        return Message("probe.absences.entered", {"count": len(held), "path": where})
+    kind = Message(f"reason.{absence_reason(ahead.kind)}")
+    fields = {"count": len(held), "kind": kind, "span": absence_span(ahead), "path": where}
+    return Message("probe.absences.entered_next", fields)
 
 
 @dataclass(frozen=True)

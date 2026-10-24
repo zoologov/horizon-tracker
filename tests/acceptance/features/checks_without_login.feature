@@ -19,6 +19,28 @@ Feature: Checks without logging in
     And no message reaches the owner
     And the command exits with 0
 
+  @bead:ht-ekd @node:probe
+  Scenario: Probe names the absences entered and the next one ahead
+    Given the absences file holds a day off on 2026-10-19
+    And the absences file holds a vacation from 2026-11-03 to 2026-11-14
+    When the owner runs "horizon probe" at 12:00:00 on Wednesday 2026-10-21
+    Then the output reads "absences: ok - 2 entered, next: vacation 03.11–14.11 ({file})" with the absences file for {file}
+    And the command exits with 0
+
+  @bead:ht-ekd @node:probe
+  Scenario: Probe with no absences entered names the file it reads
+    When the owner runs "horizon probe" at 12:00:00 on Wednesday 2026-10-21
+    Then the output reads "absences: ok - none ({file})" with the absences file for {file}
+    And the command exits with 0
+
+  @bead:ht-ekd @node:probe
+  Scenario: A malformed absences file fails the probe and names the file
+    Given the absences file holds text that is not JSON
+    When the owner runs "horizon probe" at 12:00:00 on Wednesday 2026-10-21
+    Then the output reads "absences: failed - {file}: not valid JSON" with the absences file for {file}
+    And the output reads "portal: ok - client bundles"
+    And the command exits with 1
+
   Scenario Outline: A dry run walks the plan and performs no login
     When the owner runs "horizon <run> --dry-run" at <start> on Wednesday 2026-10-21
     Then the output reads "dry run: <run>"

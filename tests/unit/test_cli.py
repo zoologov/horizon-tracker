@@ -99,6 +99,8 @@ def env(tmp_path: Path) -> dict[str, str | None]:
         "HT_HOLD_SECONDS": "120",
         "HT_CHROME_PATH": str(chrome),
         "HT_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
+        # The absences file stays in the test's directory, never the host's state directory.
+        "HT_STATE_DIR": str(tmp_path / "state"),
         # Unset whatever the host exports: the default language is what these tests read.
         "HT_LANGUAGE": None,
     }
@@ -531,12 +533,14 @@ def test_probe_reports_every_check_and_exits_zero(env: dict[str, str | None]) ->
         "portal",
         "calendar",
         "chrome",
+        "absences",
         "schedule",
     ]
     assert lines[0].startswith("settings: ok")
     assert lines[1] == "portal: ok - client bundles: app-htmlaccess.fake-2312.js"
     assert lines[3] == f"chrome: ok - Chrome 131.0.6778.85 started from {env['HT_CHROME_PATH']}"
-    assert lines[4] == "schedule: today 07:41 / 16:43"
+    assert lines[4] == f"absences: ok - none ({env['HT_STATE_DIR']}/absences.json)"
+    assert lines[5] == "schedule: today 07:41 / 16:43"
     assert world.notifier.sent == []
 
 
@@ -564,7 +568,7 @@ def test_probe_names_the_moments_drawn_for_today_from_the_configured_seed(
     result = World(at(12, 0, day=day)).invoke(["probe"], {**env, "HT_JITTER_SEED": seed})
 
     assert result.exit_code == 0, result.output
-    assert result.stdout.splitlines()[4] == line
+    assert result.stdout.splitlines()[5] == line
 
 
 def test_the_probe_never_shows_the_seed_of_the_draw(env: dict[str, str | None]) -> None:
@@ -602,6 +606,36 @@ def test_probe_with_the_calendar_down_is_degraded_but_exits_zero(
 
     assert result.exit_code == 0, result.output
     assert "calendar: degraded" in result.stdout
+
+
+def test_probe_reads_the_absences_file_under_the_state_directory(
+    env: dict[str, str | None],
+) -> None:
+    absences = Path(env["HT_STATE_DIR"] or "") / "absences.json"
+    absences.parent.mkdir()
+    absences.write_text(
+        '{"last_issued": 1, "absences": [{"id": 1, "kind": "vacation", '
+        '"first_day": "2026-11-03", "last_day": "2026-11-14"}]}'
+    )
+
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    assert result.exit_code == 0, result.output
+    assert f"absences: ok - 1 entered, next: vacation 03.11\u201314.11 ({absences})" in (
+        result.stdout.splitlines()
+    )
+
+
+def test_probe_with_an_unreadable_absences_file_exits_one(env: dict[str, str | None]) -> None:
+    absences = Path(env["HT_STATE_DIR"] or "") / "absences.json"
+    absences.parent.mkdir()
+    absences.write_text("[]")
+
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    assert result.exit_code == 1
+    assert f"absences: failed - {absences}: " in result.stdout
+    assert "schedule: today 07:41 / 16:43" in result.stdout.splitlines()
 
 
 # --- configuration ----------------------------------------------------------------------
@@ -776,7 +810,8 @@ def test_the_probe_reads_in_the_configured_language(env: dict[str, str | None]) 
     assert lines[3] == (
         f"браузер chrome: в порядке - Chrome 131.0.6778.85 запущен из {env['HT_CHROME_PATH']}"
     )
-    assert lines[4] == "расписание: сегодня 07:41 / 16:43"
+    assert lines[4] == f"отсутствия: в порядке - нет ({env['HT_STATE_DIR']}/absences.json)"
+    assert lines[5] == "расписание: сегодня 07:41 / 16:43"
 
 
 def test_a_failed_probe_check_reads_in_the_configured_language(

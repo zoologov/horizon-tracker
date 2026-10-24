@@ -31,7 +31,10 @@ place a person reads them:
 - `reason.*` - one phrase per `Reason`, keyed by its value, the absence reasons
   (`reason.on_vacation`, `reason.on_sick_leave`, `reason.on_day_off`) included;
 - `probe.*` - the settings line of `horizon probe`, the names and statuses of its checks
-  and what each check answers;
+  and what each check answers, the `absences` check's four answers included
+  (`probe.absences.none`, `probe.absences.entered`, `probe.absences.entered_next`,
+  `probe.absences.unreadable`, whose `{reason}` is the store's technical English in both
+  languages);
 - `plan.*` - the dry-run plan: its header, verdict, calendar sources and the steps of
   one attempt;
 - `config.*` - the line a reader gets for a configuration error (`config.error`) and the

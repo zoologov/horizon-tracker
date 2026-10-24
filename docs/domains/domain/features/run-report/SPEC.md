@@ -102,6 +102,9 @@ Module `src/horizon_tracker/domain/report.py`:
   `ON_VACATION`, `ON_SICK_LEAVE`, `ON_DAY_OFF`.
 - `ABSENCE_REASONS` — read-only mapping `AbsenceKind -> Reason`;
   `absence_reason(kind: AbsenceKind) -> Reason` reads it.
+- `absence_span(absence: Absence) -> str` — an absence's days without a year, as the
+  reason line gives them: `05.11` for one day, `03.11–14.11` (an en dash) for a range.
+  The probe names the next absence with it.
 - `RunReport(kind, outcome, at, verdict_source, reason=None, screenshot=None,
   planned_at=None, absence=None)` — frozen; validated at construction as described above.
   `is_day_level_skip: bool` is the property the time line and the morning-only notice
@@ -139,7 +142,7 @@ Scenarios:
 Derived from the imports on reindex.
 
 - Depends on: `absence`, `messages`, `schedule`, `working-day-calendar`
-- Used by: `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `telegram-notifier`, `windowed-run`
+- Used by: `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `probe`, `telegram-notifier`, `windowed-run`
 
 ## Parent
 

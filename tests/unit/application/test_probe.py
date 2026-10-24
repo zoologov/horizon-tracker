@@ -18,6 +18,7 @@ from horizon_tracker.application.probe import (
     schedule_detail,
 )
 from horizon_tracker.application.windowed_run import WindowedRun
+from horizon_tracker.domain.absence import Absence, AbsenceBook, AbsenceKind
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.messages import Language, Message
 from horizon_tracker.domain.ports import HorizonClientError
@@ -30,13 +31,20 @@ from horizon_tracker.domain.schedule import (
     Window,
     window_from,
 )
-from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
+from tests.support.fakes import (
+    FakeAbsenceStore,
+    FakeCalendar,
+    FakeClock,
+    FakeHorizonClient,
+    FakeNotifier,
+)
 
 MSK = ZoneInfo("Europe/Moscow")
 WEDNESDAY = date(2026, 10, 21)
 SATURDAY = date(2026, 10, 24)
 DESKTOP = "DEV desktop"
 CHROME = Path("/usr/bin/google-chrome")
+ABSENCES = Path("/srv/state/absences.json")
 CHECKIN_WINDOW = Window(start=time(7, 55), end=time(8, 0))
 CHECKOUT_WINDOW = Window(start=time(17, 0), end=time(17, 5))
 POLICY = RetryPolicy(max_attempts=3, backoff=timedelta(seconds=30))
@@ -73,6 +81,7 @@ class Probing:
         self.clock = FakeClock(at(WEDNESDAY, 12, 0))
         self.looked_for: list[Path] = []
         self._chrome_found = chrome_found
+        self.absences = FakeAbsenceStore()
 
     def file_exists(self, path: Path) -> bool:
         self.looked_for.append(path)
@@ -85,6 +94,8 @@ class Probing:
             clock=self.clock,
             chrome_path=CHROME,
             file_exists=self.file_exists,
+            absences=self.absences,
+            absences_file=ABSENCES,
             moments=self.moments,
         )
         return probe.run()
@@ -98,7 +109,7 @@ def check(report: ProbeReport, name: str) -> Check:
 def test_probe_checks_portal_calendar_and_chrome_in_that_order() -> None:
     report = Probing().run()
 
-    assert [item.name for item in report.checks] == ["portal", "calendar", "chrome"]
+    assert [item.name for item in report.checks] == ["portal", "calendar", "chrome", "absences"]
     assert all(item.status is CheckStatus.OK for item in report.checks)
     assert report.ok
 
@@ -217,7 +228,7 @@ def test_a_probe_report_is_ok_unless_a_check_failed() -> None:
 
 
 @pytest.mark.parametrize("status", list(CheckStatus))
-@pytest.mark.parametrize("name", ["portal", "calendar", "chrome", "schedule"])
+@pytest.mark.parametrize("name", ["portal", "calendar", "chrome", "absences", "schedule"])
 def test_a_check_names_itself_and_its_status_as_messages(name: str, status: CheckStatus) -> None:
     made = Check(name, status, ANY_DETAIL)
 
@@ -233,6 +244,7 @@ def test_every_check_the_probe_makes_has_a_label() -> None:
         "probe.check.portal",
         "probe.check.calendar",
         "probe.check.chrome",
+        "probe.check.absences",
         "probe.check.schedule",
     ]
 
@@ -241,6 +253,97 @@ def test_a_check_with_a_name_the_catalogue_lacks_is_refused_when_it_is_made() ->
     # A fifth check without a text fails where it is written, not when the CLI prints it.
     with pytest.raises(KeyError, match=r"'probe\.check\.porta'"):
         Check("porta", CheckStatus.OK, ANY_DETAIL)
+
+
+# --- the absences check ----------------------------------------------------------------
+
+
+def absence(identifier: int, kind: AbsenceKind, first: date, last: date) -> Absence:
+    return Absence(id=identifier, kind=kind, first_day=first, last_day=last)
+
+
+PAST_DAY_OFF = absence(1, AbsenceKind.DAY_OFF, date(2026, 10, 19), date(2026, 10, 19))
+VACATION = absence(2, AbsenceKind.VACATION, date(2026, 11, 3), date(2026, 11, 14))
+SICK_LEAVE = absence(3, AbsenceKind.SICK_LEAVE, date(2026, 11, 20), date(2026, 11, 20))
+CURRENT_SICK_LEAVE = absence(4, AbsenceKind.SICK_LEAVE, date(2026, 10, 20), date(2026, 10, 23))
+
+
+def absences_check(*held: Absence) -> Check:
+    probing = Probing()
+    probing.absences.book = AbsenceBook.of(held)
+    return check(probing.run(), "absences")
+
+
+def test_no_absences_entered_is_ok_and_names_the_file_read() -> None:
+    absences = absences_check()
+
+    assert absences.status is CheckStatus.OK
+    assert english(absences.detail) == f"none ({ABSENCES})"
+
+
+def test_the_absences_check_reads_the_store_once() -> None:
+    probing = Probing()
+
+    probing.run()
+
+    assert probing.absences.loads == 1
+
+
+def test_the_absences_check_counts_every_absence_and_names_the_next_one() -> None:
+    absences = absences_check(SICK_LEAVE, PAST_DAY_OFF, VACATION)
+
+    assert absences.status is CheckStatus.OK
+    assert english(absences.detail) == f"3 entered, next: vacation 03.11\u201314.11 ({ABSENCES})"
+
+
+def test_the_next_absence_is_the_one_after_today_not_the_one_under_way() -> None:
+    absences = absences_check(CURRENT_SICK_LEAVE, SICK_LEAVE)
+
+    assert english(absences.detail) == f"2 entered, next: sick leave 20.11 ({ABSENCES})"
+
+
+def test_absences_entered_with_none_ahead_are_ok_and_say_so() -> None:
+    absences = absences_check(PAST_DAY_OFF, CURRENT_SICK_LEAVE)
+
+    assert absences.status is CheckStatus.OK
+    assert english(absences.detail) == f"2 entered, none ahead ({ABSENCES})"
+
+
+def test_an_absences_file_that_cannot_be_read_fails_the_probe_and_names_why() -> None:
+    probing = Probing()
+    probing.absences.broken = True
+
+    report = probing.run()
+
+    absences = check(report, "absences")
+    assert absences.status is CheckStatus.FAILED
+    assert english(absences.detail) == f"{FakeAbsenceStore.PATH}: not valid JSON"
+    assert check(report, "chrome").status is CheckStatus.OK
+    assert not report.ok
+
+
+@pytest.mark.parametrize(
+    ("held", "russian"),
+    [
+        ((), f"нет ({ABSENCES})"),
+        ((VACATION,), f"внесено: 1, ближайшее: отпуск 03.11\u201314.11 ({ABSENCES})"),
+        ((PAST_DAY_OFF,), f"внесено: 1, впереди нет ({ABSENCES})"),
+    ],
+    ids=["none", "next", "none-ahead"],
+)
+def test_the_absences_check_reads_in_russian(held: tuple[Absence, ...], russian: str) -> None:
+    assert absences_check(*held).detail.in_language(Language.RU) == russian
+
+
+def test_an_unreadable_absences_file_reads_in_russian_with_the_technical_reason() -> None:
+    probing = Probing()
+    probing.absences.broken = True
+
+    detail = check(probing.run(), "absences").detail
+
+    assert detail.in_language(Language.RU) == (
+        f"{FakeAbsenceStore.PATH}: не прочитан: not valid JSON"
+    )
 
 
 # --- DryRun --------------------------------------------------------------------------
@@ -407,7 +510,13 @@ def test_a_probe_given_the_days_moments_names_them_last() -> None:
 
     report = probing.run()
 
-    assert [item.name for item in report.checks] == ["portal", "calendar", "chrome", "schedule"]
+    assert [item.name for item in report.checks] == [
+        "portal",
+        "calendar",
+        "chrome",
+        "absences",
+        "schedule",
+    ]
     schedule = check(report, "schedule")
     assert schedule.status is CheckStatus.OK
     assert english(schedule.detail) == "today 07:43 / 16:52"

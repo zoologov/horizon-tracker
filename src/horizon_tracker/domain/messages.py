@@ -120,6 +120,7 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "probe.check.portal": {_EN: "portal", _RU: "портал"},
     "probe.check.calendar": {_EN: "calendar", _RU: "календарь"},
     "probe.check.chrome": {_EN: "chrome", _RU: "браузер chrome"},
+    "probe.check.absences": {_EN: "absences", _RU: "отсутствия"},
     "probe.check.schedule": {_EN: "schedule", _RU: "расписание"},
     "probe.status.ok": {_EN: "ok", _RU: "в порядке"},
     "probe.status.degraded": {_EN: "degraded", _RU: "частично"},
@@ -149,6 +150,20 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "probe.chrome.started": {
         _EN: "Chrome {version} started from {path}",
         _RU: "Chrome {version} запущен из {path}",
+    },
+    "probe.absences.none": {_EN: "none ({path})", _RU: "нет ({path})"},
+    "probe.absences.entered": {
+        _EN: "{count} entered, none ahead ({path})",
+        _RU: "внесено: {count}, впереди нет ({path})",
+    },
+    "probe.absences.entered_next": {
+        _EN: "{count} entered, next: {kind} {span} ({path})",
+        _RU: "внесено: {count}, ближайшее: {kind} {span} ({path})",
+    },
+    # The reason is the store's own technical English in every language, as in the journal.
+    "probe.absences.unreadable": {
+        _EN: "{path}: {reason}",
+        _RU: "{path}: не прочитан: {reason}",
     },
     "probe.schedule": {
         _EN: "today {check_in} / {check_out}",

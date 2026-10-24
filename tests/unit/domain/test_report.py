@@ -17,6 +17,7 @@ from horizon_tracker.domain.report import (
     Reason,
     RunReport,
     absence_reason,
+    absence_span,
     render,
 )
 from horizon_tracker.domain.schedule import RunKind
@@ -444,6 +445,22 @@ def test_an_absence_across_the_new_year_names_both_days_without_a_year() -> None
     )
 
     assert render(_absent(winter), EN).splitlines()[-1] == "Reason: vacation (28.12–09.01)"
+
+
+@pytest.mark.parametrize(
+    ("first", "last", "span"),
+    [
+        (date(2026, 11, 5), date(2026, 11, 5), "05.11"),
+        (date(2026, 11, 3), date(2026, 11, 14), "03.11–14.11"),
+        (date(2026, 12, 28), date(2027, 1, 9), "28.12–09.01"),
+    ],
+    ids=["one-day", "range", "across-the-new-year"],
+)
+def test_an_absences_span_is_its_days_without_a_year(first: date, last: date, span: str) -> None:
+    # The probe names the next absence with the same span the notice gives it.
+    held = Absence(id=1, kind=AbsenceKind.VACATION, first_day=first, last_day=last)
+
+    assert absence_span(held) == span
 
 
 @pytest.mark.parametrize(

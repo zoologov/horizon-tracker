@@ -14,7 +14,7 @@ factory through click's context object and drive the commands with `CliRunner`.
 |---------|--------------|-----------|
 | `horizon checkin [--dry-run] [--force]` | the morning check-in: open the desktop, hold it until Windows logs on, then disconnect | 1 only when the run's report is FAILED; 0 for success and for every deliberate skip |
 | `horizon checkout [--dry-run] [--force]` | the evening check-out: log the desktop's Windows session off and confirm it ended | same rule |
-| `horizon probe` | check the settings, the portal (the HTML Access client bundles it serves, no login), the calendar, and Chrome (found at `HT_CHROME_PATH`, started headless, its version named); name today's drawn moments last | 1 if the portal or Chrome check FAILED; an unreachable calendar is DEGRADED and keeps 0 |
+| `horizon probe` | check the settings, the portal (the HTML Access client bundles it serves, no login), the calendar, and Chrome (found at `HT_CHROME_PATH`, started headless, its version named) and the absences file under `HT_STATE_DIR`; name today's drawn moments last | 1 if the portal, Chrome or absences check FAILED; an unreachable calendar is DEGRADED and keeps 0 |
 | `horizon --version`, `horizon --help` | version; the three commands | 0 |
 
 Each run draws today's moments first: `draw_moments` over today's date (the clock's,

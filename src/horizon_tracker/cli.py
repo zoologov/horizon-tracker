@@ -63,6 +63,7 @@ from horizon_tracker.domain.schedule import (
     draw_moments,
     window_from,
 )
+from horizon_tracker.infrastructure.absence_store import JsonAbsenceStore
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
 from horizon_tracker.infrastructure.config import ConfigError, Settings, language_from_env
@@ -294,6 +295,8 @@ def _probe(factory: AdapterFactory) -> int:
             clock=adapters.clock,
             chrome_path=settings.chrome_path,
             file_exists=Path.is_file,
+            absences=JsonAbsenceStore(settings.absences_file),
+            absences_file=settings.absences_file,
             moments=_todays_moments(settings, adapters.clock),
         ).run()
     _echo_probe(settings, report)

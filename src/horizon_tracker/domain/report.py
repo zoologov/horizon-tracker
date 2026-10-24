@@ -169,10 +169,11 @@ def _reason_line(reason: Reason, absence: Absence | None, language: Language) ->
     said = text(f"reason.{reason}", language)
     if absence is None:
         return text("report.reason", language, reason=said)
-    return text("report.reason_span", language, reason=said, span=_span(absence))
+    return text("report.reason_span", language, reason=said, span=absence_span(absence))
 
 
-def _span(absence: Absence) -> str:
+def absence_span(absence: Absence) -> str:
+    """An absence's days as the owner reads them: ``05.11`` for one day, ``03.11–14.11``."""
     first = absence.first_day.strftime(_DAY_FORMAT)
     if absence.last_day == absence.first_day:
         return first
