@@ -79,16 +79,21 @@ Module `src/horizon_tracker/domain/absence.py`:
 
 Tests: `tests/unit/domain/test_absence.py`. The module is inside the mutation gate.
 
-Scenarios: `tests/acceptance/features/absences.feature` names the PRD HT-012 scenarios of
-the bot and the runs; until HT-012 BEAD-05 and BEAD-07 build them, they skip with that
-reason.
+Scenarios: `tests/acceptance/features/absences.feature` holds the PRD HT-012 scenarios of
+the bot and the runs, every one of them real. Those of the runs read this module through
+`covering`:
+
+- `A morning run on a day of vacation is skipped with the kind named`
+- `An evening run on a skipped day sends nothing`
+- `A day after the absence ends is a working day again`
 
 ## Dependencies
 
 Derived from the imports on reindex.
 
 - Depends on: (none)
-- Used by: `absence-service`, `absence-store`, `ports`, `probe`, `run-report`
+- Used by: `absence-service`, `absence-store`, `bot-commands`, `ports`, `probe`, `run-report`,
+  `windowed-run`
 
 ## Parent
 

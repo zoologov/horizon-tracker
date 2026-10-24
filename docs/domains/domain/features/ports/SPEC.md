@@ -126,7 +126,7 @@ else.
 Derived from the imports on reindex.
 
 - Depends on: `absence`, `run-report`, `schedule`, `session-state`
-- Used by: `absence-service`, `absence-store`, `artifact-store`, `bot-loop`, `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `probe`, `windowed-run`
+- Used by: `absence-service`, `absence-store`, `artifact-store`, `bot-loop`, `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `probe`, `telegram-bot`, `windowed-run`
 
 ## Parent
 

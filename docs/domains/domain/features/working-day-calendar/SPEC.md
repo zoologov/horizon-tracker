@@ -26,7 +26,9 @@ into a `WorkingDayVerdict`:
   `WEEKDAY_FALLBACK`.
 
 The source travels into the `RunReport`, and the notification names it in its
-"Calendar:" line (`report.calendar`, in the configured language).
+calendar line, one catalogue key per source (`report.calendar.calendar` reads
+`Production calendar: isdayoff.ru`, `report.calendar.weekday_fallback` reads
+`Production calendar: unavailable, the Mon–Fri rule decided`), in the configured language.
 
 ## Invariants
 

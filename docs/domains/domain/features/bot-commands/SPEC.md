@@ -97,9 +97,9 @@ Module `src/horizon_tracker/domain/bot_commands.py`:
 Tests: `tests/unit/domain/test_bot_commands.py`; the bot texts are pinned in the bot
 section of `tests/unit/domain/test_messages.py`. The module is inside the mutation gate.
 
-Scenarios: the PRD HT-012 scenarios of the bot (`absences.feature`, `@bead:ht-xad`) drive
-the parser through the bot loop; until HT-012 BEAD-07 builds them, they skip with that
-reason.
+Scenarios: the PRD HT-012 scenarios of the bot (`tests/acceptance/features/absences.feature`)
+drive the parser through the bot loop and the real Telegram transport, among them
+`An absence with a malformed date is refused with the expected format`.
 
 ## Dependencies
 

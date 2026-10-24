@@ -71,8 +71,9 @@ an en dash (one day when both are the same):
 ```text
 Check-in skipped
 Reason: vacation (03.11–14.11)
-``` The screenshot never appears in
-the text: the notifier attaches it beside the text. A failure carries the screenshot of
+```
+
+The screenshot never appears in the text: the notifier attaches it beside the text. A failure carries the screenshot of
 the step that failed; a success carries the use case's photo of the step it completed
 (the opened desktop, the launch list without the session). Either may be `None`, and
 the report then goes out as text.

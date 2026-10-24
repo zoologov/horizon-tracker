@@ -16,7 +16,7 @@ The owner reads the notifications, the output of `horizon probe` and `--dry-run`
 bot's replies, and chooses the language they are written in. One catalogue in the domain holds every such
 text in every supported language, so no text is a literal inside the logic that decides
 when to show it, and a missing translation is found by a test rather than by the owner at
-07:43. The catalogue is plain data in code: two languages and 120 keys do not earn gettext.
+07:43. The catalogue is plain data in code: two languages and 124 keys do not earn gettext.
 
 ### How it works
 

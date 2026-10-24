@@ -64,7 +64,7 @@ message the owner types to the bot, read by the domain's `parse(text, today)` (s
 - **Dates.** `dd.mm`, `dd.mm.yyyy`, `yyyy-mm-dd`; a range joined by a dash or as two
   words; a date without a year is placed from the day the message is read.
 - **The answer.** Every refusal is a catalogue text (`bot.error.*`) in `HT_LANGUAGE`.
-  Only the chat `TELEGRAM_CHAT_ID` names is served; the bot loop of HT-012 BEAD-07 drops
+  Only the chat `TELEGRAM_CHAT_ID` names is served; the bot loop (`bot-loop` SPEC) drops
   any other sender's message without logging its text.
 
 ## Invariants

@@ -172,7 +172,9 @@ sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub # on the host: the same fi
 
 The timers fire every day, weekends included: whether a day is a working day is decided by
 the service (the `isdayoff.ru` production calendar, falling back to Monday-Friday when it
-does not answer), which reports a skipped day in Telegram.
+does not answer), and an absence the owner entered through the bot skips the day before
+the calendar is asked. The morning run reports a skipped day in one Telegram notice; the
+evening run of that day sends nothing (section 6.1).
 
 A timer is not the moment of a run. It fires at the **start of the range**, and the
 service draws the day's moment itself - a random minute of `HT_CHECKIN_RANGE` for the
@@ -418,8 +420,9 @@ read the log file later.
 
 ### 4.3. `horizon probe`
 
-The probe never logs in to the portal. A healthy host prints four lines
-`<check>: ok - ...` and a fifth, `schedule:`, without a status. The lines below are the
+The probe never logs in to the portal. A healthy host prints five lines
+`<check>: ok - ...` (`settings`, `portal`, `calendar`, `chrome`, `absences`) and a sixth,
+`schedule:`, without a status. The lines below are the
 English output; with `HT_LANGUAGE=ru` the same lines are printed in Russian, and a
 configuration error on stderr is repeated in Russian under the English journal line.
 
@@ -429,6 +432,7 @@ configuration error on stderr is repeated in Russian under the English journal l
 | `portal:` | `ok - client bundles: <file names>` - the portal served `index.html` naming the HTML Access client bundles | `failed - no answer: portal_unreachable`, exit 1 - the host's network to the portal or `HORIZON_URL`; `failed - no answer: unexpected`, exit 1 - the portal answered without client bundles: `HORIZON_URL` is not the web client |
 | `calendar:` | `ok - isdayoff.ru: <date> is a working day` (or `a day off`) | `degraded`, exit 0 - runs fall back to Monday-Friday; not a failure |
 | `chrome:` | `ok - Chrome <version> started from /usr/bin/google-chrome` | `failed - not found at ...`, exit 1 - `HT_CHROME_PATH` or Chrome itself; `failed - found at ... but did not start: unexpected`, exit 1 - see section 7 |
+| `absences:` | `ok - none (/opt/horizon-tracker/state/absences.json)` before the first absence; then `ok - <n> current or upcoming[, <m> finished], next: vacation 03.11–14.11 (<file>)` or `..., none ahead (<file>)` | `failed - <file>: <reason>`, exit 1 - the file cannot be read or is not valid (section 6.5); the runs treat it as empty meanwhile |
 | `schedule:` | `today HH:MM / HH:MM` - today's drawn check-in and check-out moments, the same draw the scheduled runs make; information, never a failure | absent only when `settings:` failed |
 
 The probe reads no portal version and no password: a wrong password shows only in a real
@@ -524,11 +528,31 @@ How to read it:
   `Active: activating (start)` - normal, not a hang. The service's own lines appear once
   the run starts; the last one is `checkin run <outcome> (<reason>)`. The Telegram report
   follows the run and names both the actual and the planned time
-  (`Time: HH:MM, planned for HH:MM`).
+  (`Time: 24.10.2026 07:43:12 MSK, planned for 07:43`).
 - **A deploy during the wait** does not cut it short: the deploy restarts the timers and
   the bot, never a run's service, and the sleeping run reaches its moment.
-- `Deactivated successfully` - exit 0: a success **or** a deliberate skip (a day off, a
-  missed moment, too early). The lines above it and the Telegram report say which.
+- `Deactivated successfully` - exit 0: a success **or** a deliberate skip (a day off, an
+  absence, a missed moment, too early). The lines above it and the Telegram report say which.
+- **A skipped day.** On a day the calendar marks non-working, or one an absence covers, the
+  morning run sends one notice and nothing else. Nothing was going to run that day, so the
+  notice has no time line. An absence skip names the absence instead of the calendar, which was not
+  asked:
+
+  ```text
+  Check-in skipped
+  Production calendar: isdayoff.ru
+  Reason: a day off
+  ```
+
+  ```text
+  Check-in skipped
+  Reason: vacation (03.11–14.11)
+  ```
+
+  With `HT_LANGUAGE=ru` the first reads `Вход пропущен`, `Производственный календарь:
+  isdayoff.ru`, `Причина: выходной`. The evening run of such a day logs
+  `checkout report not sent: the morning run reports a skipped day` and sends nothing. A
+  run that starts too early or misses its window still sends its notice, in the evening too.
 - `Main process exited, code=exited, status=1/FAILURE` and the unit `failed` - the run's
   report is FAILED. The reason is in the log and in Telegram, the screenshot in
   `artifacts/`.
@@ -583,7 +607,7 @@ newest. Cutting the tag, and what each job checks, is in [`releasing.md`](releas
 | `Build .env` | nothing: the file is built on the runner | an empty required value - the step names the variable, never its value |
 | `Write .env` | `install -m 600 -o horizon -g horizon` from ssh's stdin into `.env.new`, then `mv -f` over `.env`; logs `horizon:horizon 600 .../.env` | - |
 | `Install the units` | the five units into `/etc/systemd/system` (0644), `daemon-reload`, `systemctl try-restart` of the timers, `systemctl try-restart` then `enable --now` of `horizon-bot.service`, `list-timers` | - |
-| `Smoke: horizon probe` | `horizon probe` as `horizon` through `systemd-run` with the `EnvironmentFile`, as in section 4.3; Chrome really starts | the probe's exit code: 1 on a configuration error or a FAILED `portal` or `chrome` |
+| `Smoke: horizon probe` | `horizon probe` as `horizon` through `systemd-run` with the `EnvironmentFile`, as in section 4.3; Chrome really starts | the probe's exit code: 1 on a configuration error or a FAILED `portal`, `chrome` or `absences` |
 | `Deploy summary` | `systemctl list-timers 'horizon-*'` and `systemctl status horizon-bot.service --no-pager --lines=0`; the run's summary names the tag, the version, the commit, the probe's answer (or that it did not run), the timers and the bot's state with the status's exit code; written after a red step too, not after a cancellation | no SSH to the host |
 
 - **Timers.** `try-restart` restarts only timers that are already enabled; a deploy never
@@ -695,6 +719,12 @@ sudo stat -c '%U:%G %a' /opt/horizon-tracker/state             # horizon:horizon
   native client.
 - **A unit is `failed` with `Result: timeout`.** Chrome hung after the wait; read the
   journal, then `systemctl reset-failed` the unit.
+- **`absences: failed - <file>: <reason>`.** The absences file cannot be read, or it is not
+  the store's layout (the reason names the fault, e.g. `not valid JSON: ...` or
+  `absence 1: kind 'holiday' is not one of vacation, sick_leave, day_off`). Until it is
+  fixed the runs log `absences could not be read` and go on as if none were entered, so an
+  absence does not stop a run, and the bot answers `/add`, `/list`, `/edit` and `/del` with
+  `Something went wrong; the details are in the journal`. Correct the file by hand (section 6.5).
 - **The bot does not answer.** `systemctl status horizon-bot.service --no-pager` and its
   journal (section 6.1). `activating (auto-restart)` with `status=1/FAILURE` is a
   configuration error, named in the journal: fix the variable and redeploy. `poll failed`
