@@ -46,6 +46,13 @@ nodes:
     docs:
       - docs/domains/domain/features/ports/SPEC.md
 
+  - ref_id: absence
+    kind: feature
+    summary: "The owner's absences (vacation, sick leave, day off) as day ranges, and the decisions over a set of them: which covers a day, which comes next, the id a new one gets, whether two share a day"
+    source: src/horizon_tracker/domain/absence.py
+    docs:
+      - docs/domains/domain/features/absence/SPEC.md
+
 edges:
   - { src: schedule,             dst: domain, kind: part_of }
   - { src: working-day-calendar, dst: domain, kind: part_of }
@@ -53,3 +60,4 @@ edges:
   - { src: run-report,           dst: domain, kind: part_of }
   - { src: messages,             dst: domain, kind: part_of }
   - { src: ports,                dst: domain, kind: part_of }
+  - { src: absence,              dst: domain, kind: part_of }

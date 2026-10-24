@@ -18,6 +18,7 @@ deterministic and unit-tested first.
 | `report.py` | the record of one run and its notification text: `RunReport` (with `planned_at`, the drawn moment the run was due at), `Outcome`, `Reason`, `render(report, language)`; the report has no password field by construction |
 | `messages.py` | the message catalogue: `Language` (EN, RU), `DEFAULT_LANGUAGE` (EN, Russian being the other language), `MESSAGES` (every text a person reads, keyed, in both languages), `text(key, language, /, **fields)`, `Message(key, fields)` (a text with no language yet, its fields read-only; `in_language(language)`, which reads a field that is a message in the same language), `missing_translations()` |
 | `ports.py` | the Protocols the adapters implement: `HorizonClient` (the run's `login`, `desktop_status`, `open_desktop`, `capture_open_desktop`, `disconnect`, `log_off`, where `open_desktop` returns `None`, `capture_open_desktop` and `log_off` answer with a screenshot path or `None`, and the probe's `client_bundles()` and `browser_version()`), `WorkingDayCalendar`, `Notifier` (`send(report)`, the screenshot travels inside the report), `Clock`, `ArtifactStore`; `HorizonClientError(reason, screenshot)` |
+| `absence.py` | the owner's absences and the decisions over a set of them: `AbsenceKind` (VACATION, SICK_LEAVE, DAY_OFF), `Absence(id, kind, first_day, last_day)` (a range of whole days, both ends included; `covers(day)`), `FIRST_ID`, `covering(absences, day)`, `next_after(absences, day)`, `allocate_id(absences, *, last_issued=0)`, `overlaps(first, second)` |
 
 The domain picks no language: `render(report, language)` and `Message.in_language`
 take it as an argument, and the settings read it from `HT_LANGUAGE`. The use cases and the
@@ -43,6 +44,9 @@ Each feature has a `SPEC.md` (Purpose, How it works, Invariants, API, Testing):
   a person reads, in English and Russian, and the check that no key misses a language.
 - **[Ports](features/ports/SPEC.md)** — `ports.py`: the five contracts the adapters
   implement, including the two-method probe contract of `HorizonClient`.
+- **[Absence](features/absence/SPEC.md)** — `absence.py`: the owner's absences as day
+  ranges, which one covers a day, which one comes next, the id a new one gets and whether
+  two share a day.
 
 ## Dependencies
 

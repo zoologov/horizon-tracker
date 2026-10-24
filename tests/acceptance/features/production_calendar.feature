@@ -28,3 +28,10 @@ Feature: Production calendar
       | weekday   | date       | headline      | logins |
       | Wednesday | 2026-10-21 | Вход выполнен | 2      |
       | Saturday  | 2026-10-24 | Вход пропущен | 0      |
+
+  # Named by PRD HT-012 and not built yet: its steps SKIP with the reason until BEAD-03 of
+  # HT-012 (ht-4um) drops the time line of a day-level skip and gives it real steps.
+  @wip @bead:ht-4um
+  Scenario: A skipped non-working day is reported without a time line
+    Given the day-level skip notice of HT-012 is not built yet
+    Then the scenario is skipped until HT-012 BEAD-03 lands
