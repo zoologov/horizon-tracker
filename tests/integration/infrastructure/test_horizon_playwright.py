@@ -799,9 +799,9 @@ def test_open_desktop_returns_no_success_screenshot(
 def test_a_black_remote_surface_is_not_saved(
     client: PlaywrightHorizonClient,
     artifacts: RecordingArtifacts,
-    photographed: list[str],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # Each sample takes a frame to judge it; a black one is judged and never saved.
     client.login()
     client.open_desktop(DESKTOP)
     paint_remote_surface(client, "rgb(0, 0, 0)")
@@ -810,7 +810,6 @@ def test_a_black_remote_surface_is_not_saved(
 
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
-    assert photographed == [], "a black surface was photographed"
     assert "Horizon desktop still blank" in caplog.text
 
 
@@ -905,6 +904,188 @@ def test_the_photo_is_of_the_largest_surface_not_the_first(
 
     assert shot is not None
     assert png_size(shot.read_bytes()) == (200, 100)
+
+
+def test_a_surface_with_no_frame_yet_is_not_photographed(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A video larger than the painted Blast canvas that has received no frame: the page
+    # shows only what lies behind it, which is not the desktop.
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE))
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """() => {
+            const video = document.createElement("video");
+            video.style.width = "1600px";
+            video.style.height = "900px";
+            document.querySelector("#canvas-container").appendChild(video);
+        }"""
+    )
+
+    assert client.capture_open_desktop() is None
+
+    assert photographed == [], "a surface with no frame was photographed"
+    assert artifacts.asked == []
+    assert "Horizon desktop still blank" in caplog.text
+
+
+def paint_a_webgl_surface(client: PlaywrightHorizonClient, colour: tuple[int, int, int]) -> bool:
+    """Replace the Blast canvas with a 200 by 100 WebGL one cleared to ``colour``.
+
+    The context keeps no drawing buffer (the WebGL default), so once the page has
+    composited the frame the canvas's own bitmap reads blank: only the composited pixels
+    show the colour. Answers False when the browser offers no WebGL context.
+    """
+    page = client._page
+    assert page is not None
+    created = page.evaluate(
+        """async ([red, green, blue]) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 200;
+            canvas.height = 100;
+            const gl = canvas.getContext("webgl", { preserveDrawingBuffer: false });
+            if (gl === null) { return false; }
+            document.querySelector("#canvas-container canvas").replaceWith(canvas);
+            gl.clearColor(red / 255, green / 255, blue / 255, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            // Two frames: the clear is composited, then the drawing buffer is discarded.
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            return true;
+        }""",
+        list(colour),
+    )
+    return bool(created)
+
+
+def test_a_webgl_surface_that_keeps_no_drawing_buffer_is_photographed(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    if not paint_a_webgl_surface(client, DESKTOP_BLUE):
+        pytest.skip("this browser offers no WebGL context, so the case cannot be built")
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None, "the paint was read from the surface's bitmap, which WebGL discarded"
+    assert png_size(shot.read_bytes()) == (200, 100)
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == []
+    assert artifacts.asked == [RunKind.CHECKIN]
+
+
+def test_the_paint_is_judged_on_the_composited_frame_not_the_surfaces_bitmap(
+    client: PlaywrightHorizonClient,
+) -> None:
+    # A surface whose own bitmap is empty (transparent black) while the page shows it
+    # painted, here by its CSS background: the photo a person would see is not blank.
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgba(0, 0, 0, 0)", width=200, height=100)
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """(colour) => {
+            document.querySelector("#canvas-container canvas").style.background = colour;
+        }""",
+        "rgb({}, {}, {})".format(*DESKTOP_BLUE),
+    )
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None, "the paint was read from the surface's bitmap, not the frame"
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == []
+
+
+def test_a_frame_a_dialog_came_into_is_discarded_and_sampled_again(
+    client: PlaywrightHorizonClient,
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE))
+    real_screenshot = Locator.screenshot
+    offered: list[bool] = []
+
+    def offer_then_take(locator: Locator, *args: Any, **kwargs: Any) -> bytes:
+        # The client shows its dialog after the sample looked for one and before the
+        # frame is taken, once: the frame carries it.
+        if not offered:
+            offered.append(True)
+            locator.page.evaluate("() => { document.querySelector('#dialog').hidden = false; }")
+        return real_screenshot(locator, *args, **kwargs)
+
+    monkeypatch.setattr(Locator, "screenshot", offer_then_take)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == [], "the dialog is in the frame"
+    assert photographed == ["#/desktop", "#/desktop"]
+    assert artifacts.asked == [RunKind.CHECKIN]
+    assert wait_for(lambda: portal.state.events.count("fullscreen-cancelled") == 2)
+    assert "fullscreen-accepted" not in portal.state.events
+
+
+def test_a_frame_the_page_cannot_decode_leaves_no_photo_and_raises_nothing(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+
+    def a_frame_no_browser_decodes(*_args: object, **_kwargs: object) -> bytes:
+        return b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+    monkeypatch.setattr(Locator, "screenshot", a_frame_no_browser_decodes)
+
+    assert client.capture_open_desktop() is None
+
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert "Horizon screenshot failed: Error" in caplog.text
+    assert "Horizon desktop still blank" not in caplog.text
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+# Less than any sample takes on this machine (a frame and its decode), and under the
+# floor of 250 ms the capture needs left to start one.
+SHORTER_THAN_A_SAMPLE_MS = 100
+
+
+def test_a_capture_with_less_left_than_a_sample_takes_starts_none(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = make_client(timeouts=replace(FAST, desktop_paint_ms=SHORTER_THAN_A_SAMPLE_MS))
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+
+    assert client.capture_open_desktop() is None
+
+    assert photographed == [], "a sample was started that could only time out"
+    assert artifacts.asked == []
+    assert "Horizon desktop still blank" in caplog.text
+    assert "Horizon screenshot failed" not in caplog.text
 
 
 def test_a_surface_black_at_the_first_sample_and_painted_later_is_photographed(

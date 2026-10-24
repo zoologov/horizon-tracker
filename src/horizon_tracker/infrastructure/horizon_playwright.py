@@ -18,6 +18,7 @@ the same thread, so a client is closed (it is a context manager) before the next
 
 # beadloom:domain=infrastructure
 
+import base64
 import logging
 import re
 import time
@@ -84,23 +85,26 @@ DESKTOP_CANVAS = "#canvas-container canvas"
 # the container and are not part of it. The largest of these is the one a frame is
 # read from: a small overlay must not look painted while the desktop is black.
 _DESKTOP_SURFACE = "#canvas-container canvas, #canvas-container video"
-# The paint rule: the largest surface drawn onto a 32 by 32 grid, painted once at least
-# 8 of its 1024 cells have max(R, G, B) >= 24.
+# The paint rule: a frame of the largest surface drawn onto a 32 by 32 grid, painted once
+# at least 8 of its 1024 cells have max(R, G, B) >= 24.
 _SAMPLE_SIDE = 32
 _LIT_CHANNEL = 24
 _LIT_CELLS_REQUIRED = 8
+# The least of the capture's bound a sample is started with. A frame and its decode take
+# longer than this (about 280 ms and 480 ms for a worst-case 1920 by 1080 frame, measured
+# by the review of HT-010), so a sample started with less could only time out.
+_SAMPLE_FLOOR_MS = 250
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
 # The client posts every broker command as one XML document to ``…/broker/xml``; a log
 # off's carries ``<kill-session>`` (``Kw.setRequestXML`` and ``Oi.createXML`` in the bundle).
 BROKER_XML_PATH = "/broker/xml"
 KILL_SESSION_TAG = "<kill-session"
 
-# Reads the paint of the largest remote surface in the page, so no frame is decoded here.
-# Answers null when no surface has a box, else the surface's index among the selector's
-# matches and the count of lit cells of its grid. Smoothing is off: each cell is one
-# pixel of the surface, the same on every rasteriser. A surface with no bitmap yet
-# (a canvas of width 0, a video with no frame) counts no cell.
-_PAINTED_CELLS = """({ selector, side, channel }) => {
+# Finds the remote surface a frame is taken of: the largest canvas or video inside the
+# container, by its box. Answers null when no surface has a box, else the surface's index
+# among the selector's matches and whether it holds a bitmap yet (a canvas of width 0 or
+# a video with no frame holds none, and is not photographed).
+_LARGEST_SURFACE = """(selector) => {
     let largest = -1;
     let largestArea = 0;
     const surfaces = Array.from(document.querySelectorAll(selector));
@@ -116,13 +120,23 @@ _PAINTED_CELLS = """({ selector, side, channel }) => {
     const isVideo = surface instanceof HTMLVideoElement;
     const width = isVideo ? surface.videoWidth : surface.width;
     const height = isVideo ? surface.videoHeight : surface.height;
-    if (!width || !height) { return { index: largest, lit: 0 }; }
+    return { index: largest, drawn: Boolean(width && height) };
+}"""
+# Counts the lit cells of a frame the adapter took, so no PNG is decoded here. The frame
+# arrives as base64 and becomes a Blob and an ImageBitmap: no URL is loaded, so no page
+# policy applies, and a Blob never taints the grid. The live surface itself is never
+# read, so a WebGL canvas that keeps no drawing buffer is judged by what was composited.
+# Smoothing is off: each cell is one pixel of the frame, the same on every rasteriser.
+_LIT_CELLS = """async ({ data, side, channel }) => {
+    const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+    const frame = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
     const grid = document.createElement("canvas");
     grid.width = side;
     grid.height = side;
     const context = grid.getContext("2d");
     context.imageSmoothingEnabled = false;
-    context.drawImage(surface, 0, 0, side, side);
+    context.drawImage(frame, 0, 0, side, side);
+    frame.close();
     const cells = context.getImageData(0, 0, side, side).data;
     let lit = 0;
     for (let offset = 0; offset < cells.length; offset += 4) {
@@ -130,7 +144,7 @@ _PAINTED_CELLS = """({ selector, side, channel }) => {
             lit += 1;
         }
     }
-    return { index: largest, lit: lit };
+    return lit;
 }"""
 _CANVAS_IS_DRAWN = """(selector) => Array.from(document.querySelectorAll(selector)).some(
     (canvas) => {
@@ -276,20 +290,22 @@ class PlaywrightHorizonClient:
     def capture_open_desktop(self) -> Path | None:
         """Save the first non-blank frame of the open remote surface, or return ``None``.
 
-        Polls the largest canvas or video inside ``#canvas-container``: the page draws it
-        onto a 32 by 32 grid, and once at least 8 cells have ``max(R, G, B) >= 24`` an
-        element screenshot of it is saved. A sample is taken only while no client dialog
-        shows: one with a Cancel button is cancelled (never OK, which on the Fullscreen
-        offer grants full screen) and the next poll looks again. ``desktop_paint_ms``
-        bounds the whole capture: a sample starts only while some of it is left, a pause
-        and the screenshot wait no longer than what is left. A blank or dialog-covered
-        timeout, a page closed or outside the screenshot allowlist, or a screenshot error
-        answers ``None``. A missing photo never fails the step.
+        Polls an element screenshot of the largest canvas or video inside
+        ``#canvas-container``: the page decodes that frame onto a 32 by 32 grid, and once
+        at least 8 cells have ``max(R, G, B) >= 24`` the same frame is saved, so the
+        pixels judged are the pixels sent. A frame is taken only while no client dialog
+        shows, and kept only if none showed once it was taken: one with a Cancel button is
+        cancelled (never OK, which on the Fullscreen offer grants full screen) and the next
+        poll looks again. ``desktop_paint_ms`` bounds the whole capture: a sample starts
+        only while at least 250 ms of it are left, a pause and the screenshot wait no
+        longer than what is left. A blank or dialog-covered timeout, a page closed or
+        outside the screenshot allowlist, or a screenshot or decode error answers
+        ``None``. A missing photo never fails the step.
         """
         deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
         last = _Frame.WAIT
         try:
-            while time.monotonic() < deadline:
+            while _remaining_ms(deadline) >= _SAMPLE_FLOOR_MS:
                 sample = self._nonblank_frame(deadline)
                 if isinstance(sample, Path):
                     return sample
@@ -310,10 +326,15 @@ class PlaywrightHorizonClient:
             return _Frame.STOP
         if self._dialog_in_the_way(page, deadline):
             return _Frame.DIALOG
-        painted = _painted_surface(page)
-        if painted is None:
+        surface = _largest_surface(page)
+        if surface is None:
             return _Frame.WAIT
-        png = painted.screenshot(type="png", timeout=_remaining_ms(deadline))
+        png = surface.screenshot(type="png", timeout=_remaining_ms(deadline))
+        if not _frame_is_painted(page, png):
+            return _Frame.WAIT
+        # A dialog the client showed after the look above is in this frame: discard it.
+        if self._dialog_in_the_way(page, deadline):
+            return _Frame.DIALOG
         path = self._artifacts.screenshot_path(RunKind.CHECKIN)
         path.write_bytes(png)
         return path
@@ -675,26 +696,40 @@ def _remaining_ms(deadline: float) -> int:
     return max(1, round((deadline - time.monotonic()) * 1000))
 
 
-def _painted_surface(page: Page) -> Locator | None:
-    """The largest remote surface once its grid has enough lit cells, else ``None``.
+def _largest_surface(page: Page) -> Locator | None:
+    """The largest remote surface once it holds a bitmap, else ``None``.
 
     Raises ``ValueError`` when the page answers something other than the reading.
     """
-    reading = page.evaluate(
-        _PAINTED_CELLS,
-        {"selector": _DESKTOP_SURFACE, "side": _SAMPLE_SIDE, "channel": _LIT_CHANNEL},
-    )
+    reading = page.evaluate(_LARGEST_SURFACE, _DESKTOP_SURFACE)
     if reading is None:
         return None
     if not isinstance(reading, dict):
-        raise ValueError("paint reading")
+        raise ValueError("surface reading")
     fields = cast(dict[str, object], reading)
-    index, lit = fields.get("index"), fields.get("lit")
-    if not isinstance(index, int) or not isinstance(lit, int):
+    index, drawn = fields.get("index"), fields.get("drawn")
+    if not isinstance(index, int) or not isinstance(drawn, bool):
+        raise ValueError("surface reading")
+    return page.locator(_DESKTOP_SURFACE).nth(index) if drawn else None
+
+
+def _frame_is_painted(page: Page, png: bytes) -> bool:
+    """Whether at least 8 cells of the frame's grid are lit, as the page decodes the PNG.
+
+    Raises ``ValueError`` when the page answers something other than a count, and a
+    Playwright error when the page cannot decode the frame.
+    """
+    lit = page.evaluate(
+        _LIT_CELLS,
+        {
+            "data": base64.b64encode(png).decode("ascii"),
+            "side": _SAMPLE_SIDE,
+            "channel": _LIT_CHANNEL,
+        },
+    )
+    if not isinstance(lit, int) or isinstance(lit, bool):
         raise ValueError("paint reading")
-    if lit < _LIT_CELLS_REQUIRED:
-        return None
-    return page.locator(_DESKTOP_SURFACE).nth(index)
+    return lit >= _LIT_CELLS_REQUIRED
 
 
 def _close_quietly(part: str, close: Callable[[], None]) -> None:
