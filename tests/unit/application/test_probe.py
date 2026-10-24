@@ -289,24 +289,39 @@ def test_the_absences_check_reads_the_store_once() -> None:
     assert probing.absences.loads == 1
 
 
-def test_the_absences_check_counts_every_absence_and_names_the_next_one() -> None:
+def test_the_absences_check_counts_the_ones_not_over_and_the_finished_ones() -> None:
     absences = absences_check(SICK_LEAVE, PAST_DAY_OFF, VACATION)
 
     assert absences.status is CheckStatus.OK
-    assert english(absences.detail) == f"3 entered, next: vacation 03.11\u201314.11 ({ABSENCES})"
+    assert english(absences.detail) == (
+        f"2 current or upcoming, 1 finished, next: vacation 03.11\u201314.11 ({ABSENCES})"
+    )
 
 
 def test_the_next_absence_is_the_one_after_today_not_the_one_under_way() -> None:
     absences = absences_check(CURRENT_SICK_LEAVE, SICK_LEAVE)
 
-    assert english(absences.detail) == f"2 entered, next: sick leave 20.11 ({ABSENCES})"
+    assert english(absences.detail) == (
+        f"2 current or upcoming, next: sick leave 20.11 ({ABSENCES})"
+    )
 
 
 def test_absences_entered_with_none_ahead_are_ok_and_say_so() -> None:
     absences = absences_check(PAST_DAY_OFF, CURRENT_SICK_LEAVE)
 
     assert absences.status is CheckStatus.OK
-    assert english(absences.detail) == f"2 entered, none ahead ({ABSENCES})"
+    assert english(absences.detail) == (
+        f"1 current or upcoming, 1 finished, none ahead ({ABSENCES})"
+    )
+
+
+def test_finished_absences_only_are_counted_with_none_current_and_none_ahead() -> None:
+    absences = absences_check(PAST_DAY_OFF)
+
+    assert absences.status is CheckStatus.OK
+    assert english(absences.detail) == (
+        f"0 current or upcoming, 1 finished, none ahead ({ABSENCES})"
+    )
 
 
 def test_an_absences_file_that_cannot_be_read_fails_the_probe_and_names_why() -> None:
@@ -326,10 +341,13 @@ def test_an_absences_file_that_cannot_be_read_fails_the_probe_and_names_why() ->
     ("held", "russian"),
     [
         ((), f"нет ({ABSENCES})"),
-        ((VACATION,), f"внесено: 1, ближайшее: отпуск 03.11\u201314.11 ({ABSENCES})"),
-        ((PAST_DAY_OFF,), f"внесено: 1, впереди нет ({ABSENCES})"),
+        ((VACATION,), f"текущих и предстоящих: 1, ближайшее: отпуск 03.11\u201314.11 ({ABSENCES})"),
+        (
+            (PAST_DAY_OFF, CURRENT_SICK_LEAVE),
+            f"текущих и предстоящих: 1, завершённых: 1, впереди нет ({ABSENCES})",
+        ),
     ],
-    ids=["none", "next", "none-ahead"],
+    ids=["none", "next", "finished-none-ahead"],
 )
 def test_the_absences_check_reads_in_russian(held: tuple[Absence, ...], russian: str) -> None:
     assert absences_check(*held).detail.in_language(Language.RU) == russian

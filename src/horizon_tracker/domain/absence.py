@@ -9,6 +9,7 @@ the absences together with the highest id ever issued, so a deleted id is never 
 """
 
 # beadloom:domain=domain
+# beadloom:feature=absence
 
 from collections import Counter
 from collections.abc import Iterable

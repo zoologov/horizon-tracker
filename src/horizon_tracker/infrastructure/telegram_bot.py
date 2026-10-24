@@ -12,6 +12,7 @@ check, the same redaction and the same mask on httpx's own request lines. No log
 and no raised error carries the token or a URL.
 """
 
+# beadloom:domain=infrastructure
 # beadloom:feature=telegram-bot
 
 import logging

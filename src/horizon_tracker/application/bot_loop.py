@@ -5,9 +5,10 @@ comes first: a message from any chat but the owner's is dropped unread, and the 
 its chat id and never its text. The owner's text is parsed against the clock's today and
 the command it names is carried out by the absence service; whatever the outcome, the
 owner gets exactly one reply, in the configured language. An exception while handling one
-message is logged with its traceback and answered as an internal error, and the next
-message is handled as if nothing happened; a reply the transport cannot send is logged by
-error type and the loop goes on. ``run_once`` returns the offset the next poll starts from.
+message, the rendering of its reply included, is logged with its traceback and answered
+as an internal error, and the next message is handled as if nothing happened; a reply the
+transport cannot send is logged by error type and the loop goes on. ``run_once`` returns
+the offset the next poll starts from.
 
 ``run_forever`` never returns: it polls again at once after each poll (the transport's long
 poll is the wait), and after a poll that fails with ``BotTransportError`` it waits through
@@ -98,7 +99,7 @@ class BotLoop:
 
     def _answer(self, message: IncomingMessage) -> None:
         """Reply to one of the owner's messages; a reply that cannot be sent is logged."""
-        text = self._reply_to(message).in_language(self._language)
+        text = self._reply_text(message)
         try:
             self._transport.reply(self._owner_chat_id, text)
         except BotTransportError as error:
@@ -106,15 +107,16 @@ class BotLoop:
                 "reply to update %d was not sent: %s", message.update_id, type(error).__name__
             )
 
-    def _reply_to(self, message: IncomingMessage) -> Reply:
-        """The reply to the owner's message; any exception becomes the internal error's."""
+    def _reply_text(self, message: IncomingMessage) -> str:
+        """The reply's text in the language; any exception, rendering included, is internal."""
         try:
-            return self._carry_out(parse(message.text, self._clock.now().date()))
+            reply = self._carry_out(parse(message.text, self._clock.now().date()))
+            return reply.in_language(self._language)
         except Exception:
-            # The boundary of one message: whatever went wrong is the journal's to show,
-            # and the loop answers the owner and goes on with the next message.
+            # The boundary of one message: whatever went wrong, the rendering of the reply
+            # included, is the journal's to show, and the loop answers the owner and goes on.
             logger.exception("update %d could not be handled", message.update_id)
-            return Reply.of(Message("bot.error.internal"))
+            return Message("bot.error.internal").in_language(self._language)
 
     def _carry_out(self, parsed: Command | CommandError) -> Reply:
         """Carry out the command ``parsed`` names, or answer with the parser's refusal."""

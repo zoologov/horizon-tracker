@@ -152,13 +152,23 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _RU: "Chrome {version} запущен из {path}",
     },
     "probe.absences.none": {_EN: "none ({path})", _RU: "нет ({path})"},
+    # {held} counts the absences whose last day is today or later, and the finished ones
+    # beside them when there are any: probe.absences.held or .held_and_finished.
     "probe.absences.entered": {
-        _EN: "{count} entered, none ahead ({path})",
-        _RU: "внесено: {count}, впереди нет ({path})",
+        _EN: "{held}, none ahead ({path})",
+        _RU: "{held}, впереди нет ({path})",
     },
     "probe.absences.entered_next": {
-        _EN: "{count} entered, next: {kind} {span} ({path})",
-        _RU: "внесено: {count}, ближайшее: {kind} {span} ({path})",
+        _EN: "{held}, next: {kind} {span} ({path})",
+        _RU: "{held}, ближайшее: {kind} {span} ({path})",
+    },
+    "probe.absences.held": {
+        _EN: "{count} current or upcoming",
+        _RU: "текущих и предстоящих: {count}",
+    },
+    "probe.absences.held_and_finished": {
+        _EN: "{count} current or upcoming, {finished} finished",
+        _RU: "текущих и предстоящих: {count}, завершённых: {finished}",
     },
     # The reason is the store's own technical English in every language, as in the journal.
     "probe.absences.unreadable": {
@@ -325,8 +335,21 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         ),
     },
     "bot.list.empty": {_EN: "No absences entered", _RU: "Отсутствий не внесено"},
-    "bot.list.header": {_EN: "Absences entered: {count}", _RU: "Внесено отсутствий: {count}"},
+    # /list names the absences whose last day is today or later; the finished ones stay in
+    # the store and are only counted, so the reply stays inside Telegram's message limit.
+    "bot.list.header": {
+        _EN: "Current and upcoming absences: {count}",
+        _RU: "Текущих и предстоящих отсутствий: {count}",
+    },
+    "bot.list.none_ahead": {
+        _EN: "No current or upcoming absences",
+        _RU: "Текущих и предстоящих отсутствий нет",
+    },
     "bot.list.item": {_EN: "Absence {id}: {kind} {days}", _RU: "Отсутствие {id}: {kind}, {days}"},
+    "bot.list.finished": {
+        _EN: "Finished absences, not listed: {count}",
+        _RU: "Завершённых отсутствий (не показаны): {count}",
+    },
     "bot.error.not_a_command": {
         _EN: "Not a command; /help lists the commands",
         _RU: "Это не команда; список команд покажет /help",

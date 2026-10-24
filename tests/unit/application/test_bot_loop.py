@@ -6,14 +6,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from horizon_tracker.application.absence_service import AbsenceService
+from horizon_tracker.application.absence_service import AbsenceService, Reply
 from horizon_tracker.application.bot_loop import (
     BACKOFF_FIRST_SECONDS,
     BACKOFF_MAX_SECONDS,
     BotLoop,
 )
 from horizon_tracker.domain.absence import Absence, AbsenceBook, AbsenceKind
-from horizon_tracker.domain.messages import Language
+from horizon_tracker.domain.messages import Language, Message
 from horizon_tracker.domain.ports import BotTransportError, IncomingMessage
 from horizon_tracker.domain.schedule import TimeRange
 from tests.support.fakes import FakeAbsenceStore, FakeBotTransport, FakeClock
@@ -35,8 +35,8 @@ class World:
         self.transport = FakeBotTransport()
         self.store = FakeAbsenceStore()
         self.clock = FakeClock(now)
-        service = AbsenceService(self.store, self.clock, CHECKIN_RANGE)
-        self.loop = BotLoop(self.transport, service, OWNER, language, self.clock)
+        self.service = AbsenceService(self.store, self.clock, CHECKIN_RANGE)
+        self.loop = BotLoop(self.transport, self.service, OWNER, language, self.clock)
 
     def receive(self, *messages: IncomingMessage) -> None:
         self.transport.deliver(messages)
@@ -93,7 +93,7 @@ def test_every_message_gets_exactly_one_reply_in_order() -> None:
 
     assert world.texts() == [
         ADDED,
-        "Absences entered: 1\nAbsence 1: vacation from 03.11.2026 to 14.11.2026",
+        "Current and upcoming absences: 1\nAbsence 1: vacation from 03.11.2026 to 14.11.2026",
         "Absence 1 deleted: vacation from 03.11.2026 to 14.11.2026",
     ]
 
@@ -241,6 +241,28 @@ def test_an_unexpected_exception_is_answered_as_internal_too(
     world.loop.run_once(None)
 
     assert world.texts() == [INTERNAL]
+
+
+def test_a_reply_that_cannot_be_rendered_is_answered_as_internal_and_the_loop_goes_on(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    world = World()
+
+    def a_reply_missing_its_count() -> Reply:
+        # A programming error: the catalogue text names a field the code does not pass.
+        return Reply.of(Message("bot.list.header"))
+
+    monkeypatch.setattr(world.service, "list", a_reply_missing_its_count)
+    world.receive(message(1, "/list"), message(2, "/help"))
+
+    with caplog.at_level(logging.ERROR):
+        assert world.loop.run_once(None) == 3
+
+    assert world.texts()[0] == INTERNAL
+    assert world.texts()[1].startswith("Commands:")
+    assert [record.levelno for record in caplog.records] == [logging.ERROR]
+    assert "update 1" in caplog.records[0].getMessage()
+    assert caplog.records[0].exc_info is not None
 
 
 def test_the_internal_error_reads_in_the_configured_language() -> None:

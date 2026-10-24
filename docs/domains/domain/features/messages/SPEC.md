@@ -32,9 +32,10 @@ place a person reads them:
   (`reason.on_vacation`, `reason.on_sick_leave`, `reason.on_day_off`) included;
 - `probe.*` - the settings line of `horizon probe`, the names and statuses of its checks
   and what each check answers, the `absences` check's four answers included
-  (`probe.absences.none`, `probe.absences.entered`, `probe.absences.entered_next`,
-  `probe.absences.unreadable`, whose `{reason}` is the store's technical English in both
-  languages);
+  (`probe.absences.none`, `probe.absences.entered` `{held}`, `probe.absences.entered_next`
+  `{held}`, `probe.absences.unreadable`, whose `{reason}` is the store's technical English
+  in both languages), the `{held}` field being `probe.absences.held` `{count}` (the
+  absences not over) or `probe.absences.held_and_finished` `{count}` `{finished}`;
 - `plan.*` - the dry-run plan: its header, verdict, calendar sources and the steps of
   one attempt;
 - `bot.*` - the bot's texts (HT-012): the help (`bot.help`); one name per `AbsenceKind`,
@@ -42,8 +43,9 @@ place a person reads them:
   absence's days with the year (`bot.days.single` `{day}`, `bot.days.span` `{first}`
   `{last}`), so a date typed without a year is read back in full; the replies to the
   commands, each naming `{id}`, `{kind}` and `{days}` (`bot.added`, `bot.edited`,
-  `bot.deleted`, `bot.list.item`), the list's `bot.list.header` `{count}` and
-  `bot.list.empty`; the note `bot.note.after_checkin_range` `{start}` (HH:MM), the
+  `bot.deleted`, `bot.list.item`), the list's `bot.list.header` `{count}` (the absences
+  not over), `bot.list.none_ahead`, `bot.list.finished` `{count}` (the finished ones,
+  counted and not listed) and `bot.list.empty`; the note `bot.note.after_checkin_range` `{start}` (HH:MM), the
   second line of a reply whose absence was moved to start tomorrow because today's
   check-in range had begun, and the whole reply when nothing was left to enter; and the refusals `bot.error.*`: the parser's ten (see the
   `bot-commands` SPEC) and the service's `bot.error.not_found` `{id}`,

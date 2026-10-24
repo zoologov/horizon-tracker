@@ -38,9 +38,11 @@ def english(reply: Reply) -> str:
 def test_a_reply_reads_its_lines_in_order_one_per_line() -> None:
     reply = Reply.of(Message("bot.list.header", {"count": 2}), Message("bot.list.empty"))
 
-    assert reply.in_language(Language.EN) == "Absences entered: 2\nNo absences entered"
+    assert reply.in_language(Language.EN) == (
+        "Current and upcoming absences: 2\nNo absences entered"
+    )
     assert reply.in_language(Language.RU).splitlines() == [
-        "Внесено отсутствий: 2",
+        "Текущих и предстоящих отсутствий: 2",
         "Отсутствий не внесено",
     ]
 
@@ -291,16 +293,16 @@ def test_list_of_nothing_says_none_is_entered() -> None:
 
 def test_list_names_every_absence_with_its_id_kind_and_dates_by_first_day() -> None:
     later = Absence(3, AbsenceKind.SICK_LEAVE, date(2026, 12, 1), date(2026, 12, 2))
-    same_day = Absence(4, AbsenceKind.VACATION, date(2026, 10, 1), date(2026, 10, 1))
-    first = Absence(5, AbsenceKind.DAY_OFF, date(2026, 10, 1), date(2026, 10, 1))
+    same_day = Absence(4, AbsenceKind.VACATION, date(2026, 10, 30), date(2026, 10, 30))
+    first = Absence(5, AbsenceKind.DAY_OFF, date(2026, 10, 30), date(2026, 10, 30))
     absences, store = service(AbsenceBook.of((later, DAY_OFF, first, VACATION, same_day)))
 
     reply = absences.list()
 
     assert english(reply).splitlines() == [
-        "Absences entered: 5",
-        "Absence 4: vacation on 01.10.2026",
-        "Absence 5: day off on 01.10.2026",
+        "Current and upcoming absences: 5",
+        "Absence 4: vacation on 30.10.2026",
+        "Absence 5: day off on 30.10.2026",
         "Absence 1: vacation from 03.11.2026 to 14.11.2026",
         "Absence 2: day off on 20.11.2026",
         "Absence 3: sick leave from 01.12.2026 to 02.12.2026",
@@ -308,12 +310,58 @@ def test_list_names_every_absence_with_its_id_kind_and_dates_by_first_day() -> N
     assert store.saved == []
 
 
+def test_list_leaves_out_the_finished_absences_and_counts_them_last() -> None:
+    finished = Absence(3, AbsenceKind.DAY_OFF, date(2026, 10, 19), date(2026, 10, 19))
+    ended_yesterday = Absence(4, AbsenceKind.SICK_LEAVE, date(2026, 10, 20), date(2026, 10, 23))
+    absences, store = service(AbsenceBook.of((finished, VACATION, ended_yesterday)))
+
+    assert english(absences.list()).splitlines() == [
+        "Current and upcoming absences: 1",
+        "Absence 1: vacation from 03.11.2026 to 14.11.2026",
+        "Finished absences, not listed: 2",
+    ]
+    assert store.saved == []
+
+
+def test_list_names_an_absence_that_ends_today() -> None:
+    running = Absence(3, AbsenceKind.SICK_LEAVE, date(2026, 10, 20), NOON.date())
+    absences, _ = service(AbsenceBook.of((running,)))
+
+    assert english(absences.list()).splitlines() == [
+        "Current and upcoming absences: 1",
+        "Absence 3: sick leave from 20.10.2026 to 24.10.2026",
+    ]
+
+
+def test_list_of_finished_absences_only_says_none_is_ahead_and_counts_them() -> None:
+    finished = Absence(3, AbsenceKind.DAY_OFF, date(2026, 10, 19), date(2026, 10, 19))
+    absences, store = service(AbsenceBook.of((finished,)))
+
+    assert english(absences.list()).splitlines() == [
+        "No current or upcoming absences",
+        "Finished absences, not listed: 1",
+    ]
+    assert store.book.absences == (finished,)
+
+
 def test_list_reads_in_russian() -> None:
-    absences, _ = service(AbsenceBook.of((VACATION,)))
+    finished = Absence(3, AbsenceKind.DAY_OFF, date(2026, 10, 19), date(2026, 10, 19))
+    absences, _ = service(AbsenceBook.of((VACATION, finished)))
 
     assert absences.list().in_language(Language.RU).splitlines() == [
-        "Внесено отсутствий: 1",
+        "Текущих и предстоящих отсутствий: 1",
         "Отсутствие 1: отпуск, дни 03.11.2026–14.11.2026",
+        "Завершённых отсутствий (не показаны): 1",
+    ]
+
+
+def test_list_of_finished_absences_only_reads_in_russian() -> None:
+    finished = Absence(3, AbsenceKind.DAY_OFF, date(2026, 10, 19), date(2026, 10, 19))
+    absences, _ = service(AbsenceBook.of((finished,)))
+
+    assert absences.list().in_language(Language.RU).splitlines() == [
+        "Текущих и предстоящих отсутствий нет",
+        "Завершённых отсутствий (не показаны): 1",
     ]
 
 

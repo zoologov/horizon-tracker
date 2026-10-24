@@ -28,10 +28,12 @@ through a bad message or an unreachable Bot API.
    the service's time zone.
 3. The command is carried out: `Add`, `List`, `Delete` and `Edit` through the absence
    service, `Help` (and `/start`) as `bot.help`, and a `CommandError` as its problem.
-4. The reply is rendered in the configured language and sent to the owner's chat.
+4. The reply is rendered in the configured language, inside the same boundary as steps
+   2 and 3, and sent to the owner's chat.
 
-An exception raised while handling one message (a store that cannot be read, a bug) is
-logged at `ERROR` with its traceback, and the reply becomes `bot.error.internal`
+An exception raised while handling one message (a store that cannot be read, a bug, a
+reply whose catalogue text names a field the code did not pass) is logged at `ERROR`
+with its traceback, and the reply becomes `bot.error.internal`
 (`Something went wrong; the details are in the journal`). A reply the transport cannot
 send is logged as a warning by error type (`reply to update 4 was not sent:
 BotTransportError`). In both cases the next message is handled.
@@ -53,7 +55,8 @@ other exception from the transport leaves the loop, and systemd restarts the ser
 - The chat filter is the first step for every message: another chat gets no reply, and
   nothing of its text reaches the store or the log.
 - The owner gets exactly one reply per message, whatever the command came to.
-- An exception inside one message's handling never stops the loop.
+- An exception inside one message's handling, the rendering of its reply included, never
+  stops the loop.
 - A failed poll never stops `run_forever`; three or more in a row are ridden out with a
   growing, bounded wait.
 - No log line carries a message's text, the owner's included.

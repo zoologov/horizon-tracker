@@ -28,8 +28,15 @@ so a refusal leaves the file as it was.
   `bot.error.overlap` with the lowest such id and saves nothing. Otherwise it saves the
   book with the absence appended and `last_issued` raised to its id, and answers
   `bot.added`.
-- `list()` answers `bot.list.empty` for an empty book, or `bot.list.header` (the count)
-  followed by one `bot.list.item` per absence, ordered by first day and then by id.
+- `list()` answers `bot.list.empty` for an empty book. Otherwise it names the absences
+  whose last day is today or later (`not_over`): `bot.list.header` (their count,
+  `Current and upcoming absences: 2`) followed by one `bot.list.item` per absence,
+  ordered by first day and then by id, or `bot.list.none_ahead` when every absence is
+  finished. When the book holds finished absences, a last line counts them:
+  `bot.list.finished` (`Finished absences, not listed: 3`). The store keeps every
+  absence. Only the reply leaves the finished ones out, because Telegram refuses a
+  `sendMessage` over 4096 characters and a list that grew with every absence ever
+  entered would one day be answered with nothing.
 - `delete(id)` answers `bot.error.not_found` for an id the book does not hold. Otherwise it
   saves the book without the absence, with `last_issued` unchanged, and answers
   `bot.deleted` naming what was deleted.
@@ -74,6 +81,7 @@ was there before the morning run, so a morning logon belongs to a day no absence
 - Every call loads the store once; a call that changes nothing saves nothing.
 - The service picks no language: a `Reply` is messages, rendered by the caller.
 - A store that cannot be read or written raises `AbsenceStoreError` to the caller.
+- `list` names no absence whose last day is before today, and saves nothing.
 
 ## API
 
@@ -88,6 +96,8 @@ Module `src/horizon_tracker/application/absence_service.py`:
   - `delete(absence_id: int) -> Reply`;
   - `edit(absence_id: int, kind: AbsenceKind | None, first_day: date, last_day: date)
     -> Reply`.
+- `not_over(absences, today) -> tuple[Absence, ...]` — the absences whose last day is
+  `today` or later, in their order; `list` and the probe's `absences` line count by it.
 
 The CLI builds it in `horizon bot` as `AbsenceService(adapters.absences, adapters.clock,
 settings.checkin_range)`.
@@ -101,6 +111,7 @@ Scenarios (`tests/acceptance/features/absences.feature`):
 
 - `An absence entered through the bot is confirmed with its dates and an id`
 - `The list names every absence with its id, kind and dates`
+- `The list leaves out the finished absences and counts them`
 - `A deleted absence no longer stops a run`
 - `An edited absence keeps its id and takes the new dates`
 
@@ -109,7 +120,7 @@ Scenarios (`tests/acceptance/features/absences.feature`):
 Derived from the imports on reindex.
 
 - Depends on: `absence`, `messages`, `ports`, `schedule`
-- Used by: `bot-loop`, `cli`
+- Used by: `bot-loop`, `cli`, `probe` (`not_over`)
 
 ## Parent
 

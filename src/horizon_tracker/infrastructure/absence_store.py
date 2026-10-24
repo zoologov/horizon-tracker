@@ -11,6 +11,7 @@ intact. The file is readable by its owner only (0600), and a state directory the
 has to create is private to its owner (0700).
 """
 
+# beadloom:domain=infrastructure
 # beadloom:feature=absence-store
 
 import json

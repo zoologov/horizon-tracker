@@ -1,11 +1,12 @@
 """Changes and reads the owner's absences on the owner's command, answering each with a reply.
 
 ``AbsenceService`` is what the bot's commands do to the absence store: ``add`` enters an
-absence under a new id, ``list`` names every absence entered, ``delete`` removes one and
-``edit`` gives one new days (and a new kind) under the same id. The store is loaded afresh
-for each call and saved only when the call changes it, so a refusal leaves the file as it
-was. Two absences never share a day: an ``add`` or ``edit`` that would is refused, naming
-the absence in the way, and the owner edits or deletes it first.
+absence under a new id, ``list`` names the absences not yet over and counts the finished
+ones, ``delete`` removes one and ``edit`` gives one new days (and a new kind) under the
+same id. The store keeps every absence, finished or not. The store is loaded afresh for
+each call and saved only when the call changes it, so a refusal leaves the file as it was.
+Two absences never share a day: an ``add`` or ``edit`` that would is refused, naming the
+absence in the way, and the owner edits or deletes it first.
 
 Every call answers with a ``Reply``: catalogue messages, one per line, with no language
 yet. A reply names an absence with its id, its kind and its days with the year, so a date
@@ -79,12 +80,18 @@ class AbsenceService:
         return self._answer(_naming("bot.added", entered), moved=first != first_day)
 
     def list(self) -> Reply:
-        """Name every absence entered, earliest first; say so when there is none."""
-        absences = sorted(self._store.load().absences, key=_by_first_day_then_id)
-        if not absences:
+        """Name the absences not yet over, earliest first, and count the finished ones."""
+        held = self._store.load().absences
+        if not held:
             return Reply.of(Message("bot.list.empty"))
-        header = Message("bot.list.header", {"count": len(absences)})
-        return Reply.of(header, *(_naming("bot.list.item", absence) for absence in absences))
+        today = self._clock.now().date()
+        ahead = sorted(not_over(held, today), key=_by_first_day_then_id)
+        lines = [_list_header(len(ahead))]
+        lines.extend(_naming("bot.list.item", absence) for absence in ahead)
+        finished = len(held) - len(ahead)
+        if finished:
+            lines.append(Message("bot.list.finished", {"count": finished}))
+        return Reply(tuple(lines))
 
     def delete(self, absence_id: int) -> Reply:
         """Remove the absence with ``absence_id``; its id is never issued again."""
@@ -148,6 +155,20 @@ def _first_overlap(absences: tuple[Absence, ...], candidate: Absence) -> Absence
     """The absence with the lowest id that shares a day with ``candidate``, else ``None``."""
     clashing = (absence for absence in absences if overlaps(absence, candidate))
     return min(clashing, key=lambda absence: absence.id, default=None)
+
+
+def not_over(absences: tuple[Absence, ...], today: date) -> tuple[Absence, ...]:
+    """The absences whose last day is ``today`` or later: the ones a run may still meet.
+
+    ``list`` and the probe name these; the finished ones stay in the store and are counted.
+    """
+    return tuple(absence for absence in absences if absence.last_day >= today)
+
+
+def _list_header(count: int) -> Message:
+    if not count:
+        return Message("bot.list.none_ahead")
+    return Message("bot.list.header", {"count": count})
 
 
 def _by_first_day_then_id(absence: Absence) -> tuple[date, int]:

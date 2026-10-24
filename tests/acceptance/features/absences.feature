@@ -42,9 +42,22 @@ Feature: Absences entered through the bot (HT-012)
     When the bot runs at 12:00 on Saturday 2026-10-24
     Then the bot's last reply reads:
       """
-      Absences entered: 2
+      Current and upcoming absences: 2
       Absence 1: vacation from 03.11.2026 to 14.11.2026
       Absence 2: day off on 20.11.2026
+      """
+
+  @bead:ht-t28.1 @node:absence-service
+  Scenario: The list leaves out the finished absences and counts them
+    Given the owner writes "/add dayoff 19.10.2026" to the bot
+    And the owner writes "/add vacation 03.11-14.11" to the bot
+    And the owner writes "/list" to the bot
+    When the bot runs at 12:00 on Saturday 2026-10-24
+    Then the bot's last reply reads:
+      """
+      Current and upcoming absences: 1
+      Absence 2: vacation from 03.11.2026 to 14.11.2026
+      Finished absences, not listed: 1
       """
 
   @bead:ht-xad @node:absence-service

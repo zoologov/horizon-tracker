@@ -772,9 +772,8 @@ def test_probe_reads_the_absences_file_under_the_state_directory(
     result = World(at(12, 0)).invoke(["probe"], env)
 
     assert result.exit_code == 0, result.output
-    assert f"absences: ok - 1 entered, next: vacation 03.11\u201314.11 ({absences})" in (
-        result.stdout.splitlines()
-    )
+    expected = f"absences: ok - 1 current or upcoming, next: vacation 03.11\u201314.11 ({absences})"
+    assert expected in result.stdout.splitlines()
 
 
 def test_probe_with_an_unreadable_absences_file_exits_one(env: dict[str, str | None]) -> None:
@@ -829,7 +828,7 @@ def test_the_bot_keeps_the_absence_in_the_file_under_the_state_directory(
         Absence(1, AbsenceKind.DAY_OFF, date(2026, 11, 20), date(2026, 11, 20)),
     )
     probe = World(at(12, 0)).invoke(["probe"], env)
-    assert "absences: ok - 1 entered, next: day off taken 20.11" in probe.stdout
+    assert "absences: ok - 1 current or upcoming, next: day off taken 20.11" in probe.stdout
 
 
 def test_the_bot_serves_only_the_configured_chat(env: dict[str, str | None]) -> None:

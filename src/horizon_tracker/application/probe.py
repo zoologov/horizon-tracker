@@ -3,7 +3,8 @@
 ``Probe`` asks each dependency the one question it can answer without credentials: the
 portal names the client bundles it serves, the calendar answers for today, the Chrome
 binary is where the settings say, starts headless and names its version, and the
-absences file can be read. What is measured is the client bundles and the browser
+absences file can be read (the line counts the absences not yet over beside the finished
+ones, and names the next one ahead). What is measured is the client bundles and the browser
 version; no portal version is read. An unreachable calendar degrades the probe rather than
 failing it, because a run falls back to the Mon-Fri rule. An absences file that cannot be
 read or parsed fails it, because the owner's absences are then unknown. Given the day's
@@ -30,6 +31,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
+from horizon_tracker.application.absence_service import not_over
 from horizon_tracker.application.windowed_run import WindowedRun
 from horizon_tracker.domain.absence import Absence, next_after
 from horizon_tracker.domain.calendar import VerdictSource
@@ -150,7 +152,7 @@ class Probe:
         return Check("chrome", CheckStatus.OK, detail)
 
     def _absences(self) -> Check:
-        """How many absences are entered and which comes next; a file that cannot be read fails."""
+        """The absences counted, not over and finished, the next one named; unreadable fails."""
         try:
             book = self.absences.load()
         except AbsenceStoreError as error:
@@ -164,15 +166,23 @@ class Probe:
 
 
 def _absences_detail(held: tuple[Absence, ...], today: date, where: Path) -> Message:
-    """The absences held, counted, with the first one that starts after ``today``."""
+    """The absences not yet over, counted beside the finished ones, and the next one ahead."""
     if not held:
         return Message("probe.absences.none", {"path": where})
-    ahead = next_after(held, today)
+    current = not_over(held, today)
+    counted = _held(len(current), finished=len(held) - len(current))
+    ahead = next_after(current, today)
     if ahead is None:
-        return Message("probe.absences.entered", {"count": len(held), "path": where})
+        return Message("probe.absences.entered", {"held": counted, "path": where})
     kind = Message(f"reason.{absence_reason(ahead.kind)}")
-    fields = {"count": len(held), "kind": kind, "span": absence_span(ahead), "path": where}
+    fields = {"held": counted, "kind": kind, "span": absence_span(ahead), "path": where}
     return Message("probe.absences.entered_next", fields)
+
+
+def _held(count: int, *, finished: int) -> Message:
+    if not finished:
+        return Message("probe.absences.held", {"count": count})
+    return Message("probe.absences.held_and_finished", {"count": count, "finished": finished})
 
 
 @dataclass(frozen=True)
