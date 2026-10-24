@@ -8,8 +8,8 @@ Logs are not in here: the operator reads them in English whatever the language.
 
 Every key has a text in every ``Language`` -- ``missing_translations()`` names any pair
 that does not, and a test holds the catalogue to an empty answer. The catalogue holds
-the texts of the notification, the probe, the dry run and the configuration errors:
-English is the default language, Russian the other one.
+the texts of the notification, the probe, the dry run, the bot and the configuration
+errors: English is the default language, Russian the other one.
 """
 
 # beadloom:domain=domain
@@ -35,7 +35,7 @@ _EN = Language.EN
 _RU = Language.RU
 
 MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
-    # --- the run report: headline, time, calendar source, reason --------------------
+    # --- the run report: headline, time, calendar line, reason -----------------------
     "report.checkin.succeeded": {_EN: "Check-in succeeded", _RU: "Вход выполнен"},
     "report.checkin.failed": {_EN: "Check-in failed", _RU: "Вход не удался"},
     "report.checkin.skipped": {_EN: "Check-in skipped", _RU: "Вход пропущен"},
@@ -47,20 +47,24 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "Time: {at}, planned for {planned}",
         _RU: "Время: {at}, назначено на {planned}",
     },
-    "report.calendar": {_EN: "Calendar: {source}", _RU: "Календарь: {source}"},
-    "report.source.calendar": {
-        _EN: "the isdayoff.ru production calendar",
-        _RU: "производственный календарь isdayoff.ru",
+    # One line per VerdictSource, and one for a --force run that asked no calendar.
+    "report.calendar.calendar": {
+        _EN: "Production calendar: isdayoff.ru",
+        _RU: "Производственный календарь: isdayoff.ru",
     },
-    "report.source.weekday_fallback": {
-        _EN: "unreachable, the Mon-Fri rule decided",
-        _RU: "недоступен, решило правило пн-пт",
+    "report.calendar.weekday_fallback": {
+        _EN: "Production calendar: unavailable, the Mon–Fri rule decided",
+        _RU: "Производственный календарь: недоступен, решило правило Пн–Пт",
     },
-    "report.source.not_asked": {
-        _EN: "not asked, manual run --force",
-        _RU: "не спрашивали, ручной прогон --force",
+    "report.calendar.not_asked": {
+        _EN: "Production calendar: not asked, manual run --force",
+        _RU: "Производственный календарь: не спрашивали, ручной прогон --force",
     },
     "report.reason": {_EN: "Reason: {reason}", _RU: "Причина: {reason}"},
+    "report.reason_span": {
+        _EN: "Reason: {reason} ({span})",
+        _RU: "Причина: {reason} ({span})",
+    },
     # --- why a run failed or was skipped: one per Reason ----------------------------
     "reason.non_working_day": {_EN: "a day off", _RU: "выходной"},
     "reason.too_early": {
@@ -99,6 +103,9 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "an unexpected error, details in the journal",
         _RU: "непредвиденная ошибка, подробности в журнале",
     },
+    "reason.on_vacation": {_EN: "vacation", _RU: "отпуск"},
+    "reason.on_sick_leave": {_EN: "sick leave", _RU: "больничный"},
+    "reason.on_day_off": {_EN: "day off taken", _RU: "отгул"},
     # --- horizon probe: the settings line, the checks and their answers -------------
     "probe.settings.ok": {
         _EN: (
@@ -113,6 +120,7 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "probe.check.portal": {_EN: "portal", _RU: "портал"},
     "probe.check.calendar": {_EN: "calendar", _RU: "календарь"},
     "probe.check.chrome": {_EN: "chrome", _RU: "браузер chrome"},
+    "probe.check.absences": {_EN: "absences", _RU: "отсутствия"},
     "probe.check.schedule": {_EN: "schedule", _RU: "расписание"},
     "probe.status.ok": {_EN: "ok", _RU: "в порядке"},
     "probe.status.degraded": {_EN: "degraded", _RU: "частично"},
@@ -143,6 +151,30 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "Chrome {version} started from {path}",
         _RU: "Chrome {version} запущен из {path}",
     },
+    "probe.absences.none": {_EN: "none ({path})", _RU: "нет ({path})"},
+    # {held} counts the absences whose last day is today or later, and the finished ones
+    # beside them when there are any: probe.absences.held or .held_and_finished.
+    "probe.absences.entered": {
+        _EN: "{held}, none ahead ({path})",
+        _RU: "{held}, впереди нет ({path})",
+    },
+    "probe.absences.entered_next": {
+        _EN: "{held}, next: {kind} {span} ({path})",
+        _RU: "{held}, ближайшее: {kind} {span} ({path})",
+    },
+    "probe.absences.held": {
+        _EN: "{count} current or upcoming",
+        _RU: "текущих и предстоящих: {count}",
+    },
+    "probe.absences.held_and_finished": {
+        _EN: "{count} current or upcoming, {finished} finished",
+        _RU: "текущих и предстоящих: {count}, завершённых: {finished}",
+    },
+    # The reason is the store's own technical English in every language, as in the journal.
+    "probe.absences.unreadable": {
+        _EN: "{path}: {reason}",
+        _RU: "{path}: не прочитан: {reason}",
+    },
     "probe.schedule": {
         _EN: "today {check_in} / {check_out}",
         _RU: "сегодня {check_in} / {check_out}",
@@ -169,6 +201,10 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "plan.source.not_asked": {
         _EN: "not asked (forced)",
         _RU: "не спрашивали (принудительно)",
+    },
+    "plan.source.absent": {
+        _EN: "not asked (an absence covers today)",
+        _RU: "не спрашивали (сегодня внесено отсутствие)",
     },
     "plan.schedule": {_EN: "schedule: {detail}", _RU: "расписание: {detail}"},
     "plan.steps": {_EN: "steps of one attempt:", _RU: "шаги одной попытки:"},
@@ -204,6 +240,15 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "confirm the session is gone (NO_SESSION)",
         _RU: "убедиться, что сессии больше нет (NO_SESSION)",
     },
+    "plan.step.absences": {
+        _EN: (
+            "skip the day if an absence entered through the bot covers it, "
+            "before the calendar is asked"
+        ),
+        _RU: (
+            "пропустить день, на который через бота внесено отсутствие, ещё до вопроса календарю"
+        ),
+    },
     "plan.step.wait": {
         _EN: (
             "wait until the drawn moment {moment} if started from {start}; "
@@ -227,6 +272,141 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
     "plan.step.report": {
         _EN: "send one report to Telegram",
         _RU: "отправить один отчёт в Telegram",
+    },
+    # The evening run: a skipped day was already reported by the morning run.
+    "plan.step.report.no_day_skip": {
+        _EN: "send one report to Telegram, unless the day is skipped: the morning reports it",
+        _RU: "отправить один отчёт в Telegram, кроме пропущенного дня: такой отчёт шлёт утро",
+    },
+    # --- the bot: the help, the replies to the owner's commands and the refusals ------
+    "bot.help": {
+        _EN: (
+            "Commands:\n"
+            "/add <kind> <from>[-<to>] - enter an absence\n"
+            "/list - every absence entered\n"
+            "/edit <id> [<kind>] <from>[-<to>] - change an absence\n"
+            "/del <id> - delete an absence\n"
+            "/help - this text\n"
+            "Kinds: vacation, sick, dayoff\n"
+            "Dates: 03.11, 03.11.2026 or 2026-11-03; a date without a year is the next such day\n"
+            "Example: /add vacation 03.11-14.11"
+        ),
+        _RU: (
+            "Команды:\n"
+            "/add <вид> <начало>[-<конец>] - внести отсутствие\n"
+            "/list - все внесённые отсутствия\n"
+            "/edit <номер> [<вид>] <начало>[-<конец>] - изменить отсутствие\n"
+            "/del <номер> - удалить отсутствие\n"
+            "/help - этот текст\n"
+            "Виды: отпуск, больничный, отгул\n"
+            "Даты: 03.11, 03.11.2026 или 2026-11-03; дата без года - ближайший такой день\n"
+            "Пример: /add отпуск 03.11-14.11"
+        ),
+    },
+    # One name per AbsenceKind, keyed by its value, as a reply names the kind.
+    "bot.kind.vacation": {_EN: "vacation", _RU: "отпуск"},
+    "bot.kind.sick_leave": {_EN: "sick leave", _RU: "больничный"},
+    "bot.kind.day_off": {_EN: "day off", _RU: "отгул"},
+    # An absence's days with the year, so a date typed without one is read back in full.
+    "bot.days.single": {_EN: "on {day}", _RU: "день {day}"},
+    "bot.days.span": {_EN: "from {first} to {last}", _RU: "дни {first}–{last}"},
+    "bot.added": {
+        _EN: "Absence {id} entered: {kind} {days}",
+        _RU: "Отсутствие {id} внесено: {kind}, {days}",
+    },
+    "bot.edited": {
+        _EN: "Absence {id} changed: {kind} {days}",
+        _RU: "Отсутствие {id} изменено: {kind}, {days}",
+    },
+    "bot.deleted": {
+        _EN: "Absence {id} deleted: {kind} {days}",
+        _RU: "Отсутствие {id} удалено: {kind}, {days}",
+    },
+    # Under an absence that would have covered today, entered once today's check-in range
+    # has begun: it starts tomorrow (or, for today alone, is not entered).
+    "bot.note.after_checkin_range": {
+        _EN: (
+            "Today's check-in range began at {start}, so an absence starts tomorrow "
+            "at the earliest; this evening's check-out runs as usual"
+        ),
+        _RU: (
+            "Диапазон входа на сегодня начался в {start}, поэтому отсутствие начнётся "
+            "не раньше завтрашнего дня; вечерний выход сегодня пройдёт как обычно"
+        ),
+    },
+    "bot.list.empty": {_EN: "No absences entered", _RU: "Отсутствий не внесено"},
+    # /list names the absences whose last day is today or later; the finished ones stay in
+    # the store and are only counted, so the reply stays inside Telegram's message limit.
+    "bot.list.header": {
+        _EN: "Current and upcoming absences: {count}",
+        _RU: "Текущих и предстоящих отсутствий: {count}",
+    },
+    "bot.list.none_ahead": {
+        _EN: "No current or upcoming absences",
+        _RU: "Текущих и предстоящих отсутствий нет",
+    },
+    "bot.list.item": {_EN: "Absence {id}: {kind} {days}", _RU: "Отсутствие {id}: {kind}, {days}"},
+    "bot.list.finished": {
+        _EN: "Finished absences, not listed: {count}",
+        _RU: "Завершённых отсутствий (не показаны): {count}",
+    },
+    "bot.error.not_a_command": {
+        _EN: "Not a command; /help lists the commands",
+        _RU: "Это не команда; список команд покажет /help",
+    },
+    "bot.error.unknown_command": {
+        _EN: "Unknown command {command}; /help lists the commands",
+        _RU: "Неизвестная команда {command}; список команд покажет /help",
+    },
+    "bot.error.usage.add": {
+        _EN: "Usage: /add <kind> <from>[-<to>], for example /add vacation 03.11-14.11",
+        _RU: "Формат: /add <вид> <начало>[-<конец>], например /add отпуск 03.11-14.11",
+    },
+    "bot.error.usage.del": {
+        _EN: "Usage: /del <id>, the id /list shows",
+        _RU: "Формат: /del <номер>, номер показывает /list",
+    },
+    "bot.error.usage.edit": {
+        _EN: "Usage: /edit <id> [<kind>] <from>[-<to>], for example /edit 4 05.11-16.11",
+        _RU: "Формат: /edit <номер> [<вид>] <начало>[-<конец>], например /edit 4 05.11-16.11",
+    },
+    "bot.error.unknown_kind": {
+        _EN: "Unknown kind {kind!r}: expected vacation, sick or dayoff",
+        _RU: "Неизвестный вид {kind!r}: ожидается отпуск, больничный или отгул",
+    },
+    "bot.error.malformed_date": {
+        _EN: (
+            "Not a date {text!r}: expected 03.11, 03.11.2026 or 2026-11-03; "
+            "a range is written 03.11-14.11"
+        ),
+        _RU: (
+            "Это не дата {text!r}: ожидается 03.11, 03.11.2026 или 2026-11-03; "
+            "диапазон пишется как 03.11-14.11"
+        ),
+    },
+    "bot.error.no_such_day": {
+        _EN: "No such day {text!r} in the calendar",
+        _RU: "Такого дня в календаре нет: {text!r}",
+    },
+    "bot.error.reversed_range": {
+        _EN: "The range ends on {last}, before it starts on {first}",
+        _RU: "Диапазон кончается {last}, раньше своего начала {first}",
+    },
+    "bot.error.bad_id": {
+        _EN: "Not an id {text!r}: expected a whole number from 1, the one /list shows",
+        _RU: "Это не номер {text!r}: ожидается целое число от 1, какое показывает /list",
+    },
+    "bot.error.not_found": {
+        _EN: "No absence {id}; /list shows the ones entered",
+        _RU: "Отсутствия {id} нет; внесённые покажет /list",
+    },
+    "bot.error.overlap": {
+        _EN: "These days overlap absence {id}; change or delete it first",
+        _RU: "Эти дни уже заняты отсутствием {id}; сначала измените или удалите это отсутствие",
+    },
+    "bot.error.internal": {
+        _EN: "Something went wrong; the details are in the journal",
+        _RU: "Что-то пошло не так; подробности в журнале",
     },
     # --- configuration errors: the line a reader gets, then the problem after "<VARIABLE>: "
     "config.error": {_EN: "configuration error: {error}", _RU: "ошибка настройки: {error}"},

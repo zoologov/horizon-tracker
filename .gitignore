@@ -16,6 +16,8 @@ htmlcov/
 *.env
 logs/
 artifacts/
+# HT_STATE_DIR's default on the host (the absences): never tracked, survives every checkout.
+/state/
 
 # Beadloom index (rebuilt by `beadloom reindex`)
 .beadloom/beadloom.db

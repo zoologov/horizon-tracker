@@ -39,10 +39,11 @@ keeps with the host.
    and the `.env` the deploy writes is section 3.3 of the
    [deployment guide](deployment.md#33-what-the-deploy-writes-the-env-contract).
 3. **The deploy contract.** The names of the secrets and variables of the GitHub Environment
-   `horizon-vps` (sections 3.1 and 3.2 of the [deployment guide](deployment.md)); the four unit
-   names `horizon-checkin.service`, `horizon-checkin.timer`, `horizon-checkout.service` and
-   `horizon-checkout.timer`; the layout of `/opt/horizon-tracker` (the clone,
-   `.venv/bin/horizon`, `.env` owned by `horizon:horizon` with mode `0600`, `artifacts/`); and
+   `horizon-vps` (sections 3.1 and 3.2 of the [deployment guide](deployment.md)); the five unit
+   names `horizon-checkin.service`, `horizon-checkin.timer`, `horizon-checkout.service`,
+   `horizon-checkout.timer` and `horizon-bot.service`; the layout of `/opt/horizon-tracker` (the
+   clone, `.venv/bin/horizon`, `.env` owned by `horizon:horizon` with mode `0600`, `artifacts/`,
+   `state/`); and
    the system user `horizon` the units run as.
 
 **The promise.** Within one major version nothing on this list is removed, renamed or changed

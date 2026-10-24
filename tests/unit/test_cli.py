@@ -9,7 +9,7 @@ import logging
 import re
 import tomllib
 from collections.abc import Iterator
-from datetime import datetime, time
+from datetime import date, datetime, time
 from functools import partial
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -19,17 +19,25 @@ import pytest
 from click.testing import CliRunner
 
 from horizon_tracker import __version__
-from horizon_tracker.cli import build_notifier, main, open_adapters
-from horizon_tracker.domain.ports import HorizonClientError, Notifier
+from horizon_tracker.cli import build_bot_transport, build_notifier, main, open_adapters
+from horizon_tracker.domain.absence import Absence, AbsenceBook, AbsenceKind
+from horizon_tracker.domain.ports import (
+    BotTransportError,
+    HorizonClientError,
+    IncomingMessage,
+    Notifier,
+)
 from horizon_tracker.domain.report import Outcome, Reason
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import SessionState
+from horizon_tracker.infrastructure.absence_store import JsonAbsenceStore
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
 from horizon_tracker.infrastructure.config import ConfigError, Settings
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
+from horizon_tracker.infrastructure.telegram_bot import TelegramBotTransport
 from tests.support.bot_api import RecordingBotApi
 from tests.support.cli_world import DESKTOP, World, cli_log_handlers_restored
 from tests.support.repository_root import repository_root
@@ -99,6 +107,8 @@ def env(tmp_path: Path) -> dict[str, str | None]:
         "HT_HOLD_SECONDS": "120",
         "HT_CHROME_PATH": str(chrome),
         "HT_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
+        # The absences file stays in the test's directory, never the host's state directory.
+        "HT_STATE_DIR": str(tmp_path / "state"),
         # Unset whatever the host exports: the default language is what these tests read.
         "HT_LANGUAGE": None,
     }
@@ -125,12 +135,13 @@ def test_the_version_reported_is_the_one_pyproject_declares() -> None:
     assert result.output == f"horizon, version {declared}\n"
 
 
-def test_help_lists_the_three_commands() -> None:
+def test_help_lists_the_four_commands() -> None:
     result = CliRunner().invoke(main, ["--help"])
 
     assert result.exit_code == 0
     commands = result.output.split("Commands:")[1]
     assert {line.split()[0] for line in commands.strip().splitlines()} == {
+        "bot",
         "checkin",
         "checkout",
         "probe",
@@ -350,6 +361,148 @@ def test_checkout_dry_run_lists_the_plan_and_never_logs_in(env: dict[str, str | 
     assert "hold" not in result.stdout
 
 
+# --- absences, and the evening's silence on a skipped day --------------------------------
+
+VACATION = Absence(1, AbsenceKind.VACATION, date(2026, 10, 19), date(2026, 10, 23))
+
+
+def enter(env: dict[str, str | None], *absences: Absence) -> JsonAbsenceStore:
+    """Enter ``absences`` in the file the command reads, as the bot would have left it."""
+    store = JsonAbsenceStore(Path(env["HT_STATE_DIR"] or "") / "absences.json")
+    store.save(AbsenceBook.of(absences))
+    return store
+
+
+def test_checkin_on_an_absence_day_skips_names_the_absence_and_asks_no_calendar(
+    env: dict[str, str | None],
+) -> None:
+    enter(env, VACATION)
+    world = World(at(*CHECK_IN))
+
+    result = world.invoke(["checkin"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.calendar.asked == []
+    assert world.client.calls == []
+    (report,) = world.notifier.sent
+    assert (report.outcome, report.reason, report.absence) == (
+        Outcome.SKIPPED,
+        Reason.ON_VACATION,
+        VACATION,
+    )
+
+
+def test_checkout_on_an_absence_day_sends_nothing_and_exits_zero(
+    env: dict[str, str | None],
+) -> None:
+    enter(env, VACATION)
+    world = World(at(*CHECK_OUT), state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == []
+    assert world.calendar.asked == []
+    assert world.notifier.sent == []
+
+
+def test_checkout_on_a_day_off_sends_nothing(env: dict[str, str | None]) -> None:
+    world = World(at(16, 30, day=24), calendar_answer=False, state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == []
+    assert world.notifier.sent == []
+
+
+@pytest.mark.parametrize(
+    ("start", "reason"),
+    [(at(16, 0), Reason.TOO_EARLY), (at(18, 0), Reason.WINDOW_MISSED)],
+    ids=["too early", "window missed"],
+)
+def test_an_anomalous_checkout_skip_still_reaches_the_owner(
+    env: dict[str, str | None], start: datetime, reason: Reason
+) -> None:
+    world = World(start, state=SessionState.DISCONNECTED)
+
+    result = world.invoke(["checkout"], env)
+
+    assert result.exit_code == 0, result.output
+    (report,) = world.notifier.sent
+    assert report.reason is reason
+
+
+def test_forced_checkin_ignores_an_absence(env: dict[str, str | None]) -> None:
+    enter(env, VACATION)
+    world = World(at(12, 0))
+
+    result = world.invoke(["checkin", "--force"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == ONE_CHECKIN
+
+
+@pytest.mark.parametrize(
+    ("command", "moment", "state", "calls"),
+    [
+        ("checkin", CHECK_IN, SessionState.NO_SESSION, ONE_CHECKIN),
+        ("checkout", CHECK_OUT, SessionState.DISCONNECTED, ONE_CHECKOUT),
+    ],
+)
+def test_an_unreadable_absences_file_does_not_stop_the_run(
+    env: dict[str, str | None],
+    command: str,
+    moment: tuple[int, int],
+    state: SessionState,
+    calls: list[str],
+) -> None:
+    state_dir = Path(env["HT_STATE_DIR"] or "")
+    state_dir.mkdir()
+    (state_dir / "absences.json").write_text("{not json", encoding="utf-8")
+    world = World(at(*moment), state=state)
+
+    result = world.invoke([command], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.client.calls == calls
+    assert "absences could not be read (AbsenceStoreError)" in result.stderr
+
+
+def test_a_dry_run_on_an_absence_day_says_it_would_skip_and_asks_no_calendar(
+    env: dict[str, str | None],
+) -> None:
+    enter(env, VACATION)
+    world = World(at(*CHECK_IN))
+
+    result = world.invoke(["checkin", "--dry-run"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.calendar.asked == []
+    assert "would run now: no (skip_absent)" in result.stdout
+    assert "calendar: not asked (an absence covers today)" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("command", "report_step"),
+    [
+        ("checkin", "send one report to Telegram\n"),
+        (
+            "checkout",
+            "send one report to Telegram, unless the day is skipped: the morning reports it\n",
+        ),
+    ],
+)
+def test_a_dry_run_names_the_absence_check_and_which_reports_it_sends(
+    env: dict[str, str | None], command: str, report_step: str
+) -> None:
+    result = World(at(*CHECK_IN)).invoke([command, "--dry-run"], env)
+
+    assert result.exit_code == 0, result.output
+    assert "skip the day if an absence entered through the bot covers it" in result.stdout
+    assert result.stdout.endswith(report_step)
+
+
 # --- the day's drawn moments -----------------------------------------------------------
 
 
@@ -531,12 +684,14 @@ def test_probe_reports_every_check_and_exits_zero(env: dict[str, str | None]) ->
         "portal",
         "calendar",
         "chrome",
+        "absences",
         "schedule",
     ]
     assert lines[0].startswith("settings: ok")
     assert lines[1] == "portal: ok - client bundles: app-htmlaccess.fake-2312.js"
     assert lines[3] == f"chrome: ok - Chrome 131.0.6778.85 started from {env['HT_CHROME_PATH']}"
-    assert lines[4] == "schedule: today 07:41 / 16:43"
+    assert lines[4] == f"absences: ok - none ({env['HT_STATE_DIR']}/absences.json)"
+    assert lines[5] == "schedule: today 07:41 / 16:43"
     assert world.notifier.sent == []
 
 
@@ -564,7 +719,7 @@ def test_probe_names_the_moments_drawn_for_today_from_the_configured_seed(
     result = World(at(12, 0, day=day)).invoke(["probe"], {**env, "HT_JITTER_SEED": seed})
 
     assert result.exit_code == 0, result.output
-    assert result.stdout.splitlines()[4] == line
+    assert result.stdout.splitlines()[5] == line
 
 
 def test_the_probe_never_shows_the_seed_of_the_draw(env: dict[str, str | None]) -> None:
@@ -604,11 +759,144 @@ def test_probe_with_the_calendar_down_is_degraded_but_exits_zero(
     assert "calendar: degraded" in result.stdout
 
 
+def test_probe_reads_the_absences_file_under_the_state_directory(
+    env: dict[str, str | None],
+) -> None:
+    absences = Path(env["HT_STATE_DIR"] or "") / "absences.json"
+    absences.parent.mkdir()
+    absences.write_text(
+        '{"last_issued": 1, "absences": [{"id": 1, "kind": "vacation", '
+        '"first_day": "2026-11-03", "last_day": "2026-11-14"}]}'
+    )
+
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    assert result.exit_code == 0, result.output
+    expected = f"absences: ok - 1 current or upcoming, next: vacation 03.11\u201314.11 ({absences})"
+    assert expected in result.stdout.splitlines()
+
+
+def test_probe_with_an_unreadable_absences_file_exits_one(env: dict[str, str | None]) -> None:
+    absences = Path(env["HT_STATE_DIR"] or "") / "absences.json"
+    absences.parent.mkdir()
+    absences.write_text("[]")
+
+    result = World(at(12, 0)).invoke(["probe"], env)
+
+    assert result.exit_code == 1
+    assert f"absences: failed - {absences}: " in result.stdout
+    assert "schedule: today 07:41 / 16:43" in result.stdout.splitlines()
+
+
+# --- the bot ----------------------------------------------------------------------------
+
+
+def owner_writes(update_id: int, text: str, chat_id: str = CHAT_ID) -> IncomingMessage:
+    return IncomingMessage(update_id=update_id, chat_id=chat_id, text=text)
+
+
+def absences_in(env: dict[str, str | None]) -> tuple[Absence, ...]:
+    return JsonAbsenceStore(Path(env["HT_STATE_DIR"] or "") / "absences.json").load().absences
+
+
+def test_the_bot_answers_the_owner_and_exits_zero_when_stopped(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/add vacation 03.11-14.11")])
+
+    result = world.invoke(["bot"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.bot.replies == [
+        (CHAT_ID, "Absence 1 entered: vacation from 03.11.2026 to 14.11.2026")
+    ]
+    assert "bot started" in result.stderr
+    assert "bot stopped" in result.stderr
+    assert result.stdout == ""
+
+
+def test_the_bot_keeps_the_absence_in_the_file_under_the_state_directory(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/add dayoff 20.11")])
+
+    world.invoke(["bot"], env)
+
+    assert absences_in(env) == (
+        Absence(1, AbsenceKind.DAY_OFF, date(2026, 11, 20), date(2026, 11, 20)),
+    )
+    probe = World(at(12, 0)).invoke(["probe"], env)
+    assert "absences: ok - 1 current or upcoming, next: day off taken 20.11" in probe.stdout
+
+
+def test_the_bot_serves_only_the_configured_chat(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/add vacation 03.11-14.11", chat_id="1000")])
+
+    result = world.invoke(["bot"], env)
+
+    assert result.exit_code == 0
+    assert world.bot.replies == []
+    assert absences_in(env) == ()
+    assert "chat 1000" in result.stderr
+    assert "/add" not in result.stderr
+
+
+def test_the_bot_replies_in_the_configured_language(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/list")])
+
+    world.invoke(["bot"], {**env, "HT_LANGUAGE": "ru"})
+
+    assert world.bot.replies == [(CHAT_ID, "Отсутствий не внесено")]
+
+
+def test_the_bot_starts_an_absence_tomorrow_once_the_configured_check_in_range_began(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(9, 0))
+    world.bot.deliver([owner_writes(1, "/add sick 21.10-23.10")])
+
+    world.invoke(["bot"], {**env, "HT_CHECKIN_RANGE": "09:00-09:30"})
+
+    [(_, text)] = world.bot.replies
+    assert text.splitlines() == [
+        "Absence 1 entered: sick leave from 22.10.2026 to 23.10.2026",
+        "Today's check-in range began at 09:00, so an absence starts tomorrow at the earliest; "
+        "this evening's check-out runs as usual",
+    ]
+
+
+def test_the_bot_rides_out_a_failed_poll(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.script(BotTransportError("getUpdates failed: ConnectError"))
+    world.bot.deliver([owner_writes(1, "/list")])
+
+    result = world.invoke(["bot"], env)
+
+    assert result.exit_code == 0
+    assert world.bot.replies == [(CHAT_ID, "No absences entered")]
+    assert world.clock.sleeps == [5.0]
+    assert "poll failed (BotTransportError)" in result.stderr
+
+
+def test_the_bot_never_prints_a_secret(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/list"), owner_writes(2, "/help", chat_id="1000")])
+
+    result = world.invoke(["bot"], env)
+
+    for secret in (PASSWORD, TOKEN, USERNAME):
+        assert secret not in result.output
+
+
 # --- configuration ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "args", [["checkin"], ["checkin", "--dry-run"], ["checkout", "--force"], ["probe"]]
+    "args", [["checkin"], ["checkin", "--dry-run"], ["checkout", "--force"], ["probe"], ["bot"]]
 )
 def test_a_missing_variable_is_named_and_exits_one(
     args: list[str], env: dict[str, str | None]
@@ -713,8 +1001,22 @@ def test_the_real_factory_builds_the_production_adapters(
         assert isinstance(adapters.notifier, TelegramNotifier)
         assert isinstance(adapters.horizon, PlaywrightHorizonClient)
         assert isinstance(adapters.artifacts, DirectoryArtifactStore)
+        assert isinstance(adapters.absences, JsonAbsenceStore)
+        assert isinstance(adapters.bot, TelegramBotTransport)
         assert "run_kind=checkout" in repr(adapters.horizon)
     assert requests_sent == []
+
+
+def test_the_bot_transport_refuses_a_malformed_token_as_configuration(
+    env: dict[str, str | None],
+) -> None:
+    settings = settings_from({**env, "TELEGRAM_BOT_TOKEN": "nonsense"})
+
+    with pytest.raises(ConfigError) as caught, httpx.Client() as http:
+        build_bot_transport(settings, http)
+
+    assert caught.value.variable == "TELEGRAM_BOT_TOKEN"
+    assert "nonsense" not in str(caught.value)
 
 
 def test_the_real_factory_refuses_a_malformed_token_as_configuration(
@@ -776,7 +1078,8 @@ def test_the_probe_reads_in_the_configured_language(env: dict[str, str | None]) 
     assert lines[3] == (
         f"браузер chrome: в порядке - Chrome 131.0.6778.85 запущен из {env['HT_CHROME_PATH']}"
     )
-    assert lines[4] == "расписание: сегодня 07:41 / 16:43"
+    assert lines[4] == f"отсутствия: в порядке - нет ({env['HT_STATE_DIR']}/absences.json)"
+    assert lines[5] == "расписание: сегодня 07:41 / 16:43"
 
 
 def test_a_failed_probe_check_reads_in_the_configured_language(
@@ -808,10 +1111,11 @@ def test_a_dry_run_reads_in_the_configured_language(env: dict[str, str | None]) 
         "  3. держать стол открытым 120 секунд, чтобы завершился вход в Windows",
         "  4. прочитать состояние сессии, затем отключиться (сессия Windows продолжает работать)",
         "  5. войти снова и убедиться, что сессия в состоянии DISCONNECTED",
-        "  6. ждать разыгранного момента 07:41, если запуск начат от 07:30; "
+        "  6. пропустить день, на который через бота внесено отсутствие, ещё до вопроса календарю",
+        "  7. ждать разыгранного момента 07:41, если запуск начат от 07:30; "
         "более ранний запуск пропускается как слишком ранний",
-        "  7. повторять неудачную попытку, до 3 попыток через 30 секунд, пока позволяет окно",
-        "  8. отправить один отчёт в Telegram",
+        "  8. повторять неудачную попытку, до 3 попыток через 30 секунд, пока позволяет окно",
+        "  9. отправить один отчёт в Telegram",
     ]
 
 

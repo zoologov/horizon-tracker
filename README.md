@@ -32,6 +32,16 @@ under systemd timers.
   from the desktop's menu, then confirms the session ended.
 - **Working days only.** Each run asks a production calendar (isdayoff.ru) whether
   today is a working day; when the calendar does not answer, Monday to Friday decides.
+- **Absences through the bot.** The owner enters a vacation, a sick leave or a day off by
+  writing to the same Telegram bot, with text commands: `/add vacation 03.11-14.11`
+  (or `/add отпуск 03.11-14.11`), `/list`, `/edit 1 05.11-16.11`, `/del 1`, `/help`. The
+  bot answers only the configured chat, in `HT_LANGUAGE`, and a run on a day an absence
+  covers is skipped without asking the calendar. An absence for today entered once today's
+  check-in range has begun starts tomorrow, because the morning may already have checked
+  in; the reply says so. The bot runs as its own service, `horizon-bot.service`, beside
+  the two timers, and keeps the absences in `HT_STATE_DIR/absences.json`
+  (`/opt/horizon-tracker/state` by default, outside the checkout, so they survive every
+  deploy and reboot).
 - **Moments drawn per date.** Each date draws a check-in moment inside
   `HT_CHECKIN_RANGE` and a check-out moment a session length later (plus up to a few
   minutes), clipped into `HT_CHECKOUT_RANGE`. The draw is deterministic for a date and
@@ -39,9 +49,11 @@ under systemd timers.
   at the start of each range and the run waits for its own moment.
 - **Notifications.** Every run sends one report through a Telegram bot: what happened,
   when, which calendar rule decided and why, with a screenshot of the step when there is
-  one. No report can carry a credential.
-- **Language.** `HT_LANGUAGE` picks the language of the notification, `horizon probe`,
-  a dry run and a configuration error: `en` (the default) or `ru`. Logs stay English.
+  one. A skipped day (a weekend, a holiday or an absence) is one notice from the morning
+  run, with no time line, and the evening run of that day sends nothing. No report can
+  carry a credential.
+- **Language.** `HT_LANGUAGE` picks the language of the notification, the bot's replies,
+  `horizon probe`, a dry run and a configuration error: `en` (the default) or `ru`. Logs stay English.
 
 ## What it is made of
 
@@ -54,18 +66,19 @@ cases. Dependencies point inward only (`cli` → `infrastructure`/`application` 
 
 | Path | What lives there |
 |------|------------------|
-| `src/horizon_tracker/domain/` | pure decision cores: the daily draw of the moments and the run windows, working-day verdicts, session state, the run report, the message catalogue, ports |
-| `src/horizon_tracker/application/` | use cases: morning check-in, evening check-out, the shared run loop, the probe and the dry run |
-| `src/horizon_tracker/infrastructure/` | adapters: Playwright driver, isdayoff.ru calendar, Telegram notifier, env config, system clock, artifact store |
+| `src/horizon_tracker/domain/` | pure decision cores: the daily draw of the moments and the run windows, working-day verdicts, session state, the owner's absences, the bot's command parser, the run report, the message catalogue, ports |
+| `src/horizon_tracker/application/` | use cases: morning check-in, evening check-out, the shared run loop, the probe and the dry run, the absence service and the bot loop |
+| `src/horizon_tracker/infrastructure/` | adapters: Playwright driver, isdayoff.ru calendar, Telegram notifier, Telegram bot transport, absence store, env config, system clock, artifact store |
 | `src/horizon_tracker/cli.py` | the `horizon` command, composition root |
 | `docs/` | AS-IS documentation held against the code by `beadloom sync-check` |
 | `.beadloom/` | architecture graph, rules and the agentic flow configuration |
 
 Outside the package, the service is bound to six external systems: the Horizon portal (the
 HTML Access web client and its connection broker), the isdayoff.ru production calendar, the
-Telegram Bot API, the owner's Telegram chat the reports go to, the VPS host (the `horizon`
-user, its `.env` and the systemd units) and the GitHub Environment `horizon-vps`, which the
-deploy turns into the host's `.env`. Each is a node of the architecture graph. Its contracts
+Telegram Bot API, the owner's Telegram chat the reports go to and the bot's commands come
+from, the VPS host (the `horizon` user, its `.env`, the state directory and the systemd
+units) and the GitHub Environment `horizon-vps`, which the deploy turns into the host's
+`.env`. Each is a node of the architecture graph. Its contracts
 are declared in `.beadloom/_graph/landscape.yml`, and the surface of each is written out in
 `docs/domains/external/<node>/SPEC.md`. The portal's
 [landscape page](https://zoologov.github.io/horizon-tracker/landscape.html) draws them as a
@@ -77,7 +90,8 @@ verdicts rest on.
 To run the service, a host needs:
 
 - Ubuntu (or another apt-based distribution) with systemd, reachable over SSH: the service
-  runs as two systemd timers and their oneshot services;
+  runs as two systemd timers and their oneshot services, and the bot as one long-running
+  service, `horizon-bot.service`, which the first deploy enables;
 - Python 3.12 (`python3.12`, `python3.12-venv`) and `uv` at `/usr/local/bin/uv`;
 - Google Chrome at `/usr/bin/google-chrome`, installed from Google's `.deb` and not the snap
   (another path is set with `HT_CHROME_PATH`): Playwright drives the system Chrome;
@@ -103,7 +117,7 @@ uv sync --all-extras
 uv run playwright install chromium    # the browser the adapter tests drive
 # export the variables of the Configuration section below; the command reads the
 # environment and loads no .env file itself (set HT_CHROME_PATH to your Chrome)
-uv run horizon probe                  # settings, portal, calendar, Chrome; never logs in
+uv run horizon probe                  # settings, portal, calendar, Chrome, absences; never logs in
 uv run horizon checkin --dry-run      # the plan of a run, without touching the portal
 ```
 
@@ -112,7 +126,8 @@ uv run horizon checkin --dry-run      # the plan of a run, without touching the 
 
 1. prepare the host once with `deploy/bootstrap.sh` (section 2);
 2. create the GitHub Environment `horizon-vps` with its secrets and variables (section 3);
-3. let the first release tag deploy, which writes `.env` and installs the units (section 4.1);
+3. let the first release tag deploy, which writes `.env`, installs the units and starts the
+   bot, which answers from then on while the timers stay off (section 4.1);
 4. run `horizon probe` on the host (section 4.3), then a check-in and a check-out by hand
    with `--force` (section 4.4);
 5. enable the timers (section 5).
@@ -141,11 +156,12 @@ HT_WINDOW_GRACE_MINUTES=5            # how long a run's window stays open [5]
 HT_JITTER_SEED=...                   # seed of the daily draw [HORIZON_USERNAME]
 HT_HOLD_SECONDS=120                  # how long the opened desktop is held [120]
 HT_LANGUAGE=en                       # en or ru [en]
+HT_STATE_DIR=/opt/horizon-tracker/state  # where absences.json lives [/opt/horizon-tracker/state]
 ```
 
 The full list, with every check a value must pass, is in
 `docs/domains/infrastructure/features/settings/SPEC.md`. `horizon probe` checks the
-settings, the portal, the calendar and Chrome without logging in, and prints the day's
+settings, the portal, the calendar, Chrome and the absences file without logging in, and prints the day's
 drawn moments; `horizon checkin --dry-run` prints the plan of a run without touching the
 portal.
 

@@ -7,6 +7,7 @@ from collections.abc import Mapping, MutableMapping
 
 import pytest
 
+from horizon_tracker.domain.absence import AbsenceKind
 from horizon_tracker.domain.messages import (
     DEFAULT_LANGUAGE,
     MESSAGES,
@@ -245,3 +246,72 @@ def test_the_latin_probe_skips_fields_and_variable_names() -> None:
 def test_a_russian_refusal_names_nothing_in_english(key: str) -> None:
     # PRD US-2: no line falls into another language; only identifiers and values stay.
     assert _latin_outside_fields_and_variables(MESSAGES[key][Language.RU]) == ""
+
+
+# --- the bot's texts (HT-012) ---------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", list(AbsenceKind))
+def test_every_absence_kind_has_a_name_for_the_bots_replies(kind: AbsenceKind) -> None:
+    assert f"bot.kind.{kind.value}" in MESSAGES
+
+
+def _vacation_reply(key: str, days: Message) -> Message:
+    return Message(key, {"id": 4, "kind": Message("bot.kind.vacation"), "days": days})
+
+
+_SPAN = Message("bot.days.span", {"first": "03.11.2026", "last": "14.11.2026"})
+_ONE_DAY = Message("bot.days.single", {"day": "05.11.2026"})
+
+
+@pytest.mark.parametrize(
+    ("key", "days", "language", "expected"),
+    [
+        (
+            "bot.added",
+            _SPAN,
+            Language.EN,
+            "Absence 4 entered: vacation from 03.11.2026 to 14.11.2026",
+        ),
+        (
+            "bot.added",
+            _SPAN,
+            Language.RU,
+            "Отсутствие 4 внесено: отпуск, дни 03.11.2026–14.11.2026",
+        ),
+        ("bot.edited", _ONE_DAY, Language.EN, "Absence 4 changed: vacation on 05.11.2026"),
+        ("bot.edited", _ONE_DAY, Language.RU, "Отсутствие 4 изменено: отпуск, день 05.11.2026"),
+        (
+            "bot.deleted",
+            _SPAN,
+            Language.EN,
+            "Absence 4 deleted: vacation from 03.11.2026 to 14.11.2026",
+        ),
+        ("bot.list.item", _ONE_DAY, Language.RU, "Отсутствие 4: отпуск, день 05.11.2026"),
+    ],
+)
+def test_a_bot_reply_names_the_id_the_kind_and_the_full_dates(
+    key: str, days: Message, language: Language, expected: str
+) -> None:
+    assert _vacation_reply(key, days).in_language(language) == expected
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_the_help_names_every_command(language: Language) -> None:
+    help_text = text("bot.help", language)
+
+    for command in ("/add", "/list", "/edit", "/del", "/help"):
+        assert command in help_text
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        (Language.EN, "Not a date '3/11': expected 03.11, 03.11.2026 or 2026-11-03;"),
+        (Language.RU, "Это не дата '3/11': ожидается 03.11, 03.11.2026 или 2026-11-03;"),
+    ],
+)
+def test_a_malformed_date_names_the_expected_format(language: Language, expected: str) -> None:
+    refusal = Message("bot.error.malformed_date", {"text": "3/11"})
+
+    assert refusal.in_language(language).startswith(expected)

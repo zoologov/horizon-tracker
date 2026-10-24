@@ -1,8 +1,9 @@
 # Probe and dry run
 
 Checks whether the service could run, without ever logging in: `Probe` asks the portal
-for its client bundles, the calendar for today and Chrome for its version, and names the
-day's drawn moments; `DryRun` plans the run a use case would make.
+for its client bundles, the calendar for today, Chrome for its version and the absences
+file for what it holds, and names the day's drawn moments; `DryRun` plans the run a use
+case would make.
 
 ## Source
 
@@ -29,6 +30,7 @@ English texts:
 | `portal` | which HTML Access client bundles does the portal serve? (`HorizonClient.client_bundles()`) | `client bundles: <names>` | `failed`, `no answer: <reason>` |
 | `calendar` | is today a working day? (`WorkingDayCalendar.is_working_day`) | `isdayoff.ru: <date> is a working day` or `... is a day off` | `degraded`, `isdayoff.ru did not answer for <date>; runs fall back to the Mon-Fri rule` |
 | `chrome` | is Chrome at the configured path, and does it start? (`file_exists`, then `HorizonClient.browser_version()`) | `Chrome <version> started from <path>` | `failed`, `not found at <path>` or `found at <path> but did not start: <reason>` |
+| `absences` | can the absences file be read, and what does it hold? (`AbsenceStore.load()`) | `none (<path>)`, `<n> current or upcoming[, <m> finished], none ahead (<path>)` or `<n> current or upcoming[, <m> finished], next: vacation 03.11–14.11 (<path>)` | `failed`, `<path>: <reason>` |
 | `schedule` | when do today's runs fall? (the `moments` the probe is given) | `today HH:MM / HH:MM`, the check-in and the check-out moment | never anything but `ok` |
 
 The probe reads no portal version. It names the bundle files as the portal serves them in
@@ -45,6 +47,24 @@ system libraries) is named separately from a missing one.
 
 An unreachable calendar degrades the probe rather than failing it, because a run falls
 back to the Monday-Friday rule. `ProbeReport.ok` is true unless a check `FAILED`.
+
+The `absences` check loads the store once. `<n>` counts the absences whose last day is
+today or later (`not_over`, `application/absence_service.py`), the ones `/list` names.
+`, <m> finished` follows when the store also holds absences that ended before today:
+they stay in the store and are counted, never named (`probe.absences.held` or
+`probe.absences.held_and_finished` fills the line's `{held}` field). An empty store reads
+`none (<path>)`, and a store of finished absences only reads `0 current or upcoming, <m>
+finished, none ahead (<path>)`. The next absence is `next_after(absences, today)`
+(`domain/absence.py`) over the absences not over: the
+earliest that starts after today, so an absence under way is counted and never named as
+next. Its kind reads as the run notification's reason phrase (`reason.on_vacation`, ...)
+and its days as `absence_span` (`domain/report.py`), the span the notice gives it: one day
+as `05.11`, a range as `03.11–14.11`. `<path>` on an `ok` line is the `absences_file` the
+probe was given. A store that raises `AbsenceStoreError` fails the check with the error's
+own `path` and `detail`, the store's short technical English (`not valid JSON: ...`,
+`cannot be read: PermissionError`), which stays English in the Russian text too:
+`<path>: не прочитан: <reason>`. A failed `absences` check fails the probe, because the
+owner's absences are then unknown. The probe never writes the file.
 
 The `schedule` check is a fact to read, not a dependency's health, so it is always `ok`.
 It comes last and only when the probe is given the day's moments. The composition root
@@ -78,6 +98,7 @@ creates a probe or a dry run only for a configuration `Settings.from_env` accept
 - The probe runs every check once, whatever the others answered.
 - The probe starts Chrome only after the file was found at the configured path.
 - A degraded calendar never makes the probe fail.
+- The probe reads the absences file once and never writes it.
 - The probe and the dry run never draw the moments themselves: they name the pair the
   composition root drew, so they cannot disagree with a run of the same day.
 - The dry run sends no report and reads its decision and steps from the use case and its
@@ -98,9 +119,10 @@ Module `src/horizon_tracker/application/probe.py`:
   where the check is made. The CLI shows `label` and `status_label`.
 - `ProbeReport(checks: tuple[Check, ...])` — frozen; `ok -> bool` property.
 - `Probe(client: HorizonClient, calendar: WorkingDayCalendar, clock: Clock, chrome_path:
-  Path, file_exists: Callable[[Path], bool], moments: DailyMoments | None = None)` —
-  frozen; `run() -> ProbeReport` with the checks `portal`, `calendar`, `chrome` in that
-  order, then, when `moments` is given, `schedule` (`ok`, detail
+  Path, file_exists: Callable[[Path], bool], absences: AbsenceStore, absences_file: Path,
+  moments: DailyMoments | None = None)` — frozen; `run() -> ProbeReport` with the checks
+  `portal`, `calendar`, `chrome`, `absences` in that order, then, when `moments` is given,
+  `schedule` (`ok`, detail
   `schedule_detail(moments)`). The probe never draws the moments; the composition root
   does.
 - `schedule_detail(moments: DailyMoments) -> Message` — today's drawn pair, key
@@ -116,7 +138,9 @@ Module `src/horizon_tracker/application/probe.py`:
 
 The CLI builds `Probe` with `chrome_path=settings.chrome_path` and
 `file_exists=Path.is_file`; the Horizon client takes its Chrome path from the same
-setting.
+setting. It passes `absences=adapters.absences`, the `JsonAbsenceStore(settings.absences_file)`
+that `open_adapters` builds for every command, and `absences_file=settings.absences_file`,
+the file under `HT_STATE_DIR`.
 
 ## Testing
 
@@ -125,6 +149,9 @@ Tests: `tests/unit/application/test_probe.py`, `tests/unit/test_cli.py`.
 Scenarios (`tests/acceptance/features/checks_without_login.feature`):
 
 - `Probe reports the portal version without logging in`
+- `Probe names the absences entered and the next one ahead`
+- `Probe with no absences entered names the file it reads`
+- `A malformed absences file fails the probe and names the file`
 - `A dry run walks the plan and performs no login`
 
 Scenarios that read the `schedule:` line (`tests/acceptance/features/randomised_moments.feature`):
@@ -143,7 +170,8 @@ Scenarios that read the probe and the dry run in a language
 
 Derived from the imports on reindex.
 
-- Depends on: `messages`, `ports`, `schedule`, `windowed-run`, `working-day-calendar`
+- Depends on: `absence`, `absence-service` (`not_over`), `messages`, `ports`, `run-report`,
+  `schedule`, `windowed-run`, `working-day-calendar`
 - Used by: `cli`
 
 ## Parent

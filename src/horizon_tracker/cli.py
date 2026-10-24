@@ -5,7 +5,9 @@ today's check-in and check-out moments from the settings, waits for its own mome
 timer fired earlier in the range, and may run in the window that opens there. ``--force``
 ignores the window, the wait and the calendar (a manual run from the VPS), ``--dry-run``
 names the plan and the day's moments and never logs in. ``horizon probe`` asks every
-dependency whether a run could go ahead and names the day's moments last.
+dependency whether a run could go ahead and names the day's moments last. ``horizon bot``
+answers the owner's absence commands in the bot chat until it is stopped (systemd keeps
+it running as ``horizon-bot.service``); a stop with Ctrl-C exits 0.
 
 Settings come from the environment; a missing or malformed variable is named on stderr
 and the command exits 1 before anything is built. What a person reads -- the plan, the
@@ -37,6 +39,8 @@ import httpx
 
 from horizon_tracker import __version__
 from horizon_tracker.application import EveningCheckout, MorningCheckin, WindowedRun
+from horizon_tracker.application.absence_service import AbsenceService
+from horizon_tracker.application.bot_loop import BotLoop
 from horizon_tracker.application.probe import (
     Check,
     DryRun,
@@ -48,7 +52,9 @@ from horizon_tracker.application.probe import (
 from horizon_tracker.domain.calendar import VerdictSource
 from horizon_tracker.domain.messages import DEFAULT_LANGUAGE, Language, Message, text
 from horizon_tracker.domain.ports import (
+    AbsenceStore,
     ArtifactStore,
+    BotTransport,
     Clock,
     HorizonClient,
     Notifier,
@@ -57,18 +63,21 @@ from horizon_tracker.domain.ports import (
 from horizon_tracker.domain.report import Outcome
 from horizon_tracker.domain.schedule import (
     DailyMoments,
+    Decision,
     RetryPolicy,
     RunKind,
     TimeRange,
     draw_moments,
     window_from,
 )
+from horizon_tracker.infrastructure.absence_store import JsonAbsenceStore
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
 from horizon_tracker.infrastructure.config import ConfigError, Settings, language_from_env
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
+from horizon_tracker.infrastructure.telegram_bot import TelegramBotTransport
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +91,8 @@ RETRY_POLICY = RetryPolicy(max_attempts=3, backoff=timedelta(seconds=30))
 
 # The probe never screenshots, but the Horizon adapter is built for one kind of run.
 _PROBE_RUN_KIND = RunKind.CHECKIN
+# The bot never touches Horizon at all; the adapters are still built for one kind of run.
+_BOT_RUN_KIND = RunKind.CHECKIN
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _PACKAGE_LOGGER = "horizon_tracker"
@@ -97,6 +108,7 @@ _SOURCE_KEY = {
     VerdictSource.WEEKDAY_FALLBACK: "plan.source.weekday_fallback",
     None: "plan.source.not_asked",
 }
+_ABSENT_SOURCE_KEY = "plan.source.absent"
 
 
 class PrunableArtifactStore(ArtifactStore, Protocol):
@@ -109,13 +121,19 @@ class PrunableArtifactStore(ArtifactStore, Protocol):
 
 @dataclass(frozen=True)
 class Adapters:
-    """The ports one command runs over, built for one run kind."""
+    """The ports one command runs over, built for one run kind.
+
+    Every command gets every port, and none opens a connection until it is used: the bot
+    transport of a run and the browser of the bot are built and never called.
+    """
 
     clock: Clock
     calendar: WorkingDayCalendar
     notifier: Notifier
     horizon: HorizonClient
     artifacts: PrunableArtifactStore
+    absences: AbsenceStore
+    bot: BotTransport
 
 
 AdapterFactory = Callable[[Settings, RunKind], AbstractContextManager[Adapters]]
@@ -125,13 +143,17 @@ AdapterFactory = Callable[[Settings, RunKind], AbstractContextManager[Adapters]]
 def open_adapters(settings: Settings, kind: RunKind) -> Iterator[Adapters]:
     """Build the production adapters; close the HTTP client and the browser on exit.
 
-    The calendar and the notifier share one HTTP client. Building opens no connection:
-    the browser starts on the first Horizon call, the HTTP client on the first request.
+    The calendar, the notifier and the bot transport share one HTTP client; the bot's
+    long poll sets its own longer timeout per request. Building opens no connection: the
+    browser starts on the first Horizon call, the HTTP client on the first request, and
+    the absences file is read on the first load.
     """
     clock = SystemClock(settings.timezone)
     artifacts = DirectoryArtifactStore(settings.artifacts_dir, clock)
+    absences = JsonAbsenceStore(settings.absences_file)
     with httpx.Client() as http:
         notifier = build_notifier(settings, http)
+        bot = build_bot_transport(settings, http)
         horizon = PlaywrightHorizonClient(
             horizon_url=settings.horizon_url,
             username=settings.username,
@@ -141,7 +163,9 @@ def open_adapters(settings: Settings, kind: RunKind) -> Iterator[Adapters]:
             run_kind=kind,
         )
         with horizon:
-            yield Adapters(clock, IsDayOffCalendar(http), notifier, horizon, artifacts)
+            yield Adapters(
+                clock, IsDayOffCalendar(http), notifier, horizon, artifacts, absences, bot
+            )
 
 
 def build_notifier(settings: Settings, http: httpx.Client) -> TelegramNotifier:
@@ -153,6 +177,15 @@ def build_notifier(settings: Settings, http: httpx.Client) -> TelegramNotifier:
     except ValueError as error:
         # The adapter's message never echoes the token; Settings has already refused a
         # blank chat id, so the token is the only value this constructor can refuse.
+        raise ConfigError("TELEGRAM_BOT_TOKEN", Message("config.malformed_token")) from error
+
+
+def build_bot_transport(settings: Settings, http: httpx.Client) -> TelegramBotTransport:
+    """The bot's Telegram transport; a refused token is a config error, as for the notifier."""
+    try:
+        return TelegramBotTransport(settings.telegram_token, http)
+    except ValueError as error:
+        # The adapter's message never echoes the token.
         raise ConfigError("TELEGRAM_BOT_TOKEN", Message("config.malformed_token")) from error
 
 
@@ -197,6 +230,13 @@ def checkout(ctx: click.Context, dry_run: bool, force: bool) -> None:
 def probe(ctx: click.Context) -> None:
     """Check the settings, the portal, the calendar and Chrome without logging in."""
     ctx.exit(_guarded(lambda: _probe(ctx.obj)))
+
+
+@main.command()
+@click.pass_context
+def bot(ctx: click.Context) -> None:
+    """Answer the owner's absence commands in the bot chat until stopped."""
+    ctx.exit(_guarded(lambda: _bot(ctx.obj)))
 
 
 def _guarded(command: Callable[[], int]) -> int:
@@ -277,6 +317,9 @@ def _use_case(
         policy=RETRY_POLICY,
         moment=moment,
         range_start=_draw_range(settings, kind).start,
+        absences=adapters.absences,
+        # The owner's ruling (HT-012): the morning reports a skipped day, the evening is silent.
+        notify_day_skips=kind is RunKind.CHECKIN,
     )
     if kind is RunKind.CHECKIN:
         return MorningCheckin(
@@ -294,10 +337,28 @@ def _probe(factory: AdapterFactory) -> int:
             clock=adapters.clock,
             chrome_path=settings.chrome_path,
             file_exists=Path.is_file,
+            absences=adapters.absences,
+            absences_file=settings.absences_file,
             moments=_todays_moments(settings, adapters.clock),
         ).run()
     _echo_probe(settings, report)
     return EXIT_OK if report.ok else EXIT_FAILED
+
+
+def _bot(factory: AdapterFactory) -> int:
+    """Serve the owner's chat until the process is stopped; Ctrl-C is a clean stop."""
+    settings = Settings.from_env(os.environ)
+    with factory(settings, _BOT_RUN_KIND) as adapters:
+        service = AbsenceService(adapters.absences, adapters.clock, settings.checkin_range)
+        loop = BotLoop(
+            adapters.bot, service, settings.telegram_chat_id, settings.language, adapters.clock
+        )
+        logger.info("bot started: answering one chat, absences in %s", settings.absences_file)
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            logger.info("bot stopped")
+    return EXIT_OK
 
 
 def _draw_range(settings: Settings, kind: RunKind) -> TimeRange:
@@ -323,7 +384,7 @@ def _echo_plan(plan: RunPlan, language: Language) -> None:
     )
     if plan.waits_until is not None:
         click.echo(text("plan.waits_until", language, moment=f"{plan.waits_until:%H:%M}"))
-    source = text(_SOURCE_KEY[plan.verdict_source], language)
+    source = text(_source_key(plan), language)
     click.echo(text("plan.calendar", language, source=source))
     if plan.moments is not None:
         detail = schedule_detail(plan.moments).in_language(language)
@@ -331,6 +392,13 @@ def _echo_plan(plan: RunPlan, language: Language) -> None:
     click.echo(text("plan.steps", language))
     for number, step in enumerate(plan.steps, start=1):
         click.echo(f"  {number}. {step.in_language(language)}")
+
+
+def _source_key(plan: RunPlan) -> str:
+    """The key of the plan's calendar line: an absence day asks no calendar, as a forced run."""
+    if plan.decision is Decision.SKIP_ABSENT:
+        return _ABSENT_SOURCE_KEY
+    return _SOURCE_KEY[plan.verdict_source]
 
 
 def _echo_probe(settings: Settings, report: ProbeReport) -> None:

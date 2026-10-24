@@ -15,7 +15,13 @@ from horizon_tracker.domain.ports import HorizonClientError
 from horizon_tracker.domain.report import Outcome, Reason, RunReport, render
 from horizon_tracker.domain.schedule import RetryPolicy, RunKind, Window
 from horizon_tracker.domain.session import SessionState
-from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
+from tests.support.fakes import (
+    FakeAbsenceStore,
+    FakeCalendar,
+    FakeClock,
+    FakeHorizonClient,
+    FakeNotifier,
+)
 
 MSK = ZoneInfo("Europe/Moscow")
 WEDNESDAY = date(2026, 10, 21)
@@ -61,6 +67,7 @@ class Morning:
             notifier=self.notifier,
             window=Window(start=time(7, 55), end=time(8, 0)),
             policy=POLICY,
+            absences=FakeAbsenceStore(),
         )
         self.checkin = MorningCheckin(
             client=self.client, clock=self.clock, runner=runner, desktop=DESKTOP, hold=HOLD

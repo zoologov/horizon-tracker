@@ -10,7 +10,8 @@ name: Release
 #                ::error name the check.
 #   2. gate    - the full CI (ci.yml through workflow_call) on the tag's commit: what
 #                reaches the VPS passed what a pull request passes.
-#   3. deploy  - the tag's commit on the VPS: code, dependencies, .env, systemd units, then
+#   3. deploy  - the tag's commit on the VPS: code, dependencies, .env, systemd units (the
+#                bot enabled and restarted, a timer restarted only when enabled), then
 #                `horizon probe` as a smoke whose exit code is the job's. The operator's view
 #                of the same sequence is docs/guides/deployment.md.
 #   4. publish - the wheel and the sdist built from the tag's commit, and the GitHub Release
@@ -451,15 +452,22 @@ jobs:
         # try-restart, not restart: it restarts a timer only if it is already active, so
         # a deploy never switches the schedule on before the operator's first manual run
         # (docs/guides/deployment.md, "Enabling the timers").
+        # The bot touches no portal, so it runs from the first deploy on: try-restart moves
+        # a running bot onto the code and the .env just written, and enable --now starts it
+        # at the first deploy (and at every boot) while leaving a running one as it is.
+        # It is the bot's only getUpdates caller. The smoke below reads the same settings.
         run: |
           set -euo pipefail
           ssh vps "set -e; \
             for unit in horizon-checkin.service horizon-checkin.timer \
-                        horizon-checkout.service horizon-checkout.timer; do \
+                        horizon-checkout.service horizon-checkout.timer \
+                        horizon-bot.service; do \
               install -m 0644 /opt/horizon-tracker/deploy/\$unit /etc/systemd/system/\$unit; \
             done; \
             systemctl daemon-reload; \
             systemctl try-restart horizon-checkin.timer horizon-checkout.timer; \
+            systemctl try-restart horizon-bot.service; \
+            systemctl enable --now horizon-bot.service; \
             systemctl list-timers 'horizon-*' --all --no-pager"
 
       - name: "Smoke: horizon probe"
@@ -478,7 +486,11 @@ jobs:
 
       - name: Deploy summary
         # Also after a red deploy: which release and commit were meant, what the probe said
-        # if it ran, and the timers as the VPS has them now.
+        # if it ran, and the timers and the bot as the VPS has them now. The bot's status
+        # is shown without its journal lines (--lines=0): the summary is as readable as the
+        # repository's runs, and the journal names the chats that wrote to the bot. Its exit
+        # code is printed, not returned: 3 is an inactive bot, which the summary reports and
+        # does not judge, while an ssh that cannot reach the host still fails the step.
         if: ${{ !cancelled() }}
         env:
           DEPLOY_SHA: ${{ needs.verify.outputs.sha }}
@@ -507,6 +519,12 @@ jobs:
             echo
             echo '```text'
             ssh vps "systemctl list-timers 'horizon-*' --all --no-pager"
+            echo '```'
+            echo
+            echo "#### horizon-bot.service"
+            echo
+            echo '```text'
+            ssh vps "systemctl status horizon-bot.service --no-pager --lines=0; echo \"exit code \$?\""
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

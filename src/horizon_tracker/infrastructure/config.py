@@ -2,6 +2,7 @@
 
 Credentials have no defaults: a missing or blank one raises ``ConfigError`` naming the
 variable, never its value. Everything else falls back to the documented default. The
+state directory ``HT_STATE_DIR`` holds the absences file, outside the checkout. The
 ranges and durations of the daily draw are checked at load by the domain's own rules,
 so a bad ``.env`` fails at start rather than at 07:30. A variable this service no longer
 reads (``HT_CHECKIN_WINDOW``, ``HT_CHECKOUT_WINDOW``) is refused by name, so a stale
@@ -51,6 +52,8 @@ DEFAULT_WINDOW_GRACE_MINUTES = "5"
 DEFAULT_HOLD_SECONDS = "120"
 DEFAULT_CHROME_PATH = "/usr/bin/google-chrome"
 DEFAULT_ARTIFACTS_DIR = "/opt/horizon-tracker/artifacts"
+DEFAULT_STATE_DIR = "/opt/horizon-tracker/state"
+ABSENCES_FILE_NAME = "absences.json"
 
 # Variables an older release read, and the hint that replaces each.
 _RETIRED = {
@@ -119,6 +122,7 @@ class Settings:
     hold_seconds: int
     chrome_path: Path
     artifacts_dir: Path
+    state_dir: Path
     language: Language
 
     @classmethod
@@ -152,8 +156,14 @@ class Settings:
             hold_seconds=_hold_seconds(environ, "HT_HOLD_SECONDS"),
             chrome_path=Path(_optional(environ, "HT_CHROME_PATH", DEFAULT_CHROME_PATH)),
             artifacts_dir=Path(_optional(environ, "HT_ARTIFACTS_DIR", DEFAULT_ARTIFACTS_DIR)),
+            state_dir=Path(_optional(environ, "HT_STATE_DIR", DEFAULT_STATE_DIR)),
             language=language_from_env(environ),
         )
+
+    @property
+    def absences_file(self) -> Path:
+        """The file the owner's absences are kept in, inside the state directory."""
+        return self.state_dir / ABSENCES_FILE_NAME
 
     def __repr__(self) -> str:
         shown = (

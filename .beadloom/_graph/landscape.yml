@@ -36,7 +36,7 @@ nodes:
   - ref_id: telegram-bot-api
     kind: service
     lifecycle: external
-    summary: "The Telegram Bot API: the sendMessage and sendPhoto methods the notifier posts to, the bot token in the path of every URL"
+    summary: "The Telegram Bot API: the sendMessage and sendPhoto methods the notifier posts to, the getUpdates long poll and sendMessage replies of the bot transport, the bot token in the path of every URL"
     source: docs/domains/external/telegram-bot-api/SPEC.md
     docs:
       - docs/domains/external/telegram-bot-api/SPEC.md
@@ -44,7 +44,7 @@ nodes:
   - ref_id: owner-chat
     kind: service
     lifecycle: external
-    summary: "The owner's private Telegram chat: the reader of every run report, in the language HT_LANGUAGE names"
+    summary: "The owner's private Telegram chat: the reader of every run report, in the language HT_LANGUAGE names, and the writer of the text commands the bot takes"
     source: docs/domains/external/owner-chat/SPEC.md
     docs:
       - docs/domains/external/owner-chat/SPEC.md
@@ -52,7 +52,7 @@ nodes:
   - ref_id: vps-host
     kind: service
     lifecycle: external
-    summary: "The VPS the service runs on: the horizon user and its home, the .env systemd reads, the four units, the artifacts directory"
+    summary: "The VPS the service runs on: the horizon user and its home, the .env systemd reads, the five units, the artifacts directory and the state directory that holds absences.json"
     source: docs/domains/external/vps-host/SPEC.md
     docs:
       - docs/domains/external/vps-host/SPEC.md
@@ -84,15 +84,26 @@ edges:
   - { src: isdayoff, dst: isdayoff-calendar, kind: produces, contract: { protocol: http, name: isdayoff-day } }
   - { src: isdayoff-calendar, dst: isdayoff, kind: consumes, contract: { protocol: http, name: isdayoff-day } }
 
-  # http:telegram-sendMessage and http:telegram-sendPhoto: the two Bot API methods.
+  # http:telegram-sendMessage and http:telegram-sendPhoto: the notifier's two Bot API methods.
   - { src: telegram-bot-api, dst: telegram-notifier, kind: produces, contract: { protocol: http, name: telegram-sendMessage } }
   - { src: telegram-notifier, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendMessage } }
   - { src: telegram-bot-api, dst: telegram-notifier, kind: produces, contract: { protocol: http, name: telegram-sendPhoto } }
   - { src: telegram-notifier, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendPhoto } }
 
+  # http:telegram-getUpdates: the bot transport's long poll for the owner's text messages.
+  - { src: telegram-bot-api, dst: telegram-bot, kind: produces, contract: { protocol: http, name: telegram-getUpdates } }
+  - { src: telegram-bot, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-getUpdates } }
+  # The bot's replies go out through the same sendMessage the notifier posts to.
+  - { src: telegram-bot-api, dst: telegram-bot, kind: produces, contract: { protocol: http, name: telegram-sendMessage } }
+  - { src: telegram-bot, dst: telegram-bot-api, kind: consumes, contract: { protocol: http, name: telegram-sendMessage } }
+
   # notification:run-report: the text the owner reads (HT-012 changes it).
   - { src: telegram-notifier, dst: owner-chat, kind: produces, contract: { protocol: notification, name: run-report } }
   - { src: owner-chat, dst: telegram-notifier, kind: consumes, contract: { protocol: notification, name: run-report } }
+
+  # command:bot-text: the owner's text commands to the bot (HT-012), read by the parser.
+  - { src: owner-chat, dst: bot-commands, kind: produces, contract: { protocol: command, name: bot-text } }
+  - { src: bot-commands, dst: owner-chat, kind: consumes, contract: { protocol: command, name: bot-text } }
 
   # env:dot-env: every variable of /opt/horizon-tracker/.env the settings read.
   - { src: vps-host, dst: settings, kind: produces, contract: { protocol: env, name: dot-env } }
@@ -102,6 +113,10 @@ edges:
   - { src: github-environment, dst: vps-host, kind: produces, contract: { protocol: env, name: github-environment } }
   - { src: vps-host, dst: github-environment, kind: consumes, contract: { protocol: env, name: github-environment } }
 
-  # systemd:units: the two timers and the two oneshot services that start `horizon`.
+  # file:absences: HT_STATE_DIR/absences.json, the absences the bot writes and the runs read.
+  - { src: vps-host, dst: absence-store, kind: produces, contract: { protocol: file, name: absences } }
+  - { src: absence-store, dst: vps-host, kind: consumes, contract: { protocol: file, name: absences } }
+
+  # systemd:units: the two timers and the two oneshot services that start `horizon`, and the bot's service.
   - { src: vps-host, dst: cli, kind: produces, contract: { protocol: systemd, name: units } }
   - { src: cli, dst: vps-host, kind: consumes, contract: { protocol: systemd, name: units } }

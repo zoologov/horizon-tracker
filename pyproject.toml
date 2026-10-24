@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "horizon-tracker"
-version = "1.0.1"
+version = "1.1.0"
 description = "Scheduled check-in and check-out of a VMware Horizon VDI desktop at moments drawn inside configured ranges, reported to Telegram"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,6 +39,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "W", "C4", "SIM", "RUF"]
+# The en dash is the owner's own text in the notice ("Mon–Fri", "03.11–14.11", PRD HT-012),
+# not a hyphen look-alike; every other confusable stays reported.
+allowed-confusables = ["–"]
 
 [tool.mypy]
 python_version = "3.12"

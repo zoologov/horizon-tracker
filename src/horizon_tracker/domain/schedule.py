@@ -58,13 +58,18 @@ class RunKind(StrEnum):
 
 
 class Decision(StrEnum):
-    """What a run attempt should do now."""
+    """What a run attempt should do now.
+
+    ``decide`` never answers ``SKIP_ABSENT``: the run loop takes it from the owner's
+    absences before ``decide`` is asked, as it does before the calendar is.
+    """
 
     RUN = "run"
     RETRY = "retry"
     SKIP_EARLY = "skip_early"
     SKIP_LATE = "skip_late"
     SKIP_NON_WORKING_DAY = "skip_non_working_day"
+    SKIP_ABSENT = "skip_absent"
     GIVE_UP = "give_up"
 
 

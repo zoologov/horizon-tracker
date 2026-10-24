@@ -79,6 +79,8 @@ RETIRED = ("HT_CHECKIN_WINDOW", "HT_CHECKOUT_WINDOW")
 SEED_STAND_IN = ' seed "q" $X `id` \\ é '
 UNITS = sorted(p.name for p in (ROOT / "deploy").iterdir() if p.suffix in {".service", ".timer"})
 TIMERS = "horizon-checkin.timer horizon-checkout.timer"
+BOT = "horizon-bot.service"
+INSTALL_UNITS = "Install the units"
 BUILD_ENV = "Build .env"
 PREFLIGHT = "Preflight: reach the VPS"
 ZONE_CHECK = "Check the timers' time zone"
@@ -90,7 +92,7 @@ STEP_ORDER = [
     ZONE_CHECK,
     BUILD_ENV,
     "Write .env",
-    "Install the units",
+    INSTALL_UNITS,
     "Smoke: horizon probe",
     SUMMARY,
 ]
@@ -464,18 +466,96 @@ def test_code_is_updated_by_horizon_to_the_tags_commit() -> None:
     assert f"sudo -u horizon bash -lc 'cd {HOME} && /usr/local/bin/uv sync --locked'" in text
 
 
-def test_the_four_units_are_installed_and_reloaded() -> None:
-    text = script("Install the units")
-    for unit in UNITS:
-        assert unit in text, unit
-    assert "install -m 0644" in text
-    assert "systemctl daemon-reload" in text
+def executing_ssh(tmp_path: Path) -> tuple[str, Path]:
+    """An ``ssh vps CMD`` that runs CMD here under bash, ``install`` and ``systemctl`` stubbed.
+
+    The stubs record every call into the returned log and change nothing; ``systemctl
+    status`` answers like an active unit and exits ``STUB_STATUS_EXIT`` (0 when unset).
+    Returns the PATH that puts the fake ``ssh`` and the stubs first.
+    """
+    assert BASH is not None
+    bin_dir = tmp_path / "vps-bin"
+    bin_dir.mkdir()
+    log = tmp_path / "vps.log"
+    log.touch()
+    record = (
+        f"#!{BASH}\n"
+        '{ printf \'%s\' "${0##*/}"; for arg in "$@"; do printf \'\\t%s\' "$arg"; done; '
+        "printf '\\n'; } >> \"$VPS_LOG\"\n"
+    )
+    answers = {
+        "install": "",
+        "systemctl": (
+            'case "$1" in\n'
+            "  list-timers) echo 'NEXT LEFT UNIT horizon-checkin.timer' ;;\n"
+            f"  status) echo '* {BOT} - Horizon absence bot'; echo '   Active: active (running)';\n"
+            '          exit "${STUB_STATUS_EXIT:-0}" ;;\n'
+            "esac\n"
+        ),
+    }
+    for name, answer in answers.items():
+        stub = bin_dir / name
+        stub.write_text(record + answer, encoding="utf-8")
+        stub.chmod(0o755)
+    ssh = bin_dir / "ssh"
+    # ssh joins its arguments after the host with spaces and hands them to the remote shell.
+    ssh.write_text(f'#!{BASH}\nshift\nexec {BASH} --noprofile --norc -c "$*"\n', encoding="utf-8")
+    ssh.chmod(0o755)
+    return f"{bin_dir}:{os.environ['PATH']}", log
 
 
-def test_only_timers_already_enabled_are_restarted() -> None:
-    assert f"systemctl try-restart {TIMERS}" in script("Install the units")
-    text = (WORKFLOWS_DIR / "release.yml").read_text(encoding="utf-8")
-    assert not re.search(r"systemctl\s+(restart|start|enable|reenable)\b", text)
+def vps_calls(log: Path) -> list[list[str]]:
+    return [line.split("\t") for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+def install_the_units(tmp_path: Path) -> list[list[str]]:
+    """Run the step on the fake VPS; every ``install`` and ``systemctl`` call, in order."""
+    path, log = executing_ssh(tmp_path)
+    result = run_step(INSTALL_UNITS, tmp_path, {"VPS_LOG": str(log)}, path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return vps_calls(log)
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_every_shipped_unit_is_installed_then_systemd_reloaded(tmp_path: Path) -> None:
+    calls = install_the_units(tmp_path)
+    installed = [call for call in calls if call[0] == "install"]
+    assert sorted(Path(call[-1]).name for call in installed) == UNITS
+    for call in installed:
+        name = Path(call[-1]).name
+        assert call[1:] == ["-m", "0644", f"{HOME}/deploy/{name}", f"/etc/systemd/system/{name}"]
+    reload = calls.index(["systemctl", "daemon-reload"])
+    assert reload > max(calls.index(call) for call in installed)
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_only_timers_already_enabled_are_restarted(tmp_path: Path) -> None:
+    # A deploy never switches the schedule on before the operator's first manual run.
+    calls = install_the_units(tmp_path)
+    timers = [
+        call for call in calls if call[0] == "systemctl" and any(a.endswith(".timer") for a in call)
+    ]
+    assert timers == [["systemctl", "try-restart", *TIMERS.split()]]
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_bot_is_enabled_and_runs_the_code_just_deployed(tmp_path: Path) -> None:
+    # The bot touches no portal, so unlike the timers it runs from the first deploy on.
+    # try-restart moves a running bot onto the new code and the new .env; enable --now
+    # starts it at the first deploy and at boot, and leaves a running one as it is.
+    calls = install_the_units(tmp_path)
+    bot = [call for call in calls if BOT in call]
+    assert bot == [
+        ["systemctl", "try-restart", BOT],
+        ["systemctl", "enable", "--now", BOT],
+    ]
+    assert calls.index(bot[0]) > calls.index(["systemctl", "daemon-reload"])
+
+
+def test_no_other_unit_is_ever_started_or_enabled() -> None:
+    text = " ".join((WORKFLOWS_DIR / "release.yml").read_text(encoding="utf-8").split())
+    starts = re.findall(r"systemctl\s+(?:restart|start|enable|reenable)\b[^;\"]*", text)
+    assert [start.strip() for start in starts] == [f"systemctl enable --now {BOT}"]
 
 
 def test_smoke_probe_runs_as_horizon_with_the_units_environment() -> None:
@@ -641,24 +721,11 @@ def test_the_probe_output_is_kept_for_the_summary() -> None:
     assert text.strip().startswith("set -euo pipefail"), "without pipefail tee hides the probe"
 
 
-def fake_ssh(bin_dir: Path) -> None:
-    """An ``ssh`` that answers list-timers and refuses anything else."""
-    bin_dir.mkdir()
-    ssh = bin_dir / "ssh"
-    ssh.write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$*" in\n'
-        "  *\"list-timers 'horizon-*'\"*) echo 'NEXT LEFT UNIT horizon-checkin.timer' ;;\n"
-        '  *) echo "unexpected: $*" >&2; exit 9 ;;\n'
-        "esac\n",
-        encoding="utf-8",
-    )
-    ssh.chmod(0o755)
-
-
-def run_summary(tmp_path: Path, probe: str | None) -> tuple[subprocess.CompletedProcess[str], str]:
+def run_summary(
+    tmp_path: Path, probe: str | None, status_exit: int = 0
+) -> tuple[subprocess.CompletedProcess[str], str]:
     assert BASH is not None
-    fake_ssh(tmp_path / "bin")
+    path, log = executing_ssh(tmp_path)
     summary = tmp_path / "summary.md"
     if probe is not None:
         (tmp_path / "probe.txt").write_text(probe, encoding="utf-8")
@@ -669,7 +736,9 @@ def run_summary(tmp_path: Path, probe: str | None) -> tuple[subprocess.Completed
         "RELEASE_VERSION": VERIFIED % "version",
     }
     env = {
-        "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+        "PATH": path,
+        "VPS_LOG": str(log),
+        "STUB_STATUS_EXIT": str(status_exit),
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_STEP_SUMMARY": str(summary),
         "GITHUB_SERVER_URL": "https://github.com",
@@ -698,6 +767,32 @@ def test_the_summary_names_the_tag_the_version_the_commit_the_probe_and_the_time
     assert "0123456789abcdef0123456789abcdef01234567" in summary
     assert "https://github.com/example-owner/horizon-tracker/commit/0123456789abcdef" in summary
     assert "settings: ok\nportal: ok" in summary
+    assert "horizon-checkin.timer" in summary
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_summary_shows_the_bots_state(tmp_path: Path) -> None:
+    result, summary = run_summary(tmp_path, "settings: ok\n")
+    assert result.returncode == 0, result.stderr
+    assert f"#### {BOT}" in summary
+    assert "Active: active (running)" in summary
+    assert "exit code 0" in summary
+    assert f"systemctl status {BOT} --no-pager" in script(SUMMARY)
+
+
+def test_the_summary_publishes_no_line_of_the_bots_journal() -> None:
+    # The summary is readable by anyone who can read the repository's runs; the bot's
+    # journal names the chats that wrote to it, and it stays on the host.
+    assert f"systemctl status {BOT} --no-pager --lines=0" in script(SUMMARY)
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_a_bot_that_is_not_running_is_shown_and_fails_nothing(tmp_path: Path) -> None:
+    # systemctl status exits 3 for an inactive unit; the summary reports, it does not judge.
+    result, summary = run_summary(tmp_path, "settings: ok\n", status_exit=3)
+    assert result.returncode == 0, result.stderr
+    assert f"#### {BOT}" in summary
+    assert "exit code 3" in summary
     assert "horizon-checkin.timer" in summary
 
 

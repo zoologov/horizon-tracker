@@ -3,8 +3,9 @@
 The script runs under bash with a PATH holding only recording stubs, so every external
 command it calls is logged and none is executed; a command without a stub is "not
 found" and fails the run instead of reaching the host. The assertions read that log:
-the units are installed and reloaded, the timers are never enabled or started, the
-secrets file is never named, and the repository cloned is the one the script came from
+the units are installed and reloaded, the timers are never enabled or started, the bot
+is left to the deploy, the state directory is private to ``horizon``, the secrets file
+is never named, and the repository cloned is the one the script came from
 unless ``HT_REPO`` names another.
 """
 
@@ -199,6 +200,17 @@ def test_creates_the_artifacts_directory_for_horizon(tmp_path: Path, chrome: Pat
     ), dirs
 
 
+def test_creates_the_state_directory_private_to_horizon(tmp_path: Path, chrome: Path) -> None:
+    # HT_STATE_DIR's default: the absences live here, outside the checkout, so they
+    # survive every deploy. 0700 because the file names the owner's days off.
+    run = bootstrap(tmp_path, chrome)
+    [state] = [call for call in run.called("install") if call[-1] == f"{HOME}/state"]
+    assert "-d" in state
+    assert state[state.index("-o") + 1] == "horizon"
+    assert state[state.index("-g") + 1] == "horizon"
+    assert state[state.index("-m") + 1] == "0700"
+
+
 def test_installs_every_unit_and_reloads_systemd(tmp_path: Path, chrome: Path) -> None:
     run = bootstrap(tmp_path, chrome)
     shipped = {p.name for p in DEPLOY_DIR.iterdir() if p.suffix in {".service", ".timer"}}
@@ -219,11 +231,11 @@ def test_never_names_the_secrets_file(tmp_path: Path, chrome: Path) -> None:
     assert not [call for call in run.calls if any(".env" in arg for arg in call)]
 
 
-def test_closing_lines_hand_the_env_and_the_timers_to_the_owner(
-    tmp_path: Path, chrome: Path
-) -> None:
+def test_closing_lines_hand_the_env_the_bot_and_the_timers_on(tmp_path: Path, chrome: Path) -> None:
     run = bootstrap(tmp_path, chrome)
-    closing = run.stdout.strip().splitlines()[-4:]
+    closing = run.stdout.strip().splitlines()[-5:]
     text = "\n".join(closing)
-    assert ".env" in text
+    assert f"Left untouched: {HOME}/.env" in text
+    assert "horizon-bot.service" in text
+    assert "the first deploy" in text
     assert "systemctl enable --now horizon-checkin.timer horizon-checkout.timer" in text

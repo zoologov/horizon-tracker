@@ -9,6 +9,58 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-24
+
+`1.1.0` is a minor release: the public surface gains the `horizon bot` command, the `horizon-bot.service` unit, the `HT_STATE_DIR` setting and the probe's `absences:` line, and nothing on it is removed or renamed.
+
+### Added
+
+- **Absences through the bot.** The owner enters a vacation, a sick leave or a day off in
+  the report chat with text commands to the bot: `/add <kind> <from>[-<to>]`, `/list`,
+  `/edit <id> [<kind>] <from>[-<to>]`, `/del <id>` and `/help`. The kinds are `vacation`,
+  `sick` and `dayoff` (or `отпуск`, `больничный`, `отгул`), and the dates are `03.11`,
+  `03.11.2026` or `2026-11-03`. The bot answers in `HT_LANGUAGE`, serves only
+  `TELEGRAM_CHAT_ID` and ignores every other chat without logging its text. Overlapping
+  absences are refused, and an id is never reused. A run on a day an absence covers is
+  skipped without asking the calendar. An absence for today entered once today's check-in
+  range has begun starts tomorrow, and the reply says so.
+- **`horizon bot`.** The command that long-polls the bot and answers the owner until it is
+  stopped; Ctrl-C or `systemctl stop` exits 0.
+- **`horizon-bot.service`.** A fifth systemd unit runs `horizon bot` as `horizon`, with
+  `Restart=always`. Every release enables and restarts it, so the bot runs from the first
+  deploy on, before the timers are enabled. It is the bot's only `getUpdates` caller.
+- **The state directory.** `HT_STATE_DIR` (default `/opt/horizon-tracker/state`, created
+  0700 by `deploy/bootstrap.sh`) holds `absences.json`, written atomically with mode 0600
+  outside the checkout, so the absences survive every deploy, restart and reboot.
+- **The probe's `absences:` line.** `horizon probe` reads the absences file and prints
+  `absences: ok - <n> current or upcoming[, <m> finished], next: <kind> <days>` (or
+  `none ahead`, or `none`). A file it cannot read fails the probe, and with it the deploy's
+  smoke.
+- **The landscape.** The six external systems the service is bound to and their contracts
+  are declared in the architecture graph, and the portal's landscape page draws them as a
+  map. Each external system has a SPEC that states its surface in words.
+
+### Changed
+
+- **One notice for a skipped day.** A day skipped by the calendar (a weekend or a holiday)
+  or by an absence is reported once, by the morning run. The notice has no
+  `Time: …, planned for …` line, and the evening run of that day sends nothing. An absence
+  skip names its kind and days: `Reason: vacation (03.11–14.11)`.
+- **The calendar line.** Every report names its source as `Production calendar: isdayoff.ru`
+  (`Производственный календарь: isdayoff.ru`), or
+  `Production calendar: unavailable, the Mon–Fri rule decided` for the weekday fallback.
+
+### Fixed
+
+- **Check-in photograph without a client dialog.** The HTML Access "Fullscreen" dialog is
+  dismissed (Cancel, never OK) before the check-in photograph, and the photograph is
+  checked again after the frame is taken. A dialog that cannot be dismissed leaves the
+  check-in a text success.
+- **The paint check.** Whether the desktop has painted is read from the element screenshot
+  decoded in the page, not from a live WebGL readback, which counted 0 lit cells on a
+  canvas without `preserveDrawingBuffer`.
+- **The Beadloom guard hook** is restored to its generated form.
+
 ## [1.0.1] - 2026-10-22
 
 `1.0.1` is a patch: the morning check-in photograph changes, and the public surface does not.
@@ -66,6 +118,7 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.0

@@ -41,10 +41,24 @@ nodes:
 
   - ref_id: ports
     kind: feature
-    summary: "The contracts the core needs from the outside world as Protocols: HorizonClient, WorkingDayCalendar, Notifier, Clock, ArtifactStore"
+    summary: "The contracts the core needs from the outside world as Protocols: HorizonClient, WorkingDayCalendar, Notifier, Clock, ArtifactStore, AbsenceStore, BotTransport"
     source: src/horizon_tracker/domain/ports.py
     docs:
       - docs/domains/domain/features/ports/SPEC.md
+
+  - ref_id: absence
+    kind: feature
+    summary: "The owner's absences (vacation, sick leave, day off) as day ranges, and the decisions over a set of them: which covers a day, which comes next, the id a new one gets, whether two share a day; the book the store keeps them in"
+    source: src/horizon_tracker/domain/absence.py
+    docs:
+      - docs/domains/domain/features/absence/SPEC.md
+
+  - ref_id: bot-commands
+    kind: feature
+    summary: "The bot's text command parser: one message from the owner into /add, /list, /del, /edit or /help with its kind, id and days, or a refusal as a catalogue message; a date without a year placed from today"
+    source: src/horizon_tracker/domain/bot_commands.py
+    docs:
+      - docs/domains/domain/features/bot-commands/SPEC.md
 
 edges:
   - { src: schedule,             dst: domain, kind: part_of }
@@ -53,3 +67,5 @@ edges:
   - { src: run-report,           dst: domain, kind: part_of }
   - { src: messages,             dst: domain, kind: part_of }
   - { src: ports,                dst: domain, kind: part_of }
+  - { src: absence,              dst: domain, kind: part_of }
+  - { src: bot-commands,         dst: domain, kind: part_of }

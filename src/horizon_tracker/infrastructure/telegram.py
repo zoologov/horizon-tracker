@@ -8,7 +8,10 @@ swallowed: a run never fails on its notification.
 
 The bot token sits in the path of every Bot API URL, so it is kept out of the log on
 both sides: this module never logs a URL or an unredacted error, and it installs a
-filter on the ``httpx`` logger that masks the token in httpx's own request lines.
+filter on the ``httpx`` logger that masks the token in httpx's own request lines. That
+token discipline (``BOT_API_URL``, ``check_bot_token``, ``redact_token``,
+``mask_token_in_httpx_log``, ``bot_api_description``) is public because the bot transport
+(``telegram_bot``) calls the same API with the same token and imports it from here.
 """
 
 # beadloom:domain=infrastructure
@@ -45,7 +48,7 @@ class _BotUrlTokenFilter(logging.Filter):
 _HTTPX_FILTER = _BotUrlTokenFilter()
 
 
-def _mask_httpx_request_lines() -> None:
+def mask_token_in_httpx_log() -> None:
     """Attach the masking filter to the ``httpx`` logger once per process."""
     httpx_logger = logging.getLogger("httpx")
     if _HTTPX_FILTER not in httpx_logger.filters:
@@ -56,15 +59,14 @@ class TelegramNotifier:
     """Sends each run report to one chat as the bot it was built with, in its language."""
 
     def __init__(self, token: str, chat_id: str, client: httpx.Client, language: Language) -> None:
-        if not _TOKEN_SHAPE.fullmatch(token):
-            raise ValueError("Telegram bot token is malformed: expected <bot id>:<secret>")
+        check_bot_token(token)
         if not chat_id.strip():
             raise ValueError("Telegram chat id is empty")
         self._token = token
         self._chat_id = chat_id
         self._client = client
         self._language = language
-        _mask_httpx_request_lines()
+        mask_token_in_httpx_log()
 
     def send(self, report: RunReport) -> None:
         """Send the report; with its screenshot as a photo when one can be delivered."""
@@ -99,7 +101,7 @@ class TelegramNotifier:
                 "Telegram %s failed: %s: %s",
                 method,
                 type(error).__name__,
-                self._redact(str(error)),
+                redact_token(str(error), self._token),
             )
             return False
         if response.status_code != httpx.codes.OK:
@@ -107,16 +109,24 @@ class TelegramNotifier:
                 "Telegram %s refused with status %d: %s",
                 method,
                 response.status_code,
-                self._redact(_description(response)),
+                redact_token(bot_api_description(response), self._token),
             )
             return False
         return True
 
-    def _redact(self, text: str) -> str:
-        return text.replace(self._token, _MASK)
+
+def check_bot_token(token: str) -> None:
+    """Refuse a token not shaped ``<bot id>:<secret>``, without echoing it."""
+    if not _TOKEN_SHAPE.fullmatch(token):
+        raise ValueError("Telegram bot token is malformed: expected <bot id>:<secret>")
 
 
-def _description(response: httpx.Response) -> str:
+def redact_token(text: str, token: str) -> str:
+    """``text`` with every occurrence of ``token`` masked, for a line about to be logged."""
+    return text.replace(token, _MASK)
+
+
+def bot_api_description(response: httpx.Response) -> str:
     """The Bot API's own explanation of a failure, or a placeholder when it gave none."""
     try:
         payload = response.json()

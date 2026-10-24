@@ -1,8 +1,9 @@
 # Windowed run
 
-The run loop both use cases share: asks the calendar once, waits for the day's drawn
-moment, decides each attempt, retries failures inside the window and sends exactly one
-report.
+The run loop both use cases share: skips a day an absence covers before the calendar is
+asked, asks the calendar once, waits for the day's drawn moment, decides each attempt,
+retries failures inside the window and builds exactly one report, which it sends unless
+it is a day-level skip of a run told to keep those silent.
 
 ## Source
 
@@ -13,8 +14,8 @@ report.
 ### Purpose
 
 The check-in and the check-out differ only in what one attempt does. Everything around
-the attempt is the same: whether today is a working day, the wait for the drawn
-moment, whether the window allows an attempt now, how failures are retried, and the
+the attempt is the same: whether the owner entered an absence for today, whether today is
+a working day, the wait for the drawn moment, whether the window allows an attempt now, how failures are retried, and the
 single report at the end. `WindowedRun`
 holds that shared part once. The dry run reads it rather than copying it.
 
@@ -22,6 +23,14 @@ holds that shared part once. The dry run reads it rather than copying it.
 
 `run(kind, attempt, *, force=False)`:
 
+0. Reads the `AbsenceStore` once. When an absence covers today (`domain.absence.covering`
+   over the book, the date of `Clock.now()`), the run ends at once: a `SKIPPED` report
+   with `reason=absence_reason(absence.kind)` (`ON_VACATION`, `ON_SICK_LEAVE`,
+   `ON_DAY_OFF`), `absence` set, `verdict_source=None` and the drawn `planned_at`. The
+   calendar is not asked, nothing is attempted and nothing is waited for; step 5 then
+   reports it. A store that raises `AbsenceStoreError` is logged as `absences could not
+   be read (AbsenceStoreError); the run goes on as if none were entered` (the type only:
+   `horizon probe` names the cause) and read as empty. A forced run reads no absence.
 1. Asks the `WorkingDayCalendar` once for today (the date of `Clock.now()`) and turns
    the answer into a verdict with `resolve()`. A forced run asks no calendar.
 2. Waits for the drawn moment. The systemd timer fires at `range_start`, the start of
@@ -39,7 +48,10 @@ holds that shared part once. The dry run reads it rather than copying it.
    otherwise a `SKIPPED` result whose reason maps the decision: `SKIP_NON_WORKING_DAY`
    → `NON_WORKING_DAY`, `SKIP_EARLY` → `TOO_EARLY`, `SKIP_LATE` → `WINDOW_MISSED`.
 5. Builds one `RunReport`, logs its outcome, sends it through the `Notifier` and
-   returns it. The report's `planned_at` is the drawn moment the run was due at, set
+   returns it. Under `notify_day_skips=False` a day-level skip
+   (`RunReport.is_day_level_skip`: `NON_WORKING_DAY` or an absence reason) is logged
+   (`checkout report not sent: the morning run reports a skipped day`) and not sent;
+   `TOO_EARLY`, `WINDOW_MISSED` and every run that made an attempt are still sent. The report's `planned_at` is the drawn moment the run was due at, set
    whether or not the run reached its window, and `None` for a forced run. The
    report's `screenshot` is copied from the result the run ended on: the success
    screenshot of a confirmed attempt, the failure screenshot of the last failed one, or
@@ -58,7 +70,7 @@ port names still ends in the run's one report. It logs the exception's type and
 traceback frames and leaves the message out, because an adapter's exception text may
 quote what it typed.
 
-A `--force` run treats the day as a working day and the whole day (`00:00` to
+A `--force` run reads no absence, treats the day as a working day and the whole day (`00:00` to
 `23:59:59.999999`) as its window, and waits for no moment. Its report names no calendar
 source (`verdict_source` is `None`) and no planned moment (`planned_at` is `None`).
 There the attempt count is the bound.
@@ -66,15 +78,20 @@ There the attempt count is the bound.
 `first_decision(*, force=False)` returns the decision `run` would take on its first
 attempt, with the time it was asked, the calendar source and the moment the run would
 first wait until. When the run would wait, the decision is the one taken at that
-moment. It never sleeps, makes no attempt and sends nothing, but it does ask the
-calendar unless the run is forced. `steps()` names what the
-loop adds around the attempts, as `Message`s (catalogue keys `plan.step.wait`,
-`plan.step.retry`, `plan.step.report`). The dry run in `probe.py` plans both and the CLI
+moment. On a day an absence covers it is `Decision.SKIP_ABSENT` with no calendar source
+and no wait, and the calendar is not asked. It never sleeps, makes no attempt and sends
+nothing, but it reads the absences and asks the calendar unless the run is forced.
+`steps()` names what the loop adds around the attempts, as `Message`s (catalogue keys
+`plan.step.absences`, `plan.step.wait`, `plan.step.retry`, and `plan.step.report` or,
+under `notify_day_skips=False`, `plan.step.report.no_day_skip`). The dry run in `probe.py` plans both and the CLI
 prints them in the configured language.
 
 ## Invariants
 
-- Exactly one report is sent per `run()`, whatever the run came to.
+- Exactly one report is built per `run()`, whatever the run came to; it is sent unless it
+  is a day-level skip under `notify_day_skips=False`.
+- A day an absence covers asks no calendar and makes no attempt; the store is read at
+  most once per run, and never for a forced run.
 - A run sleeps for its moment at most once, before its first attempt. A forced run and a
   non-working day never wait.
 - The calendar is asked at most once per run, and never for a forced run.
@@ -98,7 +115,8 @@ Module `src/horizon_tracker/application/windowed_run.py`:
   moment a run started at `at` would sleep until first, and `decision` is the one taken
   then; `None` when the run would not wait.
 - `WindowedRun(calendar, clock, notifier, window, policy, moment: time | None = None,
-  range_start: time | None = None)` — frozen. `moment` and `range_start` come together
+  range_start: time | None = None, *, absences: AbsenceStore, notify_day_skips: bool =
+  True)` — frozen; `absences` and `notify_day_skips` are keyword-only. `moment` and `range_start` come together
   or not at all; given, `window` must open at `moment` (build it with
   `domain.schedule.window_from(moment, grace)`) and `range_start` must not be after
   `moment`, otherwise `ValueError`. Without them the run keeps its fixed window and
@@ -110,23 +128,29 @@ Module `src/horizon_tracker/application/windowed_run.py`:
     wait. A non-working day and a forced run never wait. The report's `planned_at` is
     `moment` for every non-forced run, `None` for a forced one or a run without a moment;
   - `first_decision(*, force: bool = False) -> FirstDecision` — never sleeps;
-  - `steps() -> tuple[Message, ...]` — a scheduled loop names its wait first, in English
-    `wait until the drawn moment HH:MM if started from HH:MM; earlier is skipped as too
-    early`.
+  - `steps() -> tuple[Message, ...]` — the absence check first, in English `skip the day
+    if an absence entered through the bot covers it, before the calendar is asked`; then
+    a scheduled loop names its wait, `wait until the drawn moment HH:MM if started from
+    HH:MM; earlier is skipped as too early`.
 - `in_seconds(span: timedelta) -> str` — a span as a bare number of seconds (`120`,
   `0.5`); `checkin.py` uses it in its step list as well.
 
 The CLI builds one `WindowedRun` per command with `RETRY_POLICY` (3 attempts, 30 s
 apart), the day's drawn moment of the run kind, `window=window_from(moment,
 settings.window_grace)` and `range_start` set to the start of `HT_CHECKIN_RANGE` or
-`HT_CHECKOUT_RANGE`. It always passes the moment, so the mode without a moment is used
+`HT_CHECKOUT_RANGE`, `absences=adapters.absences` (the JSON store over
+`HT_STATE_DIR/absences.json`) and `notify_day_skips=True` for `horizon checkin`, `False`
+for `horizon checkout`: the morning reports a skipped day, the evening is silent (the
+owner's ruling, HT-012). It always passes the moment, so the mode without a moment is used
 only by tests. A `--force` run keeps the drawn moment and is told to ignore it by
 `run(force=True)`.
 
 ## Testing
 
 Tests: `tests/unit/application/test_windowed_run.py`, including
-`test_the_first_decision_is_the_one_the_run_then_takes`.
+`test_the_first_decision_is_the_one_the_run_then_takes`, and
+`tests/unit/application/test_windowed_run_absences.py` (the absence verdict, the
+unreadable store, `notify_day_skips`).
 
 Scenarios:
 
@@ -139,6 +163,10 @@ Scenarios:
 - `tests/acceptance/features/production_calendar.feature`:
   - `A day the calendar marks as a holiday is skipped with a notice`
   - `When the calendar is unreachable the weekday rule decides and says so`
+- `tests/acceptance/features/absences.feature`:
+  - `A morning run on a day of vacation is skipped with the kind named`
+  - `An evening run on a skipped day sends nothing`
+  - `A day after the absence ends is a working day again`
 - `tests/acceptance/features/notifications.feature`:
   - `A failed run sends the reason and a screenshot`
 
@@ -146,7 +174,7 @@ Scenarios:
 
 Derived from the imports on reindex.
 
-- Depends on: `messages`, `ports`, `run-report`, `schedule`, `working-day-calendar`
+- Depends on: `absence`, `messages`, `ports`, `run-report`, `schedule`, `working-day-calendar`
 - Used by: `evening-checkout`, `morning-checkin`, `probe`, `cli` (through the `application` package)
 
 ## Parent

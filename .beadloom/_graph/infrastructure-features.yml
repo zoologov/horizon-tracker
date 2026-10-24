@@ -49,6 +49,20 @@ nodes:
     docs:
       - docs/domains/infrastructure/features/system-clock/SPEC.md
 
+  - ref_id: absence-store
+    kind: feature
+    summary: "The AbsenceStore port on one JSON file: the absences and the highest id issued, a missing file empty, a malformed one refused, written atomically and readable by its owner only"
+    source: src/horizon_tracker/infrastructure/absence_store.py
+    docs:
+      - docs/domains/infrastructure/features/absence-store/SPEC.md
+
+  - ref_id: telegram-bot
+    kind: feature
+    summary: "The BotTransport port over the Telegram Bot API: getUpdates long polling for text messages and sendMessage replies; a failure is logged and raised as BotTransportError, and the token never reaches a log or an error"
+    source: src/horizon_tracker/infrastructure/telegram_bot.py
+    docs:
+      - docs/domains/infrastructure/features/telegram-bot/SPEC.md
+
 edges:
   - { src: horizon-playwright-client, dst: infrastructure, kind: part_of }
   - { src: isdayoff-calendar,         dst: infrastructure, kind: part_of }
@@ -56,3 +70,5 @@ edges:
   - { src: settings,                  dst: infrastructure, kind: part_of }
   - { src: artifact-store,            dst: infrastructure, kind: part_of }
   - { src: system-clock,              dst: infrastructure, kind: part_of }
+  - { src: absence-store,             dst: infrastructure, kind: part_of }
+  - { src: telegram-bot,              dst: infrastructure, kind: part_of }

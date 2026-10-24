@@ -11,6 +11,8 @@
 # GitHub Environment `horizon-vps` (see docs/guides/deployment.md).
 # Does NOT enable the timers: the operator enables them after the first manual
 # run (`horizon probe`, `checkin --force`, `checkout --force`).
+# Does NOT start horizon-bot.service: without .env it could only fail, so the first
+# deploy, which writes .env, enables it.
 set -euo pipefail
 
 # --- Fixed by the units: they name this user and this home -------------------
@@ -23,6 +25,7 @@ readonly UNITS=(
   horizon-checkin.timer
   horizon-checkout.service
   horizon-checkout.timer
+  horizon-bot.service
 )
 
 # --- Overridable from the environment ----------------------------------------
@@ -125,10 +128,13 @@ ensure_venv() {
   sudo -u "$HT_USER" bash -lc "cd '$HT_HOME' && $UV sync --locked"
 }
 
-# 6. Working directories (HT_ARTIFACTS_DIR in .env points here).
+# 6. Working directories: the screenshots (HT_ARTIFACTS_DIR in .env points here) and
+# the state (HT_STATE_DIR's default), which holds the absences outside the checkout so
+# they survive every deploy. The state is private to horizon: it names the owner's days off.
 ensure_dirs() {
-  log "creating $HT_HOME/artifacts"
+  log "creating $HT_HOME/artifacts and $HT_HOME/state"
   install -d -o "$HT_USER" -g "$HT_USER" -m 0750 "$HT_HOME/artifacts"
+  install -d -o "$HT_USER" -g "$HT_USER" -m 0700 "$HT_HOME/state"
 }
 
 # 7. systemd units from deploy/, then daemon-reload. Installed, never enabled.
@@ -153,6 +159,7 @@ main() {
   ensure_dirs
   ensure_units
   log "done. Left untouched: $HT_HOME/.env - the deploy workflow writes it (0600 $HT_USER:$HT_USER)."
+  log "Not started: horizon-bot.service - the first deploy enables it, once it has written .env."
   log "Not enabled: the timers. First run by hand (docs/guides/deployment.md: probe, checkin --force,"
   log "checkout --force), then enable them:"
   log "  systemctl enable --now horizon-checkin.timer horizon-checkout.timer"
