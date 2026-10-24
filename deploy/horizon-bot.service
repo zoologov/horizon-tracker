@@ -1,0 +1,41 @@
+[Unit]
+Description=Horizon absence bot: answer the owner's absence commands in the bot chat
+Documentation=file:///opt/horizon-tracker/docs/guides/deployment.md
+# The bot long-polls api.telegram.org, so it waits for a configured network rather
+# than for network.target.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# One process that never exits on its own: `horizon bot` long-polls getUpdates and
+# answers each message from TELEGRAM_CHAT_ID. It is the only getUpdates caller of the
+# bot: a second poller (a `horizon bot` started by hand) makes Telegram refuse one of
+# the two with 409, so stop this unit before polling by hand.
+Type=simple
+
+# A system user of its own, as for the runs: the absences it writes under
+# HT_STATE_DIR (default /opt/horizon-tracker/state, 0700) belong to horizon.
+User=horizon
+Group=horizon
+WorkingDirectory=/opt/horizon-tracker
+
+# Written by the deploy workflow from GitHub Environment `horizon-vps`
+# (0600 horizon:horizon). Neither bootstrap.sh nor this unit writes it.
+EnvironmentFile=/opt/horizon-tracker/.env
+
+ExecStart=/opt/horizon-tracker/.venv/bin/horizon bot
+
+# `horizon bot` treats an interrupt as its clean stop: it logs "bot stopped" and exits
+# 0. systemctl stop therefore sends SIGINT, not the default SIGTERM.
+KillSignal=SIGINT
+
+# Whatever ends the process - a crash, a configuration error (exit 1), a kill - it is
+# started again 10 s later. Starts that far apart never reach systemd's default start
+# limit (5 within 10 s), so a bot broken by a bad .env recovers by itself once a deploy
+# fixes the file.
+Restart=always
+RestartSec=10
+
+[Install]
+# Enabled by the deploy (release.yml, "Install the units"), so it also starts at boot.
+WantedBy=multi-user.target

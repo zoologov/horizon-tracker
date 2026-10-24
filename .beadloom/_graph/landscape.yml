@@ -113,6 +113,6 @@ edges:
   - { src: github-environment, dst: vps-host, kind: produces, contract: { protocol: env, name: github-environment } }
   - { src: vps-host, dst: github-environment, kind: consumes, contract: { protocol: env, name: github-environment } }
 
-  # systemd:units: the two timers and the two oneshot services that start `horizon`.
+  # systemd:units: the two timers and the two oneshot services that start `horizon`, and the bot's service.
   - { src: vps-host, dst: cli, kind: produces, contract: { protocol: systemd, name: units } }
   - { src: cli, dst: vps-host, kind: consumes, contract: { protocol: systemd, name: units } }

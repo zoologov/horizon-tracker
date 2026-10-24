@@ -112,7 +112,7 @@ edge and is listed in the `exclude` of the rule `service-needs-parent`.
 | `notification:run-report` | `telegram-notifier` → [`owner-chat`](domains/external/owner-chat/SPEC.md) | the report the owner reads, in `HT_LANGUAGE` |
 | `env:dot-env` | [`vps-host`](domains/external/vps-host/SPEC.md) → `settings` | every variable of the host's `.env` |
 | `env:github-environment` | [`github-environment`](domains/external/github-environment/SPEC.md) → `vps-host` | the secrets and variables the Release's deploy writes into `.env` |
-| `systemd:units` | `vps-host` → `cli` | the two timers and the two oneshot services that start `horizon` |
+| `systemd:units` | `vps-host` → `cli` | the two timers and the two oneshot services that start `horizon`, and `horizon-bot.service`, which runs `horizon bot` |
 
 **The map.** `beadloom docs site` writes these contracts into the portal's
 `landscape.data.json`, and the portal's Landscape page draws them: the six external nodes,

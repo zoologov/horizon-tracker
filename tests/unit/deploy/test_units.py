@@ -1,9 +1,11 @@
-"""Tests for the systemd units: each timer starts its run as `horizon` at its range's start.
+"""Tests for the systemd units: the timers start the runs, and the bot answers until stopped.
 
 The units are the only caller of the CLI in production, so the facts the service relies on
 are asserted on the parsed files: the user, the environment file, the exact command, a
 timer that fires once, on time, at the start of the range the moment is drawn from, and
 never catches up a missed run, and a timeout long enough for the wait for that moment.
+The bot is the one long-running unit: started at boot, restarted whenever it stops, and
+stopped by the signal its command treats as a clean stop.
 """
 
 import re
@@ -34,6 +36,11 @@ TIMEOUT = "60min"
 # another zone changes it in both timers together with HT_TIMEZONE; the deploy refuses
 # a run whose HT_TIMEZONE differs (test_deploy_workflow, the zone check).
 SHIPPED_ZONE = "Europe/Moscow"
+BOT = "horizon-bot.service"
+# systemd's defaults when a unit sets no StartLimit* key: more than BURST starts within
+# INTERVAL seconds and the unit is given up on, staying `failed` until reset by hand.
+DEFAULT_START_LIMIT_INTERVAL_SECONDS = 10
+DEFAULT_START_LIMIT_BURST = 5
 
 Unit = dict[str, dict[str, list[str]]]
 
@@ -67,6 +74,10 @@ def service(run: str) -> Unit:
     return parse_unit(DEPLOY_DIR / f"horizon-{run}.service")
 
 
+def bot() -> Unit:
+    return parse_unit(DEPLOY_DIR / BOT)
+
+
 def timer(run: str) -> Unit:
     return parse_unit(DEPLOY_DIR / f"horizon-{run}.timer")
 
@@ -90,14 +101,24 @@ def guide_range(text: str, variable: str) -> tuple[int, int]:
     return sh * 60 + sm, eh * 60 + em
 
 
-def test_deploy_ships_exactly_the_four_units() -> None:
-    units = {p.name for p in DEPLOY_DIR.iterdir() if p.suffix in {".service", ".timer"}}
-    assert units == {
+def shipped_units() -> set[str]:
+    return {p.name for p in DEPLOY_DIR.iterdir() if p.suffix in {".service", ".timer"}}
+
+
+def test_deploy_ships_exactly_the_five_units() -> None:
+    assert shipped_units() == {
         "horizon-checkin.service",
         "horizon-checkin.timer",
         "horizon-checkout.service",
         "horizon-checkout.timer",
+        BOT,
     }
+
+
+def test_the_guide_lists_every_shipped_unit() -> None:
+    # The table of section 2.4: an operator reads the units there, not in deploy/.
+    listed = set(re.findall(r"^\| `(horizon-[a-z]+\.(?:service|timer))` \|", guide(), re.M))
+    assert listed == shipped_units()
 
 
 @pytest.mark.parametrize(("run", "start"), RUNS)
@@ -172,6 +193,49 @@ def test_the_guide_names_no_retired_window_variable() -> None:
     # Settings refuses HT_CHECKIN_WINDOW / HT_CHECKOUT_WINDOW: a .env copied from a
     # guide that still showed them would stop every run with a configuration error.
     assert not re.search(r"^HT_CHECK(IN|OUT)_WINDOW=", guide(), re.M)
+
+
+def test_the_bot_answers_as_horizon_with_the_units_environment() -> None:
+    unit = bot()
+    assert only(unit, "Service", "Type") == "simple"
+    assert only(unit, "Service", "User") == "horizon"
+    assert only(unit, "Service", "Group") == "horizon"
+    assert only(unit, "Service", "WorkingDirectory") == HOME
+    assert only(unit, "Service", "EnvironmentFile") == f"{HOME}/.env"
+    assert only(unit, "Service", "ExecStart") == f"{HOME}/.venv/bin/horizon bot"
+
+
+def test_the_bot_waits_for_the_network() -> None:
+    unit = bot()
+    assert "network-online.target" in only(unit, "Unit", "After").split()
+    assert "network-online.target" in only(unit, "Unit", "Wants").split()
+
+
+def test_the_bot_starts_at_boot_once_enabled() -> None:
+    assert only(bot(), "Install", "WantedBy") == "multi-user.target"
+
+
+def test_the_bot_is_restarted_whenever_it_stops() -> None:
+    unit = bot()
+    assert only(unit, "Service", "Restart") == "always"
+    assert only(unit, "Service", "RestartSec") == "10"
+
+
+def test_a_bot_that_keeps_failing_is_never_given_up_on() -> None:
+    # A configuration error exits 1 at once, so the bot restarts every RestartSec. Spaced
+    # that far apart, BURST starts never fit into systemd's default INTERVAL, and the unit
+    # recovers by itself once the next deploy fixes .env.
+    unit = bot()
+    assert not [key for key in unit["Service"] if key.startswith("StartLimit")]
+    assert not [key for key in unit["Unit"] if key.startswith("StartLimit")]
+    spacing = int(only(unit, "Service", "RestartSec"))
+    assert spacing * (DEFAULT_START_LIMIT_BURST - 1) > DEFAULT_START_LIMIT_INTERVAL_SECONDS
+
+
+def test_the_bot_is_stopped_the_way_ctrl_c_stops_it() -> None:
+    # `horizon bot` treats an interrupt as its clean stop: it logs "bot stopped" and exits
+    # 0. systemd's default SIGTERM would end the process without that line.
+    assert only(bot(), "Service", "KillSignal") == "SIGINT"
 
 
 @pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze absent")

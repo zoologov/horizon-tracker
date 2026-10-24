@@ -1,7 +1,8 @@
 # Deploying horizon-tracker
 
 This guide takes a host from nothing to a service that checks in to a VMware Horizon
-desktop every working morning and checks out every working evening. It covers the first
+desktop every working morning and checks out every working evening, and whose bot takes the
+owner's absences (a vacation, a sick leave, a day off) in the report chat. It covers the first
 install, which is done once by hand, and the operations after it: every release reaches the
 host automatically, when its tag `vX.Y.Z` is pushed, through the `deploy` job of the Release
 workflow (`.github/workflows/release.yml`). A push to `main` runs CI and deploys nothing.
@@ -21,7 +22,8 @@ The first install, in order:
 5. enable the timers (section 5).
 
 Until step 5 the timers stay disabled: neither the host preparation nor a deploy enables
-them.
+them. The bot is different: it never reaches the portal, so the first deploy enables and
+starts `horizon-bot.service`, and every later deploy restarts it (section 2.4).
 
 ---
 
@@ -29,7 +31,7 @@ them.
 
 | What | Why |
 |------|-----|
-| A host running Ubuntu (or another apt-based distribution) with systemd, reachable over SSH | the service runs as two systemd timers and their oneshot services |
+| A host running Ubuntu (or another apt-based distribution) with systemd, reachable over SSH | the service runs as two systemd timers and their oneshot services, and the bot as one long-running service |
 | Python 3.12 (`python3.12`, `python3.12-venv`) | the runtime; `deploy/bootstrap.sh` installs both from apt |
 | `uv` at `/usr/local/bin/uv` | builds the locked environment; `bootstrap.sh` installs it when missing and the deploy calls it by this path |
 | Google Chrome at `/usr/bin/google-chrome`, installed from Google's `.deb` (not the snap) | Playwright drives the system Chrome; `bootstrap.sh` checks it and never installs it |
@@ -63,12 +65,15 @@ converges its own state, so a second run changes nothing. Run as root, it
   the clone the script runs from - there is no built-in default;
 - installs `uv` into `/usr/local/bin` when it is not there;
 - runs `uv sync --locked` as `horizon`, which builds `.venv` with the `horizon` command;
-- creates `/opt/horizon-tracker/artifacts/` (0750, the screenshots);
-- installs the four units into `/etc/systemd/system` and runs `systemctl daemon-reload`.
+- creates `/opt/horizon-tracker/artifacts/` (0750, the screenshots) and
+  `/opt/horizon-tracker/state/` (0700, `horizon:horizon`, the absences: section 3.3);
+- installs the five units into `/etc/systemd/system` and runs `systemctl daemon-reload`.
 
 What it does **not** do, and says so in its last lines:
 
 - it does not write `/opt/horizon-tracker/.env` - the deploy writes it (section 3.3);
+- it does not start `horizon-bot.service` - without `.env` the bot could only fail, so the
+  first deploy, which writes `.env`, enables it;
 - it does not enable the timers - that is section 5, after the manual runs.
 
 An earlier one-shot setup script assumed password SSH on the host and a public HTTPS
@@ -163,6 +168,7 @@ sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub # on the host: the same fi
 | `horizon-checkin.service` | `Type=oneshot`, as `horizon`: `/opt/horizon-tracker/.venv/bin/horizon checkin` |
 | `horizon-checkout.timer` | every day at the start of the check-out range (shipped: `16:30:00 Europe/Moscow`) starts `horizon-checkout.service` |
 | `horizon-checkout.service` | `Type=oneshot`, as `horizon`: `/opt/horizon-tracker/.venv/bin/horizon checkout` |
+| `horizon-bot.service` | `Type=simple`, as `horizon`: `/opt/horizon-tracker/.venv/bin/horizon bot`, `Restart=always`, `RestartSec=10`, `KillSignal=SIGINT`, `WantedBy=multi-user.target`; enabled and restarted by every deploy |
 
 The timers fire every day, weekends included: whether a day is a working day is decided by
 the service (the `isdayoff.ru` production calendar, falling back to Monday-Friday when it
@@ -185,6 +191,21 @@ is not started before the moment.
 - `TimeoutStartSec=60min`: the wait (at most the 40-minute range), the 5-minute window and
   the run itself, with margin. A hung Chrome is killed and the unit is marked `failed`. A
   wider range needs a longer timeout; `tests/unit/deploy/test_units.py` checks the sum.
+
+The bot is the one unit that runs all the time. `horizon bot` long-polls the bot's
+`getUpdates`, answers each message from `TELEGRAM_CHAT_ID` and ignores every other chat; it
+never exits on its own. Its unit holds three facts:
+
+- **One poller.** Telegram serves a bot's updates to one `getUpdates` caller at a time, and
+  `horizon-bot.service` is that caller. A second one - a `horizon bot` started by hand while
+  the service runs - makes Telegram refuse one of the two with status 409, and both log
+  `poll failed`. Stop the service before polling by hand (section 6.5).
+- **Always restarted.** Whatever ends the process - a crash, a configuration error (exit 1),
+  a kill - systemd starts it again 10 s later. Starts that far apart never reach systemd's
+  default start limit (5 within 10 s), so a bot broken by a bad `.env` recovers by itself
+  once a deploy fixes the file.
+- **A clean stop.** `systemctl stop` sends `SIGINT`, which `horizon bot` treats like Ctrl-C:
+  it logs `bot stopped` and exits 0.
 
 ---
 
@@ -303,6 +324,12 @@ HT_ARTIFACTS_DIR=/opt/horizon-tracker/artifacts
   1 with `configuration error: HT_CHECKIN_WINDOW: ...`, the deploy's smoke included.
 - `bootstrap.sh` and the units never write `.env`; it is in `.gitignore` and survives
   every checkout.
+- **`HT_STATE_DIR` is optional, and the deploy does not write it.** Unset, the service keeps
+  its state in `/opt/horizon-tracker/state`, the directory `bootstrap.sh` creates (0700,
+  `horizon:horizon`). The absences the bot takes live there in `absences.json` (0600,
+  written atomically), outside the checkout, so they survive every deploy, restart and
+  reboot. When the directory is missing, the first absence creates it with mode 0700. A
+  value set by hand in `.env` lasts only until the next deploy, like any hand edit.
 - The `tests/unit/deploy` suite holds this block, the workflow and the timers equal.
 
 Check the file without printing a value:
@@ -355,7 +382,8 @@ never reaches the host, and a tag whose commit is not on `main` is refused befor
 Section 6.3 describes each step.
 
 After a green run, `.env` exists, the units are installed, and the deploy's summary shows
-the answer of `horizon probe` and the (still inactive) timers.
+the answer of `horizon probe`, the (still inactive) timers and `horizon-bot.service`
+`active (running)`. From now on the bot answers in the report chat: send it `/help`.
 
 ### 4.2. Running `horizon` by hand
 
@@ -483,6 +511,8 @@ sudo journalctl -u horizon-checkout -n 100 --no-pager
 sudo journalctl -u horizon-checkin -f                   # follow a run live
 systemctl status horizon-checkin.service --no-pager      # the last run's outcome
 systemctl list-timers 'horizon-*' --no-pager             # the next start
+sudo journalctl -u horizon-bot --since today --no-pager  # the bot
+systemctl status horizon-bot.service --no-pager          # the bot's state
 ```
 
 How to read it:
@@ -495,8 +525,8 @@ How to read it:
   the run starts; the last one is `checkin run <outcome> (<reason>)`. The Telegram report
   follows the run and names both the actual and the planned time
   (`Time: HH:MM, planned for HH:MM`).
-- **A deploy during the wait** does not cut it short: the deploy restarts timers, not
-  services, and the sleeping run reaches its moment.
+- **A deploy during the wait** does not cut it short: the deploy restarts the timers and
+  the bot, never a run's service, and the sleeping run reaches its moment.
 - `Deactivated successfully` - exit 0: a success **or** a deliberate skip (a day off, a
   missed moment, too early). The lines above it and the Telegram report say which.
 - `Main process exited, code=exited, status=1/FAILURE` and the unit `failed` - the run's
@@ -509,6 +539,12 @@ How to read it:
   that does is a defect.
 - Manual runs through `ht` write to their own file; in the journal they are transient
   `run-u*` units.
+- **The bot's journal.** `bot started: answering one chat, absences in <file>` after every
+  start, `bot stopped` after a `systemctl stop`. A message from another chat leaves
+  `ignored update <n> from chat <id>: not the owner's` and never its text. `poll failed
+  (<error>), retrying in <n> s` is a failed poll, retried after 5 s, doubling up to 300 s;
+  preceded by `Telegram getUpdates refused with status 409`, it means a second poller
+  (section 2.4).
 
 After investigating a `failed` unit: `sudo systemctl reset-failed horizon-checkin.service`.
 
@@ -546,12 +582,18 @@ newest. Cutting the tag, and what each job checks, is in [`releasing.md`](releas
 | `Check the timers' time zone` | nothing: reads the `OnCalendar` lines of the timers just checked out | the timers fire in another zone than `HT_TIMEZONE` (both named) |
 | `Build .env` | nothing: the file is built on the runner | an empty required value - the step names the variable, never its value |
 | `Write .env` | `install -m 600 -o horizon -g horizon` from ssh's stdin into `.env.new`, then `mv -f` over `.env`; logs `horizon:horizon 600 .../.env` | - |
-| `Install the units` | the four units into `/etc/systemd/system` (0644), `daemon-reload`, `systemctl try-restart` of the timers, `list-timers` | - |
+| `Install the units` | the five units into `/etc/systemd/system` (0644), `daemon-reload`, `systemctl try-restart` of the timers, `systemctl try-restart` then `enable --now` of `horizon-bot.service`, `list-timers` | - |
 | `Smoke: horizon probe` | `horizon probe` as `horizon` through `systemd-run` with the `EnvironmentFile`, as in section 4.3; Chrome really starts | the probe's exit code: 1 on a configuration error or a FAILED `portal` or `chrome` |
-| `Deploy summary` | `systemctl list-timers 'horizon-*'`; the run's summary names the tag, the version, the commit, the probe's answer (or that it did not run) and the timers; written after a red step too, not after a cancellation | no SSH to the host |
+| `Deploy summary` | `systemctl list-timers 'horizon-*'` and `systemctl status horizon-bot.service --no-pager --lines=0`; the run's summary names the tag, the version, the commit, the probe's answer (or that it did not run), the timers and the bot's state with the status's exit code; written after a red step too, not after a cancellation | no SSH to the host |
 
 - **Timers.** `try-restart` restarts only timers that are already enabled; a deploy never
   enables them. Before section 5, `list-timers` shows them inactive - normal.
+- **The bot.** `try-restart` moves a running bot onto the code and the `.env` just written;
+  `enable --now` starts it on the first deploy and leaves a running one as it is. The step
+  does not wait for the bot: the smoke reads the same settings and fails the deploy on a
+  configuration error, and the summary shows the bot's state. Its status is shown without
+  journal lines, because the summary is as readable as the repository's runs and the
+  journal names the chats that wrote to the bot.
 - **Secrets.** They enter a step only through `env:`; no command line and no log line
   carries one, and no script uses `set -x`. `.env` travels as ssh's stdin. The runner's
   copy and the key are removed by the last step, whatever happened.
@@ -583,6 +625,27 @@ tag, and `portal-build` and `portal-deploy` publish the architecture portal to G
   (section 2.2, step 2, with a new file name, then point `~/.ssh/config` of `horizon` at
   it or replace `id_ed25519`), register it, check `sudo -u horizon git -C
   /opt/horizon-tracker fetch origin`, then delete the old key in GitHub.
+
+### 6.5. The bot
+
+`horizon-bot.service` runs from the first deploy on (section 2.4). The owner writes to it in
+the report chat; `/help` lists the commands. The absences it takes are in
+`/opt/horizon-tracker/state/absences.json`:
+
+```bash
+sudo -u horizon cat /opt/horizon-tracker/state/absences.json   # the absences entered
+sudo stat -c '%U:%G %a' /opt/horizon-tracker/state             # horizon:horizon 700
+```
+
+- **To pause the bot**, `sudo systemctl stop horizon-bot.service`; a pause lasts until the
+  next deploy or reboot. `disable --now` lasts until the next deploy, which enables it
+  again. The runs still read the absences already entered while the bot is stopped.
+- **To poll by hand** (a `horizon bot` started outside the service, for instance to try a
+  new token), stop the service first and start it again afterwards: two pollers make
+  Telegram refuse one of them with 409.
+- **After editing `absences.json` by hand**, nothing needs a restart: the bot reads the file
+  on every command, and the runs on every run. Keep it valid JSON: a file the store cannot
+  read is reported by `ht probe` as `absences: failed`.
 
 ---
 
@@ -632,3 +695,9 @@ tag, and `portal-build` and `portal-deploy` publish the architecture portal to G
   native client.
 - **A unit is `failed` with `Result: timeout`.** Chrome hung after the wait; read the
   journal, then `systemctl reset-failed` the unit.
+- **The bot does not answer.** `systemctl status horizon-bot.service --no-pager` and its
+  journal (section 6.1). `activating (auto-restart)` with `status=1/FAILURE` is a
+  configuration error, named in the journal: fix the variable and redeploy. `poll failed`
+  after a 409 is a second poller - a `horizon bot` started by hand, or the same token used
+  by another host. A message from a chat other than `TELEGRAM_CHAT_ID` gets no answer by
+  design.

@@ -6,7 +6,7 @@ never touches. An external system: the repository ships what is installed on it
 
 ## Source
 
-None in this repository beyond the files it installs: `deploy/bootstrap.sh` and the four
+None in this repository beyond the files it installs: `deploy/bootstrap.sh` and the five
 units under `deploy/`. The node's `source` in `.beadloom/_graph/landscape.yml` is this
 file, so the graph has no sourceless node. The host's address is the secret `VPS_HOST`.
 
@@ -24,10 +24,13 @@ What `bootstrap.sh` sets up:
   `/opt/horizon-tracker`, which holds the clone and its `.venv` built by `uv sync --locked`
 - the directory `/opt/horizon-tracker/artifacts` (`horizon:horizon`, `0750`) for
   screenshots, which the service rotates after 14 days
+- the directory `/opt/horizon-tracker/state` (`horizon:horizon`, `0700`), the default of
+  `HT_STATE_DIR`, which holds `absences.json` outside the checkout
 - the units in `/etc/systemd/system`
 
-It checks for Chrome at `/usr/bin/google-chrome` and never
-installs it, and it writes neither `.env` nor an enabled timer.
+It checks for Chrome at `/usr/bin/google-chrome` and never installs it. It writes neither
+`.env` nor an enabled timer, and it does not start `horizon-bot.service`: the deploy
+enables the bot once it has written `.env`.
 
 ### Contracts
 
@@ -61,6 +64,7 @@ the deploy hold.
 | `HT_HOLD_SECONDS` | `120` | no |
 | `HT_CHROME_PATH` | `/usr/bin/google-chrome` | no |
 | `HT_ARTIFACTS_DIR` | `/opt/horizon-tracker/artifacts` | no |
+| `HT_STATE_DIR` | `/opt/horizon-tracker/state`; the deploy does not write it | no |
 | `HT_LANGUAGE` | `en` | no |
 
 - **Refusals.** A missing or blank required variable stops every command with
@@ -76,6 +80,7 @@ the deploy hold.
 | `horizon-checkin.service` | `Type=oneshot`, `User=horizon`, `Group=horizon`, `WorkingDirectory=/opt/horizon-tracker`, `EnvironmentFile=/opt/horizon-tracker/.env`, `ExecStart=/opt/horizon-tracker/.venv/bin/horizon checkin`, `TimeoutStartSec=60min`, after `network-online.target` |
 | `horizon-checkout.timer` | `OnCalendar=*-*-* 16:30:00 Europe/Moscow`, `Persistent=no`, `AccuracySec=1s`, starts `horizon-checkout.service` |
 | `horizon-checkout.service` | the same as the check-in service, with `ExecStart=… horizon checkout` |
+| `horizon-bot.service` | `Type=simple`, `User=horizon`, `Group=horizon`, `WorkingDirectory=/opt/horizon-tracker`, `EnvironmentFile=/opt/horizon-tracker/.env`, `ExecStart=/opt/horizon-tracker/.venv/bin/horizon bot`, `KillSignal=SIGINT`, `Restart=always`, `RestartSec=10`, after `network-online.target`, `WantedBy=multi-user.target` |
 
 - **The exit code.** `horizon` exits 1 only when the run's report is FAILED, and 0 on a
   success and on every deliberate skip, so systemd marks a unit `failed` exactly on a
@@ -86,6 +91,10 @@ the deploy hold.
 - **The bound.** `TimeoutStartSec=60min` covers the wait for the drawn moment (at most the
   40-minute range), the 5-minute window and the run itself. `tests/unit/deploy` checks
   the sum.
+- **The bot.** The one unit that never exits on its own, and the bot's only `getUpdates`
+  caller. Every deploy installs it, restarts a running one (`try-restart`) and enables it
+  (`enable --now`), where the timers are only restarted when already enabled. `SIGINT` is
+  its stop signal because `horizon bot` treats an interrupt as its clean stop.
 
 #### `env:github-environment` — github-environment → vps-host
 
