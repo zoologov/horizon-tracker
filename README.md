@@ -61,6 +61,17 @@ cases. Dependencies point inward only (`cli` → `infrastructure`/`application` 
 | `docs/` | AS-IS documentation held against the code by `beadloom sync-check` |
 | `.beadloom/` | architecture graph, rules and the agentic flow configuration |
 
+Outside the package, the service is bound to six external systems: the Horizon portal (the
+HTML Access web client and its connection broker), the isdayoff.ru production calendar, the
+Telegram Bot API, the owner's Telegram chat the reports go to, the VPS host (the `horizon`
+user, its `.env` and the systemd units) and the GitHub Environment `horizon-vps`, which the
+deploy turns into the host's `.env`. Each is a node of the architecture graph. Its contracts
+are declared in `.beadloom/_graph/landscape.yml`, and the surface of each is written out in
+`docs/domains/external/<node>/SPEC.md`. The portal's
+[landscape page](https://zoologov.github.io/horizon-tracker/landscape.html) draws them as a
+map, rebuilt with every release, and `docs/architecture.md` (section Landscape) says what its
+verdicts rest on.
+
 ## Requirements
 
 To run the service, a host needs:

@@ -91,6 +91,10 @@ Derived from the imports on reindex.
 
 - Depends on: `messages`, `run-report`
 - Used by: `cli`
+- External contracts (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
+  `http:telegram-sendMessage` and `http:telegram-sendPhoto` from
+  [`telegram-bot-api`](../../../external/telegram-bot-api/SPEC.md), and produces
+  `notification:run-report` for [`owner-chat`](../../../external/owner-chat/SPEC.md)
 
 ## Parent
 

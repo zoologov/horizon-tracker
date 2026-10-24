@@ -127,6 +127,8 @@ Derived from the imports on reindex.
 
 - Depends on: `schedule`, `messages`
 - Used by: `cli`
+- External contract (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
+  `env:dot-env` from [`vps-host`](../../../external/vps-host/SPEC.md)
 
 ## Parent
 

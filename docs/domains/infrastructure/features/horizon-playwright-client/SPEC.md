@@ -363,6 +363,9 @@ Derived from the imports on reindex.
 
 - Depends on: `ports`, `run-report`, `schedule`, `session-state`
 - Used by: `cli`
+- External contracts (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
+  `http:horizon-client-bundle`, `http:horizon-broker-session` and `blast:desktop-session` from
+  [`horizon-portal`](../../../external/horizon-portal/SPEC.md)
 
 ## Parent
 
