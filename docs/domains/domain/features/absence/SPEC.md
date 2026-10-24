@@ -2,7 +2,7 @@
 
 The owner's absences (vacation, sick leave, day off) as day ranges, and the decisions over
 a set of them: which covers a day, which comes next, the id a new one gets, whether two
-share a day.
+share a day; and the book the store keeps them in.
 
 ## Source
 
@@ -39,6 +39,12 @@ file the absences are kept in nor today's date: every function takes the day as 
 - `overlaps(first, second)` is true when the two share at least one day, and the order of
   the arguments does not matter. Overlapping absences are refused by the caller, not
   merged.
+- `AbsenceBook(absences, last_issued)` is what the `AbsenceStore` port loads and saves:
+  the absences in the order they were saved, and the highest id ever issued. The empty
+  book, `AbsenceBook()`, holds nothing and has issued nothing. `AbsenceBook.of(absences)`
+  builds a book whose `last_issued` is the highest id held, which is how a file written
+  without the field reads. `next_id()` is `allocate_id(absences,
+  last_issued=last_issued)`, the id the next absence entered gets.
 
 ## Invariants
 
@@ -48,6 +54,9 @@ file the absences are kept in nor today's date: every function takes the day as 
 - `allocate_id` never returns an id at or below `last_issued` or any id held, and refuses
   a negative `last_issued` with `ValueError`.
 - `overlaps(a, b) == overlaps(b, a)`, and an absence overlaps itself.
+- An `AbsenceBook` holds no id twice, and its `last_issued` is neither negative nor below
+  an id it holds; the constructor raises `ValueError` otherwise, so a book that could
+  reissue an id cannot be built.
 - No function reads the clock, a file or the network.
 
 ## API
@@ -63,6 +72,8 @@ Module `src/horizon_tracker/domain/absence.py`:
 - `next_after(absences: Iterable[Absence], day: date) -> Absence | None`.
 - `allocate_id(absences: Iterable[Absence], *, last_issued: int = 0) -> int`.
 - `overlaps(first: Absence, second: Absence) -> bool`.
+- `AbsenceBook(absences: tuple[Absence, ...] = (), last_issued: int = 0)` — frozen;
+  classmethod `of(absences: Iterable[Absence]) -> AbsenceBook`; `next_id() -> int`.
 
 ## Testing
 
@@ -77,7 +88,7 @@ reason.
 Derived from the imports on reindex.
 
 - Depends on: (none)
-- Used by: (none yet)
+- Used by: `absence-store`, `ports`
 
 ## Parent
 

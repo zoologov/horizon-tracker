@@ -28,6 +28,10 @@ waves:
     decision: parallel
     reason: "HT-008, one node (horizon-tracker), disjoint files: .github/workflows/*, tests/unit/deploy/*, src/horizon_tracker/__init__.py, pyproject.toml, .beadloom/config.yml, the regenerated .claude/CLAUDE.md (ht-qdg) vs LICENSE, CHANGELOG.md, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/*, README.md (ht-cix)"
     until: "2026-11-21"
+  - beads: [ht-4um, ht-egg]
+    decision: parallel
+    reason: "HT-012 wave 2: serialised by the dependency edge ports -> run-report, but the files are disjoint: domain/report.py, domain/messages.py, the run-report tests and production_calendar.feature (ht-4um) vs domain/ports.py, infrastructure/absence_store.py, infrastructure/config.py, tests/support/fakes.py and their tests (ht-egg); neither edits the other's module"
+    until: "2026-11-24"
 
 # The declared mutation scope (HT-005). The pure domain only: no I/O, no clock, no browser,
 # so a surviving mutant is a weak assertion and not an unreachable adapter branch. The same

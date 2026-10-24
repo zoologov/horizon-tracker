@@ -8,6 +8,7 @@ import pytest
 from horizon_tracker.domain.absence import (
     FIRST_ID,
     Absence,
+    AbsenceBook,
     AbsenceKind,
     allocate_id,
     covering,
@@ -240,3 +241,70 @@ def test_overlaps_is_true_when_the_two_share_a_day_and_symmetric(
 
 def test_an_absence_overlaps_itself() -> None:
     assert overlaps(_NOVEMBER, _NOVEMBER) is True
+
+
+# --- AbsenceBook --------------------------------------------------------------
+
+
+def test_an_empty_book_holds_nothing_and_has_issued_nothing() -> None:
+    book = AbsenceBook()
+
+    assert book.absences == ()
+    assert book.last_issued == 0
+
+
+def test_a_book_keeps_its_absences_in_the_order_given_and_its_last_issued_id() -> None:
+    second, first = _absence(2, date(2026, 12, 1)), _absence(1, date(2026, 11, 3))
+
+    book = AbsenceBook(absences=(second, first), last_issued=5)
+
+    assert book.absences == (second, first)
+    assert book.last_issued == 5
+
+
+def test_a_book_cannot_be_changed() -> None:
+    book = AbsenceBook()
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        book.last_issued = 3  # type: ignore[misc]  # the assignment is what is under test
+
+
+def test_a_book_may_have_issued_exactly_its_highest_id() -> None:
+    held = (_absence(1, date(2026, 11, 3)), _absence(4, date(2026, 12, 1)))
+
+    assert AbsenceBook(absences=held, last_issued=4).last_issued == 4
+
+
+def test_a_book_refuses_a_last_issued_id_below_an_id_it_holds() -> None:
+    held = (_absence(1, date(2026, 11, 3)), _absence(4, date(2026, 12, 1)))
+
+    with pytest.raises(ValueError, match="last issued id 3 is below the id 4 held"):
+        AbsenceBook(absences=held, last_issued=3)
+
+
+def test_a_book_refuses_a_negative_last_issued_id() -> None:
+    with pytest.raises(ValueError, match="last issued id must not be negative, got -1"):
+        AbsenceBook(last_issued=-1)
+
+
+def test_a_book_refuses_two_absences_with_one_id() -> None:
+    twins = (_absence(2, date(2026, 11, 3)), _absence(2, date(2026, 12, 1)))
+
+    with pytest.raises(ValueError, match="absence id 2 is held twice"):
+        AbsenceBook(absences=twins, last_issued=2)
+
+
+def test_a_book_reading_without_a_last_issued_id_takes_the_highest_id_held() -> None:
+    held = (_absence(3, date(2026, 11, 3)), _absence(7, date(2026, 12, 1)))
+
+    assert AbsenceBook.of(held).last_issued == 7
+    assert AbsenceBook.of(held).absences == held
+    assert AbsenceBook.of(()) == AbsenceBook()
+
+
+def test_a_book_names_the_id_its_next_absence_gets() -> None:
+    held = (_absence(1, date(2026, 11, 3)),)
+
+    assert AbsenceBook().next_id() == FIRST_ID
+    assert AbsenceBook(absences=held, last_issued=1).next_id() == 2
+    assert AbsenceBook(absences=held, last_issued=6).next_id() == 7

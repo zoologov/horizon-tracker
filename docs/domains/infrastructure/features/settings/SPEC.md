@@ -41,6 +41,7 @@ first bad one:
 | `HT_HOLD_SECONDS` | `hold_seconds` | `120` | a whole number of seconds |
 | `HT_CHROME_PATH` | `chrome_path` | `/usr/bin/google-chrome` | — |
 | `HT_ARTIFACTS_DIR` | `artifacts_dir` | `/opt/horizon-tracker/artifacts` | — |
+| `HT_STATE_DIR` | `state_dir` | `/opt/horizon-tracker/state` | — |
 | `HT_LANGUAGE` | `language` | `en` | `en` or `ru`, exactly (`RU` is refused) |
 
 A blank optional variable takes its default. A required variable that is missing or
@@ -48,6 +49,10 @@ blank is reported as `<VAR>: is required and not set`. A malformed optional valu
 reported with the value it got; the seed, the one optional secret, is taken as it is and
 never refused, so it is never reported. An unknown language is reported with the codes
 that are accepted: `HT_LANGUAGE: expected one of en, ru, got 'de'`.
+
+`HT_STATE_DIR` is where the service keeps what it must remember between runs, outside
+the checkout so a deploy does not replace it. `Settings.absences_file` is the owner's
+absences file inside it, `state_dir / "absences.json"` (the `absence-store` SPEC).
 
 `HT_LANGUAGE` picks the language of what a person reads: the notification, the probe,
 the dry run and a configuration error. The logs stay English. `language_from_env(environ)`
@@ -90,7 +95,9 @@ Module `src/horizon_tracker/infrastructure/config.py`:
   `window_grace: timedelta` (`HT_WINDOW_GRACE_MINUTES`, default `5`),
   `jitter_seed: bytes` (`HT_JITTER_SEED` verbatim in UTF-8; unset or blank -> the
   username in UTF-8; masked), `hold_seconds: int`, `chrome_path: Path`,
-  `artifacts_dir: Path`, `language: Language` (`HT_LANGUAGE`, default `en`). No field
+  `artifacts_dir: Path`, `state_dir: Path` (`HT_STATE_DIR`, default
+  `/opt/horizon-tracker/state`), `language: Language` (`HT_LANGUAGE`, default `en`).
+  Property `absences_file -> Path`: `state_dir / ABSENCES_FILE_NAME`. No field
   holds a window: the CLI draws the day's moments from
   these fields and builds each run's window with `window_from`.
 - `from_env` refuses `HT_CHECKIN_WINDOW` and `HT_CHECKOUT_WINDOW` when present (even
@@ -109,7 +116,8 @@ Module `src/horizon_tracker/infrastructure/config.py`:
 - Defaults: `DEFAULT_DESKTOP`, `DEFAULT_TIMEZONE`, `DEFAULT_CHECKIN_RANGE`,
   `DEFAULT_CHECKOUT_RANGE`, `DEFAULT_SESSION_LENGTH_MINUTES`,
   `DEFAULT_SESSION_EXTRA_MAX_MINUTES`, `DEFAULT_WINDOW_GRACE_MINUTES`,
-  `DEFAULT_HOLD_SECONDS`, `DEFAULT_CHROME_PATH`, `DEFAULT_ARTIFACTS_DIR`; `MASK` (`"***"`).
+  `DEFAULT_HOLD_SECONDS`, `DEFAULT_CHROME_PATH`, `DEFAULT_ARTIFACTS_DIR`,
+  `DEFAULT_STATE_DIR`; `ABSENCES_FILE_NAME` (`"absences.json"`); `MASK` (`"***"`).
 
 The CLI logs a `ConfigError` on stderr as `configuration error: <VAR>: <problem>` in
 English and exits 1; when the configured language is not English it also prints the

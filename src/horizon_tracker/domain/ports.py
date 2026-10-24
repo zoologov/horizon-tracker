@@ -2,15 +2,18 @@
 
 The domain declares them and the adapters in ``infrastructure`` implement them, so the
 dependency points inward. Nothing here imports a browser, a network client or a CLI
-framework. Credentials never cross a port: the Horizon adapter is built with them.
+framework. Credentials never cross a port: the Horizon adapter is built with them, and
+the bot transport with its token.
 """
 
 # beadloom:domain=domain
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Protocol
 
+from horizon_tracker.domain.absence import AbsenceBook
 from horizon_tracker.domain.report import Reason, RunReport
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import DesktopStatus
@@ -109,4 +112,54 @@ class ArtifactStore(Protocol):
 
     def screenshot_path(self, kind: RunKind) -> Path:
         """A fresh path for a screenshot taken during a run of the given kind."""
+        ...
+
+
+class AbsenceStoreError(Exception):
+    """The absences could not be read or written; names the file and what is wrong with it.
+
+    ``detail`` is a short technical description (the file is not valid JSON, an entry has
+    no last day, the write failed with ``PermissionError``); the file holds no secret.
+    """
+
+    def __init__(self, path: Path, detail: str) -> None:
+        super().__init__(f"{path}: {detail}")
+        self.path = path
+        self.detail = detail
+
+
+class AbsenceStore(Protocol):
+    """Keeps the owner's absences between runs; every method raises ``AbsenceStoreError``."""
+
+    def load(self) -> AbsenceBook:
+        """The book as last saved; an empty book when nothing has been saved yet."""
+        ...
+
+    def save(self, book: AbsenceBook) -> None:
+        """Replace the stored book with ``book`` as a whole, or leave the old one intact."""
+        ...
+
+
+@dataclass(frozen=True)
+class IncomingMessage:
+    """One text message the bot received: its update id, the chat it came from, its text."""
+
+    update_id: int
+    chat_id: str
+    text: str
+
+
+class BotTransportError(Exception):
+    """The bot transport could not reach the Bot API or was refused; never carries the token."""
+
+
+class BotTransport(Protocol):
+    """Receives the owner's messages to the bot and answers them; raises ``BotTransportError``."""
+
+    def poll(self, offset: int | None) -> tuple[IncomingMessage, ...]:
+        """The messages from ``offset`` on (all pending when ``None``), waiting a while for one."""
+        ...
+
+    def reply(self, chat_id: str, text: str) -> None:
+        """Send ``text`` to the chat ``chat_id``."""
         ...

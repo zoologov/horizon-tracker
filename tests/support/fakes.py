@@ -3,12 +3,15 @@
 Each fake models the one thing a use case can observe through its port and nothing
 more. The Horizon fake keeps a single desktop's session state the way the broker
 would move it; a scripted failure is queued per method and raised on its next call.
+The absence store keeps one book in memory and can be told to fail its next load or save.
 """
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from horizon_tracker.domain.absence import AbsenceBook
+from horizon_tracker.domain.ports import AbsenceStoreError
 from horizon_tracker.domain.report import RunReport
 from horizon_tracker.domain.session import DesktopStatus, SessionState
 
@@ -51,6 +54,37 @@ class FakeNotifier:
 
     def send(self, report: RunReport) -> None:
         self.sent.append(report)
+
+
+@dataclass
+class FakeAbsenceStore:
+    """One book in memory: ``load`` answers it, ``save`` replaces it and records it.
+
+    ``loads`` counts the loads, ``saved`` keeps every book saved, in order. ``broken``
+    plays an unreadable file: every load raises ``AbsenceStoreError`` until it is cleared.
+    ``fail_save`` plays a write that fails: the next save raises and the book is kept.
+    """
+
+    book: AbsenceBook = field(default_factory=AbsenceBook)
+    broken: bool = False
+    fail_save: bool = False
+    loads: int = 0
+    saved: list[AbsenceBook] = field(default_factory=list)
+
+    PATH = Path("/opt/horizon-tracker/state/absences.json")
+
+    def load(self) -> AbsenceBook:
+        self.loads += 1
+        if self.broken:
+            raise AbsenceStoreError(self.PATH, "not valid JSON")
+        return self.book
+
+    def save(self, book: AbsenceBook) -> None:
+        if self.fail_save:
+            self.fail_save = False
+            raise AbsenceStoreError(self.PATH, "cannot be written: OSError")
+        self.saved.append(book)
+        self.book = book
 
 
 @dataclass

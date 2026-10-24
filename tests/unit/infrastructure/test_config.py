@@ -43,6 +43,7 @@ FULL = {
     "HT_HOLD_SECONDS": "300",
     "HT_CHROME_PATH": "/opt/chrome/chrome",
     "HT_ARTIFACTS_DIR": "/var/tmp/horizon-artifacts",
+    "HT_STATE_DIR": "/var/lib/horizon-state",
     "HT_LANGUAGE": "ru",
 }
 
@@ -80,6 +81,7 @@ def test_every_variable_is_read_into_its_field() -> None:
     assert settings.hold_seconds == 300
     assert settings.chrome_path == Path("/opt/chrome/chrome")
     assert settings.artifacts_dir == Path("/var/tmp/horizon-artifacts")
+    assert settings.state_dir == Path("/var/lib/horizon-state")
     assert settings.language is Language.RU
 
 
@@ -96,7 +98,17 @@ def test_unset_optional_variables_take_the_documented_defaults() -> None:
     assert settings.hold_seconds == 120
     assert settings.chrome_path == Path("/usr/bin/google-chrome")
     assert settings.artifacts_dir == Path("/opt/horizon-tracker/artifacts")
+    assert settings.state_dir == Path("/opt/horizon-tracker/state")
     assert settings.language is Language.EN
+
+
+def test_the_absences_file_is_named_inside_the_state_directory() -> None:
+    assert Settings.from_env(REQUIRED).absences_file == Path(
+        "/opt/horizon-tracker/state/absences.json"
+    )
+    assert Settings.from_env(_env(HT_STATE_DIR="/srv/state")).absences_file == Path(
+        "/srv/state/absences.json"
+    )
 
 
 def test_unset_or_blank_optional_durations_and_ranges_take_their_defaults() -> None:
