@@ -54,6 +54,13 @@
 //  - The page can be told to fall back to #/home a while after the desktop drew
 //    (drop_to_login_after_ms): a session lost right after it opened, so the adapter's
 //    success screenshot, taken after a settle, meets the login page and must not take it.
+//  - The page can be told to fill the remote surface with a colour once it draws
+//    (paint_desktop): a painted Windows desktop, for a run that cannot paint it itself.
+//  - The page can be told to offer Fullscreen again a while after the desktop drew
+//    (fullscreen_again_after_ms), as the live client did on 2026-10-24 after the adapter
+//    had cancelled the first offer, and to let that second offer ignore Cancel
+//    (fullscreen_sticks): a dialog the adapter cannot dismiss. The dialog is a modal over
+//    the remote surface (index.html), so a frame taken while it shows carries it.
 (function () {
   "use strict";
 
@@ -284,19 +291,38 @@
     var dialog = byId("dialog");
     var mode = "fullscreen";
     var answered = false;
+    var sticky = false;
     var wmks = null;
 
+    // Draws once per Blast connection: a later answer to an offer must not clear the frame.
     function draw() {
       behaviour().then(function (portal) {
         if (!portal.draw_canvas || !answered || wmks === null) { return; }
+        if (wmks.style.display === "block") { return; }
         var canvas = wmks.querySelector("canvas");
         canvas.width = 1280;
         canvas.height = 720;
+        if (portal.paint_desktop) {
+          var context = canvas.getContext("2d");
+          context.fillStyle = portal.paint_desktop;
+          context.fillRect(0, 0, canvas.width, canvas.height);
+        }
         wmks.style.display = "block";
         if (portal.drop_to_login_after_ms > 0) {
           setTimeout(function () { location.hash = "#/home"; }, portal.drop_to_login_after_ms);
         }
+        if (portal.fullscreen_again_after_ms > 0) {
+          setTimeout(function () { offerFullscreen(portal.fullscreen_sticks); }, portal.fullscreen_again_after_ms);
+        }
       });
+    }
+
+    function offerFullscreen(sticks) {
+      mode = "fullscreen";
+      sticky = sticks === true;
+      byId("dialogMessage").textContent = "Enter full screen mode?";
+      dialog.hidden = false;
+      if (sticky) { record("fullscreen-offered-sticky"); } else { record("fullscreen-offered-again"); }
     }
 
     behaviour().then(function (portal) {
@@ -310,11 +336,13 @@
     byId("dialogMessage").textContent = "Enter full screen mode?";
     dialog.hidden = false;
     byId("cancelDialogBtn").addEventListener("click", function () {
+      if (sticky) { record("fullscreen-cancel-ignored"); return; }
       dialog.hidden = true;
       if (mode === "fullscreen") { answered = true; record("fullscreen-cancelled").then(draw); }
     });
     byId("okDialogBtn").addEventListener("click", function () {
       dialog.hidden = true;
+      sticky = false;
       if (mode === "fullscreen") { answered = true; record("fullscreen-accepted").then(draw); }
       else { killSession(id); }
     });

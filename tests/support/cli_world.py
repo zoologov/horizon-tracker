@@ -15,7 +15,7 @@ from pathlib import Path
 from click.testing import CliRunner, Result
 
 from horizon_tracker.cli import Adapters, main
-from horizon_tracker.domain.ports import Notifier
+from horizon_tracker.domain.ports import HorizonClient, Notifier
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import SessionState
 from horizon_tracker.infrastructure.config import Settings
@@ -74,6 +74,9 @@ class World:
         # a way to build a real notifier (the acceptance suite drives the Telegram adapter).
         self.delivery = delivery
         self.client = FakeHorizonClient(desktop=desktop, state=state, clock=self.clock)
+        # The Horizon client the command runs over instead of the fake, when a scenario
+        # drives the real adapter on the HTML Access fixture; ``client`` then stays unused.
+        self.horizon: HorizonClient | None = None
         self.artifacts = FakeArtifacts()
         self.opened: list[tuple[Settings, RunKind]] = []
         self.closed = 0
@@ -87,7 +90,7 @@ class World:
                 clock=self.clock,
                 calendar=self.calendar,
                 notifier=notifier,
-                horizon=self.client,
+                horizon=self.client if self.horizon is None else self.horizon,
                 artifacts=self.artifacts,
             )
         finally:

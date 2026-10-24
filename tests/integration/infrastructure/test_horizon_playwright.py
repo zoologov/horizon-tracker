@@ -1,30 +1,15 @@
 """Tests of the Playwright Horizon client against a local HTML Access fixture, never the portal.
 
-The fixture pages under ``tests/fixtures/htmlaccess/`` reproduce the structure the real
-HTML Access 2312.1 bundle renders where the adapter reads the page: the tile, its menu
-and the canvas the Blast session appends. A ``ThreadingHTTPServer`` on 127.0.0.1 serves
-them and plays the broker: its XML endpoint ``/broker/xml`` (kill-session and the logout
-of a credential cleanup), the fixture's own ``/fixture/*`` and a bare WebSocket handshake
-on the Blast path (``/r/`` unless a test moves it), so the client's Blast connection is a
-real socket the browser opens and closes.
+The fixture portal (``tests/support/htmlaccess_portal.py``) serves the fixture pages and
+plays the broker and the Blast handshake; the tests below steer it through its state.
 """
 
-import base64
-import hashlib
-import json
 import logging
-import os
 import re
-import socket
 import struct
-import sys
-import threading
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
-from functools import partial
-from http.cookies import SimpleCookie
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -42,32 +27,21 @@ from horizon_tracker.infrastructure.horizon_playwright import (
     HorizonTimeouts,
     PlaywrightHorizonClient,
 )
-from tests.support.repository_root import repository_root
-
-FIXTURE_DIR = repository_root() / "tests" / "fixtures" / "htmlaccess"
-PRESET_CHROMIUM = Path("/opt/pw-browsers/chromium")
-
-USERNAME = "jdoe"
-PASSWORD = "correct-horse-battery-staple"
-DESKTOP = "DEV desktop"
-DESKTOP_ID = "dev-desktop-1"
-OTHER_DESKTOP_ID = "test-desktop-2"
-QUOTED_DESKTOP = 'Стенд "B" \\ 2'
-QUOTED_DESKTOP_ID = "lab-desktop-3"
-
-WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-SESSION_COOKIE = "fixture-session"
-
-FAST = HorizonTimeouts(
-    page_load_ms=10_000,
-    action_ms=5_000,
-    login_ms=5_000,
-    desktop_open_ms=4_000,
-    logoff_confirm_ms=3_000,
-    poll_ms=100,
-    kill_session_answer_ms=3_000,
-    desktop_paint_ms=600,
+from tests.support.htmlaccess_portal import (
+    DESKTOP,
+    FAST,
+    PASSWORD,
+    QUOTED_DESKTOP,
+    USERNAME,
+    Portal,
+    RecordingArtifacts,
+    chrome_for_tests,
+    closed_port_url,
+    serve_portal,
+    wait_for,
 )
+from tests.support.photo import colours_unlike
+
 # The fixture page falls back to the login page this long after the desktop drew.
 DROP_TO_LOGIN_AFTER_MS = 300
 # Longer than the live poll interval (1 s) the adapter once waited after OK, and well
@@ -80,316 +54,18 @@ ADAPTER_LOGGER = "horizon_tracker.infrastructure.horizon_playwright"
 KILL_SESSION_ANSWERED = re.compile(
     r"Horizon kill-session answered: (?P<status>\d{3}) after (?P<ms>\d+) ms"
 )
-# How long a kill-session the broker never answers holds its handler thread when the
-# test does not release it first.
-UNANSWERED_HOLD_S = 30.0
 
 
 # --- the fixture portal ---------------------------------------------------------------
 
 
-@dataclass
-class PortalState:
-    """What the fixture broker knows and how it is told to misbehave."""
-
-    session: str = "none"
-    refuse_blast: bool = False
-    blast_path: str = "/r/"
-    draw_canvas: bool = True
-    ignore_logoff: bool = False
-    # How many launch-items lists the broker still answers with the session after it was
-    # told to log the desktop off: a broker that takes its time.
-    logoff_lag_lists: int = 0
-    logoff_pending: bool = False
-    # False: a login's web session serves one launch-items list, so a reload of the page
-    # lands on the login form (the live portal's answer to a reload is not measured).
-    login_survives_reload: bool = True
-    # The broker's enableCredentialCleanupForHTMLAccess: the client logs out of the
-    # broker when the page unloads, which ends the web session and, in this fixture,
-    # cuts off a kill-session the broker has not answered yet.
-    credential_cleanup: bool = False
-    # How long the broker takes to answer kill-session; it acts on it when it answers.
-    kill_session_answer_s: float = 0.0
-    kill_session_unanswered: bool = False
-    # The HTTP status the broker answers kill-session with.
-    kill_session_status: int = 200
-    logoff_dialog: bool = True
-    # The page posts a non-UTF-8 body to /fixture/telemetry on OK, beside the log off.
-    binary_post: bool = False
-    # The page sends kill-session as a synchronous XHR on OK: answered before the click returns.
-    kill_session_sync: bool = False
-    # The page falls back to #/home this many ms after the desktop drew; 0 never.
-    drop_to_login_after_ms: int = 0
-    released: threading.Event = field(default_factory=threading.Event)
-    logins: dict[str, int] = field(default_factory=dict)
-    logged_out: set[str] = field(default_factory=set)
-    events: list[str] = field(default_factory=list)
-    user_agents: list[str] = field(default_factory=list)
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def record(self, event: str) -> None:
-        with self.lock:
-            self.events.append(event)
-
-
-class PortalHandler(SimpleHTTPRequestHandler):
-    """Serves the fixture pages and answers the fixture broker and the Blast handshake."""
-
-    protocol_version = "HTTP/1.1"
-    state: PortalState
-
-    def log_message(self, format: str, *args: object) -> None:
-        """Keep the test output quiet."""
-
-    def do_GET(self) -> None:
-        self.state.user_agents.append(self.headers.get("User-Agent", ""))
-        if self.path.startswith(self.state.blast_path):
-            self._blast()
-        elif self.path == "/fixture/launch-items":
-            self._launch_items()
-        elif self.path == "/fixture/behaviour":
-            self._json(
-                200,
-                {
-                    "draw_canvas": self.state.draw_canvas,
-                    "blast_path": self.state.blast_path,
-                    "credential_cleanup": self.state.credential_cleanup,
-                    "logoff_dialog": self.state.logoff_dialog,
-                    "binary_post": self.state.binary_post,
-                    "kill_session_sync": self.state.kill_session_sync,
-                    "drop_to_login_after_ms": self.state.drop_to_login_after_ms,
-                },
-            )
-        else:
-            super().do_GET()
-
-    def do_POST(self) -> None:
-        raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-        if self.path == "/broker/xml":
-            self._broker_xml(raw.decode())
-            return
-        if self.path == "/fixture/telemetry":
-            self.state.record("telemetry")
-            self._json(200, {})
-            return
-        body: dict[str, object] = json.loads(raw or b"{}")
-        if self.path == "/fixture/login":
-            self._login(body)
-        elif self.path == "/fixture/event":
-            self.state.record(str(body["name"]))
-            self._json(200, {})
-        else:
-            self._json(404, {})
-
-    def _broker_xml(self, document: str) -> None:
-        """The broker's XML endpoint: one ``<broker>`` document per POST, as the bundle sends."""
-        if "<kill-session>" in document:
-            self._kill_session()
-        elif "<do-logout" in document:
-            self._broker_logout()
-        elif "<set-last-user-activity" in document:
-            self._xml(200, "<set-last-user-activity><result>ok</result></set-last-user-activity>")
-        else:
-            self._json(400, {})
-
-    def _json(self, status: int, payload: object, cookie: str | None = None) -> None:
-        data = json.dumps(payload).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        if cookie is not None:
-            self.send_header("Set-Cookie", cookie)
-        self.end_headers()
-        self.wfile.write(data)
-
-    def _xml(self, status: int, message: str) -> None:
-        data = f"<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>{message}</broker>"
-        self.send_response(status)
-        self.send_header("Content-Type", "text/xml")
-        self.send_header("Content-Length", str(len(data.encode())))
-        self.end_headers()
-        self.wfile.write(data.encode())
-
-    def _login_token(self) -> str | None:
-        morsel = SimpleCookie(self.headers.get("Cookie", "")).get(SESSION_COOKIE)
-        if morsel is None or morsel.value not in self.state.logins:
-            return None
-        if morsel.value in self.state.logged_out:
-            return None
-        return morsel.value
-
-    def _login(self, body: dict[str, object]) -> None:
-        if body.get("username") == USERNAME and body.get("password") == PASSWORD:
-            self.state.record("login-accepted")
-            token = str(len(self.state.logins) + 1)
-            self.state.logins[token] = 0
-            self._json(200, {}, cookie=f"{SESSION_COOKIE}={token}; Path=/")
-        else:
-            self.state.record("login-rejected")
-            self._json(401, {})
-
-    def _launch_items(self) -> None:
-        token = self._login_token()
-        if token is None or (not self.state.login_survives_reload and self.state.logins[token] > 0):
-            self._json(401, {})
-            return
-        self.state.logins[token] += 1
-        if self.state.logoff_pending:
-            if self.state.logoff_lag_lists > 0:
-                self.state.logoff_lag_lists -= 1
-            else:
-                self.state.logoff_pending = False
-                self.state.session = "none"
-        self._json(
-            200,
-            [
-                {"id": DESKTOP_ID, "name": DESKTOP, "session": self.state.session},
-                {"id": OTHER_DESKTOP_ID, "name": "Test desktop", "session": "none"},
-                {"id": QUOTED_DESKTOP_ID, "name": QUOTED_DESKTOP, "session": "none"},
-            ],
-        )
-
-    def _kill_session(self) -> None:
-        """Answer kill-session after the broker's delay, acting on it only if it is answered.
-
-        A web session that ended while the answer was pending (the logout of a credential
-        cleanup) cuts the request off: the session stays and nothing is answered.
-        """
-        token = self._login_token()
-        if token is None:
-            self._json(401, {})
-            return
-        self.state.record("kill-session")
-        if self.state.kill_session_unanswered:
-            self.state.released.wait(UNANSWERED_HOLD_S)
-            self.close_connection = True
-            return
-        time.sleep(self.state.kill_session_answer_s)
-        if token in self.state.logged_out:
-            self.state.record("kill-session-cut-off")
-            self.close_connection = True
-            return
-        if not self.state.ignore_logoff:
-            self.state.logoff_pending = self.state.logoff_lag_lists > 0
-            if not self.state.logoff_pending:
-                self.state.session = "none"
-        self.state.record("kill-session-answered")
-        self._xml(
-            self.state.kill_session_status, "<kill-session><result>ok</result></kill-session>"
-        )
-
-    def _broker_logout(self) -> None:
-        """The client's logout on unload: the web session ends, the desktop's does not."""
-        token = self._login_token()
-        if token is not None:
-            self.state.logged_out.add(token)
-        self.state.record("broker-logout")
-        self._xml(200, "<logout><result>ok</result></logout>")
-
-    def _blast(self) -> None:
-        key = self.headers.get("Sec-WebSocket-Key")
-        if self.state.refuse_blast or key is None:
-            self._json(403, {})
-            return
-        accept = base64.b64encode(hashlib.sha1((key + WEBSOCKET_GUID).encode()).digest())
-        self.send_response(101)
-        self.send_header("Upgrade", "websocket")
-        self.send_header("Connection", "Upgrade")
-        self.send_header("Sec-WebSocket-Accept", accept.decode())
-        self.end_headers()
-        self.wfile.flush()
-        self.state.session = "connected"
-        self.state.record("blast-open")
-        self._hold_until_closed()
-        if self.state.session == "connected":
-            self.state.session = "disconnected"
-        self.state.record("blast-closed")
-        self.close_connection = True
-
-    def _hold_until_closed(self) -> None:
-        self.connection.settimeout(0.2)
-        while True:
-            try:
-                if not self.connection.recv(4096):
-                    return
-            except TimeoutError:
-                continue
-            except OSError:
-                return
-
-
-class PortalServer(ThreadingHTTPServer):
-    """The fixture's HTTP server; a browser hanging up mid-request is normal, not an error."""
-
-    daemon_threads = True
-
-    def handle_error(self, request: object, client_address: object) -> None:
-        if isinstance(sys.exc_info()[1], ConnectionError):
-            return
-        super().handle_error(request, client_address)  # type: ignore[arg-type]  # typeshed: private aliases
-
-
-@dataclass(frozen=True)
-class Portal:
-    """A running fixture portal: its base URL and the broker state the tests steer."""
-
-    url: str
-    state: PortalState
-
-
 @pytest.fixture
 def portal() -> Iterator[Portal]:
-    state = PortalState()
-    handler = partial(type("Handler", (PortalHandler,), {"state": state}), directory=FIXTURE_DIR)
-    server = PortalServer(("127.0.0.1", 0), handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield Portal(url=f"http://127.0.0.1:{server.server_address[1]}/", state=state)
-    finally:
-        state.released.set()
-        server.shutdown()
-        server.server_close()
-
-
-def closed_port_url() -> str:
-    """A localhost URL nothing listens on."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    return f"http://127.0.0.1:{port}/"
-
-
-def wait_for(condition: Callable[[], bool], seconds: float = 3.0) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.05)
-    return condition()
+    with serve_portal() as running:
+        yield running
 
 
 # --- the client under test ------------------------------------------------------------
-
-
-class RecordingArtifacts:
-    """An ``ArtifactStore`` that hands out paths in a temporary directory and counts asks."""
-
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.asked: list[RunKind] = []
-
-    def screenshot_path(self, kind: RunKind) -> Path:
-        self.asked.append(kind)
-        return self.root / f"{kind.value}-{len(self.asked)}.png"
-
-
-def chrome_for_tests() -> Path | None:
-    """The browser binary: ``HT_TEST_CHROME_PATH``, the preinstalled one, or Playwright's."""
-    configured = os.environ.get("HT_TEST_CHROME_PATH")
-    if configured:
-        return Path(configured)
-    return PRESET_CHROMIUM if PRESET_CHROMIUM.exists() else None
 
 
 @pytest.fixture
@@ -1003,6 +679,18 @@ def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logge
 
 # --- the success screenshot ------------------------------------------------------------
 
+DESKTOP_BLUE = (0, 120, 215)
+# The side of the grid the capture reads a surface on.
+PAINT_GRID_SIDE = 32
+# A remote surface the page paints this long after the capture's first sample.
+PAINTED_AFTER_MS = 300
+# A bound long enough for several samples after that paint.
+PAINT_WAIT_MS = 5_000
+# A bound shorter than a poll interval set to twice it, and the time one sample, the
+# start and the return may add on this machine.
+SHORT_PAINT_MS = 1_500
+SAMPLE_SLACK_MS = 500
+
 
 def png_size(data: bytes) -> tuple[int, int]:
     """The width and height stored in a PNG's IHDR."""
@@ -1034,7 +722,11 @@ def paint_remote_surface(
 
 
 def add_small_bright_canvas(client: PlaywrightHorizonClient) -> None:
-    """A 64 by 64 red canvas beside the remote surface, smaller than the Blast canvas."""
+    """A 64 by 64 red canvas ahead of the remote surface, smaller than the Blast canvas.
+
+    It is the container's first child, so the first surface in document order is the
+    small one: a capture that read the first surface instead of the largest would see red.
+    """
     page = client._page
     assert page is not None
     page.evaluate(
@@ -1045,8 +737,45 @@ def add_small_bright_canvas(client: PlaywrightHorizonClient) -> None:
             const context = canvas.getContext("2d");
             context.fillStyle = "rgb(255, 0, 0)";
             context.fillRect(0, 0, 64, 64);
-            document.querySelector("#canvas-container").appendChild(canvas);
+            const container = document.querySelector("#canvas-container");
+            container.insertBefore(canvas, container.firstChild);
         }"""
+    )
+
+
+def light_the_first_row(client: PlaywrightHorizonClient, pixels: int, channel: int) -> None:
+    """A black 32 by 32 Blast canvas whose first ``pixels`` of row 0 are rgb(channel, 0, 0).
+
+    At 32 by 32 the paint grid is the bitmap itself, so the count is exact.
+    """
+    paint_remote_surface(client, "rgb(0, 0, 0)", width=PAINT_GRID_SIDE, height=PAINT_GRID_SIDE)
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """({ pixels, channel }) => {
+            const canvas = document.querySelector("#canvas-container canvas");
+            const context = canvas.getContext("2d");
+            context.fillStyle = `rgb(${channel}, 0, 0)`;
+            context.fillRect(0, 0, pixels, 1);
+        }""",
+        {"pixels": pixels, "channel": channel},
+    )
+
+
+def paint_remote_surface_later(client: PlaywrightHorizonClient, color: str, after_ms: int) -> None:
+    """Fill the Blast canvas with ``color`` once ``after_ms`` have passed, from a page timer."""
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """({ color, afterMs }) => {
+            setTimeout(() => {
+                const canvas = document.querySelector("#canvas-container canvas");
+                const context = canvas.getContext("2d");
+                context.fillStyle = color;
+                context.fillRect(0, 0, canvas.width, canvas.height);
+            }, afterMs);
+        }""",
+        {"color": color, "afterMs": after_ms},
     )
 
 
@@ -1070,9 +799,9 @@ def test_open_desktop_returns_no_success_screenshot(
 def test_a_black_remote_surface_is_not_saved(
     client: PlaywrightHorizonClient,
     artifacts: RecordingArtifacts,
-    photographed: list[str],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # Each sample takes a frame to judge it; a black one is judged and never saved.
     client.login()
     client.open_desktop(DESKTOP)
     paint_remote_surface(client, "rgb(0, 0, 0)")
@@ -1081,8 +810,6 @@ def test_a_black_remote_surface_is_not_saved(
 
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
-    assert photographed
-    assert set(photographed) == {"#/desktop"}
     assert "Horizon desktop still blank" in caplog.text
 
 
@@ -1120,6 +847,343 @@ def test_a_smaller_bright_canvas_does_not_paint_a_black_desktop(
     assert "Horizon desktop still blank" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("pixels", "channel", "painted"),
+    [(7, 24, False), (8, 23, False), (8, 24, True)],
+    ids=["seven-lit-cells", "a-channel-below-24", "eight-cells-at-24"],
+)
+def test_a_surface_is_painted_from_eight_lit_cells_of_its_grid(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    pixels: int,
+    channel: int,
+    painted: bool,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    light_the_first_row(client, pixels, channel)
+
+    shot = client.capture_open_desktop()
+
+    assert (shot is not None) is painted
+    assert artifacts.asked == ([RunKind.CHECKIN] if painted else [])
+
+
+def test_a_surface_lit_only_past_its_top_left_corner_is_painted(
+    client: PlaywrightHorizonClient,
+) -> None:
+    # 64 by 32, black on the left and red on the right: a 32 by 32 crop of the top-left
+    # corner is black, a grid spread across the whole surface reaches the lit half.
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)", width=2 * PAINT_GRID_SIDE, height=PAINT_GRID_SIDE)
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """(side) => {
+            const canvas = document.querySelector("#canvas-container canvas");
+            const context = canvas.getContext("2d");
+            context.fillStyle = "rgb(255, 0, 0)";
+            context.fillRect(side, 0, side, side);
+        }""",
+        PAINT_GRID_SIDE,
+    )
+
+    assert client.capture_open_desktop() is not None
+
+
+def test_the_photo_is_of_the_largest_surface_not_the_first(
+    client: PlaywrightHorizonClient,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE), width=200, height=100)
+    add_small_bright_canvas(client)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None
+    assert png_size(shot.read_bytes()) == (200, 100)
+
+
+def test_a_surface_with_no_frame_yet_is_not_photographed(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A video larger than the painted Blast canvas that has received no frame: the page
+    # shows only what lies behind it, which is not the desktop.
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE))
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """() => {
+            const video = document.createElement("video");
+            video.style.width = "1600px";
+            video.style.height = "900px";
+            document.querySelector("#canvas-container").appendChild(video);
+        }"""
+    )
+
+    assert client.capture_open_desktop() is None
+
+    assert photographed == [], "a surface with no frame was photographed"
+    assert artifacts.asked == []
+    assert "Horizon desktop still blank" in caplog.text
+
+
+def paint_a_webgl_surface(client: PlaywrightHorizonClient, colour: tuple[int, int, int]) -> bool:
+    """Replace the Blast canvas with a 200 by 100 WebGL one cleared to ``colour``.
+
+    The context keeps no drawing buffer (the WebGL default), so once the page has
+    composited the frame the canvas's own bitmap reads blank: only the composited pixels
+    show the colour. Answers False when the browser offers no WebGL context.
+    """
+    page = client._page
+    assert page is not None
+    created = page.evaluate(
+        """async ([red, green, blue]) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 200;
+            canvas.height = 100;
+            const gl = canvas.getContext("webgl", { preserveDrawingBuffer: false });
+            if (gl === null) { return false; }
+            document.querySelector("#canvas-container canvas").replaceWith(canvas);
+            gl.clearColor(red / 255, green / 255, blue / 255, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            // Two frames: the clear is composited, then the drawing buffer is discarded.
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            return true;
+        }""",
+        list(colour),
+    )
+    return bool(created)
+
+
+def test_a_webgl_surface_that_keeps_no_drawing_buffer_is_photographed(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    if not paint_a_webgl_surface(client, DESKTOP_BLUE):
+        pytest.skip("this browser offers no WebGL context, so the case cannot be built")
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None, "the paint was read from the surface's bitmap, which WebGL discarded"
+    assert png_size(shot.read_bytes()) == (200, 100)
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == []
+    assert artifacts.asked == [RunKind.CHECKIN]
+
+
+def test_the_paint_is_judged_on_the_composited_frame_not_the_surfaces_bitmap(
+    client: PlaywrightHorizonClient,
+) -> None:
+    # A surface whose own bitmap is empty (transparent black) while the page shows it
+    # painted, here by its CSS background: the photo a person would see is not blank.
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgba(0, 0, 0, 0)", width=200, height=100)
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """(colour) => {
+            document.querySelector("#canvas-container canvas").style.background = colour;
+        }""",
+        "rgb({}, {}, {})".format(*DESKTOP_BLUE),
+    )
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None, "the paint was read from the surface's bitmap, not the frame"
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == []
+
+
+def test_a_frame_a_dialog_came_into_is_discarded_and_sampled_again(
+    client: PlaywrightHorizonClient,
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE))
+    real_screenshot = Locator.screenshot
+    offered: list[bool] = []
+
+    def offer_then_take(locator: Locator, *args: Any, **kwargs: Any) -> bytes:
+        # The client shows its dialog after the sample looked for one and before the
+        # frame is taken, once: the frame carries it.
+        if not offered:
+            offered.append(True)
+            locator.page.evaluate("() => { document.querySelector('#dialog').hidden = false; }")
+        return real_screenshot(locator, *args, **kwargs)
+
+    monkeypatch.setattr(Locator, "screenshot", offer_then_take)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == [], "the dialog is in the frame"
+    assert photographed == ["#/desktop", "#/desktop"]
+    assert artifacts.asked == [RunKind.CHECKIN]
+    assert wait_for(lambda: portal.state.events.count("fullscreen-cancelled") == 2)
+    assert "fullscreen-accepted" not in portal.state.events
+
+
+def test_a_frame_the_page_cannot_decode_leaves_no_photo_and_raises_nothing(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+
+    def a_frame_no_browser_decodes(*_args: object, **_kwargs: object) -> bytes:
+        return b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+    monkeypatch.setattr(Locator, "screenshot", a_frame_no_browser_decodes)
+
+    assert client.capture_open_desktop() is None
+
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert "Horizon screenshot failed: Error" in caplog.text
+    assert "Horizon desktop still blank" not in caplog.text
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+# Less than any sample takes on this machine (a frame and its decode), and under the
+# floor of 250 ms the capture needs left to start one.
+SHORTER_THAN_A_SAMPLE_MS = 100
+
+
+def test_a_capture_with_less_left_than_a_sample_takes_starts_none(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = make_client(timeouts=replace(FAST, desktop_paint_ms=SHORTER_THAN_A_SAMPLE_MS))
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+
+    assert client.capture_open_desktop() is None
+
+    assert photographed == [], "a sample was started that could only time out"
+    assert artifacts.asked == []
+    assert "Horizon desktop still blank" in caplog.text
+    assert "Horizon screenshot failed" not in caplog.text
+
+
+def test_a_surface_black_at_the_first_sample_and_painted_later_is_photographed(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    artifacts: RecordingArtifacts,
+) -> None:
+    client = make_client(timeouts=replace(FAST, desktop_paint_ms=PAINT_WAIT_MS))
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    paint_remote_surface_later(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE), PAINTED_AFTER_MS)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None, "the capture gave up after its first, black, sample"
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == []
+    assert artifacts.asked == [RunKind.CHECKIN]
+
+
+def test_a_pause_between_samples_never_outlasts_the_capture_bound(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A poll interval twice the bound: a pause that is not cut to what is left of the
+    # bound starts one more sample long after it.
+    timeouts = replace(FAST, desktop_paint_ms=SHORT_PAINT_MS, poll_ms=2 * SHORT_PAINT_MS)
+    client = make_client(timeouts=timeouts)
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    started = time.monotonic()
+
+    assert client.capture_open_desktop() is None
+
+    elapsed_ms = (time.monotonic() - started) * 1000
+    assert elapsed_ms < SHORT_PAINT_MS + SAMPLE_SLACK_MS, f"the capture took {elapsed_ms:.0f} ms"
+    assert "Horizon desktop still blank" in caplog.text
+
+
+def test_the_photo_waits_no_longer_than_the_capture_has_left(
+    client: PlaywrightHorizonClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 30, 30)", width=200, height=100)
+    timeouts: list[object] = []
+    real_screenshot = Locator.screenshot
+
+    def spy(locator: Locator, *args: Any, **kwargs: Any) -> bytes:
+        timeouts.append(kwargs.get("timeout"))
+        return real_screenshot(locator, *args, **kwargs)
+
+    monkeypatch.setattr(Locator, "screenshot", spy)
+
+    assert client.capture_open_desktop() is not None
+
+    assert len(timeouts) == 1
+    timeout = timeouts[0]
+    assert isinstance(timeout, int | float), "the photo waits on the action timeout instead"
+    assert 0 < timeout <= FAST.desktop_paint_ms
+
+
+def test_a_page_closed_after_a_blank_sample_stops_the_capture_without_a_failure(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 0, 0)")
+    real_evaluate = Page.evaluate
+    closed_after: list[object] = []
+
+    def close_once_the_frame_is_read(page: Page, expression: str, *args: Any) -> Any:
+        # The page goes away only once a sample has read its frame's lit cells, so that
+        # sample judges the black frame and waits. The pause and the next sample are the
+        # ones that find the page closed.
+        answer = real_evaluate(page, expression, *args)
+        if expression == horizon_playwright._LIT_CELLS:
+            closed_after.append(answer)
+            page.close()
+        return answer
+
+    monkeypatch.setattr(Page, "evaluate", close_once_the_frame_is_read)
+
+    assert client.capture_open_desktop() is None
+
+    assert closed_after == [0], "the page did not close after a blank sample"
+    assert artifacts.asked == []
+    assert list(artifacts.root.iterdir()) == []
+    assert "Horizon screenshot failed" not in caplog.text
+    assert "Horizon desktop still blank" not in caplog.text
+
+
 def test_capture_on_the_login_page_saves_nothing(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
@@ -1142,6 +1206,92 @@ def test_capture_on_the_login_page_saves_nothing(
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
     assert "Horizon desktop still blank" not in caplog.text
+
+
+# Long after open_desktop has seen the paint (it polls every FAST.poll_ms), so the second
+# offer comes while the desktop is held, as on the live portal.
+FULLSCREEN_AGAIN_AFTER_MS = 500
+
+
+def open_a_desktop_the_client_offers_fullscreen_on_again(
+    client: PlaywrightHorizonClient, portal: Portal, *, sticks: bool = False
+) -> None:
+    """Open a painted desktop, then wait until the client shows its Fullscreen offer again."""
+    portal.state.fullscreen_again_after_ms = FULLSCREEN_AGAIN_AFTER_MS
+    portal.state.fullscreen_sticks = sticks
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb({}, {}, {})".format(*DESKTOP_BLUE))
+    offered = "fullscreen-offered-sticky" if sticks else "fullscreen-offered-again"
+    assert wait_for(lambda: offered in portal.state.events), "the client never offered again"
+    page = client._page
+    assert page is not None
+    assert page.locator(horizon_playwright.DIALOG_CANCEL).is_visible()
+
+
+def test_a_dialog_the_client_shows_after_the_paint_is_cancelled_before_the_frame(
+    client: PlaywrightHorizonClient,
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+) -> None:
+    open_a_desktop_the_client_offers_fullscreen_on_again(client, portal)
+
+    shot = client.capture_open_desktop()
+
+    assert shot is not None
+    page = client._page
+    assert page is not None
+    assert colours_unlike(page, shot.read_bytes(), DESKTOP_BLUE) == [], "the dialog is in the frame"
+    assert portal.state.events.count("fullscreen-cancelled") == 2
+    assert "fullscreen-accepted" not in portal.state.events
+    assert photographed == ["#/desktop"]
+    assert artifacts.asked == [RunKind.CHECKIN]
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+def test_a_dialog_that_cannot_be_dismissed_leaves_no_photo_and_is_never_accepted(
+    client: PlaywrightHorizonClient,
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    open_a_desktop_the_client_offers_fullscreen_on_again(client, portal, sticks=True)
+    started = time.monotonic()
+
+    assert client.capture_open_desktop() is None
+
+    elapsed_ms = (time.monotonic() - started) * 1000
+    assert elapsed_ms < FAST.desktop_paint_ms + FAST.action_ms, "the capture overran its bound"
+    assert "fullscreen-cancel-ignored" in portal.state.events, "Cancel was never tried"
+    assert "fullscreen-accepted" not in portal.state.events
+    assert photographed == [], "a frame was taken while the dialog showed"
+    assert artifacts.asked == []
+    assert "Horizon client dialog still open" in caplog.text
+    assert "Horizon desktop still blank" not in caplog.text
+    assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
+
+
+def test_a_dialog_with_only_ok_is_never_answered_and_leaves_no_photo(
+    client: PlaywrightHorizonClient,
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    photographed: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    open_a_desktop_the_client_offers_fullscreen_on_again(client, portal)
+    page = client._page
+    assert page is not None
+    # A dialog the client shows with OK alone: an answer the adapter must never give.
+    page.evaluate("() => { document.querySelector('#cancelDialogBtn').hidden = true; }")
+
+    assert client.capture_open_desktop() is None
+
+    assert "fullscreen-accepted" not in portal.state.events
+    assert photographed == [], "a frame was taken while the dialog showed"
+    assert artifacts.asked == []
+    assert "Horizon client dialog still open" in caplog.text
 
 
 def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(

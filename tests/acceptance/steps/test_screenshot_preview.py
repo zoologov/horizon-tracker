@@ -130,13 +130,6 @@ def photo_of_the_launch_list(scene: Scene) -> None:
     assert message.photo == LAUNCH_LIST
 
 
-@then("the message is text without a photo")
-def text_without_a_photo(scene: Scene) -> None:
-    message = scene.only_message()
-    assert message.method == "sendMessage"
-    assert message.photo is None
-
-
 @then(parsers.re(r"the desktop was opened (?P<count>\d+) times?"), converters={"count": int})
 def opened_times(scene: Scene, count: int) -> None:
     assert scene.ran.client.calls.count("open_desktop") == count

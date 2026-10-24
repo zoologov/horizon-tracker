@@ -38,6 +38,15 @@ photograph the desktop. `success_settle_ms` is gone. `opened_at` is that return,
 the hold. The photograph is `capture_open_desktop`, taken after the hold and before
 `disconnect`. The frame rules are in the
 [Horizon Playwright client](../../../infrastructure/features/horizon-playwright-client/SPEC.md).
+The capture cancels a dialog the HTML Access client shows over the desktop during the
+hold (Cancel, never OK) and saves only a painted frame no dialog is in. A dialog that
+will not close leaves no photo, and a confirmed check-in then reports its success as
+text.
+
+The capture runs in every attempt that reaches the hold, before the session state is
+read, so it also runs in an attempt the broker will not confirm. Such an attempt can
+spend up to `desktop_paint_ms` (60 s by default) of the window on the capture before the
+retry. This is a known trade-off, recorded in HT-009's work item and left to the owner.
 
 The attempt succeeds when `checkin_succeeded(while_open, after_disconnect)` holds, that
 is the transition `CONNECTED` -> `DISCONNECTED`. The report then carries `opened_at`
@@ -94,6 +103,12 @@ Scenarios (`tests/acceptance/features/screenshot_preview.feature`):
 
 These scenarios record `opened_at` at the return of `open_desktop`, before the hold.
 The photograph is the later `capture_open_desktop`.
+
+Scenarios (`tests/acceptance/features/client_dialog_in_the_photo.feature`), which run
+the check-in over the real browser adapter on the HTML Access fixture portal:
+
+- `A successful check-in's photo shows the desktop without a client dialog`
+- `A client dialog that cannot be dismissed leaves the check-in a text success`
 
 The retry and calendar scenarios in `window_and_retries.feature` and
 `production_calendar.feature`, and the drawn-moment scenarios in
