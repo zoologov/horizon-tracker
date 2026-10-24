@@ -88,7 +88,7 @@ reason.
 Derived from the imports on reindex.
 
 - Depends on: (none)
-- Used by: `absence-store`, `ports`, `probe`, `run-report`
+- Used by: `absence-service`, `absence-store`, `ports`, `probe`, `run-report`
 
 ## Parent
 

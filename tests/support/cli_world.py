@@ -2,7 +2,10 @@
 
 The CLI takes its adapter factory through click's context object, so a test passes
 ``World.factory`` as ``obj`` and every port the command touches is a fake it can read
-back: the Horizon calls, the calendar questions, the reports sent, the prunes.
+back: the Horizon calls, the calendar questions, the reports sent, the prunes, the bot's
+replies. The absences are the one real adapter: the JSON store over the file the settings
+name (``HT_STATE_DIR``, a temporary directory in every test), so what one command wrote
+the next one reads.
 """
 
 import logging
@@ -15,11 +18,18 @@ from pathlib import Path
 from click.testing import CliRunner, Result
 
 from horizon_tracker.cli import Adapters, main
-from horizon_tracker.domain.ports import HorizonClient, Notifier
+from horizon_tracker.domain.ports import BotTransport, HorizonClient, Notifier
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import SessionState
+from horizon_tracker.infrastructure.absence_store import JsonAbsenceStore
 from horizon_tracker.infrastructure.config import Settings
-from tests.support.fakes import FakeCalendar, FakeClock, FakeHorizonClient, FakeNotifier
+from tests.support.fakes import (
+    FakeBotTransport,
+    FakeCalendar,
+    FakeClock,
+    FakeHorizonClient,
+    FakeNotifier,
+)
 
 DESKTOP = "DEV desktop"
 PACKAGE_LOGGER = "horizon_tracker"
@@ -50,13 +60,16 @@ class FakeArtifacts:
 # as the composition root does: the language of the notification is the configured one.
 Delivery = Callable[[Settings], Notifier]
 
+# Builds the bot transport ``horizon bot`` polls through from the settings it loaded.
+BotDelivery = Callable[[Settings], BotTransport]
+
 
 class World:
     """The fakes behind one CLI invocation, and the factory that hands them out.
 
     ``delivery`` replaces the recording notifier with a real one, built from the settings
     the command loaded; ``notifier`` then stays empty and the test reads what the real
-    notifier delivered instead.
+    notifier delivered instead. ``bot_delivery`` does the same for the bot transport.
     """
 
     def __init__(
@@ -66,6 +79,7 @@ class World:
         state: SessionState = SessionState.NO_SESSION,
         desktop: str = DESKTOP,
         delivery: Delivery | None = None,
+        bot_delivery: BotDelivery | None = None,
     ) -> None:
         self.clock = FakeClock(now)
         self.calendar = FakeCalendar(calendar_answer)
@@ -73,6 +87,8 @@ class World:
         # What the command delivers through; the recording fake unless a test hands in
         # a way to build a real notifier (the acceptance suite drives the Telegram adapter).
         self.delivery = delivery
+        self.bot = FakeBotTransport()
+        self.bot_delivery = bot_delivery
         self.client = FakeHorizonClient(desktop=desktop, state=state, clock=self.clock)
         # The Horizon client the command runs over instead of the fake, when a scenario
         # drives the real adapter on the HTML Access fixture; ``client`` then stays unused.
@@ -85,6 +101,7 @@ class World:
     def factory(self, settings: Settings, kind: RunKind) -> Iterator[Adapters]:
         self.opened.append((settings, kind))
         notifier = self.notifier if self.delivery is None else self.delivery(settings)
+        bot = self.bot if self.bot_delivery is None else self.bot_delivery(settings)
         try:
             yield Adapters(
                 clock=self.clock,
@@ -92,6 +109,8 @@ class World:
                 notifier=notifier,
                 horizon=self.client if self.horizon is None else self.horizon,
                 artifacts=self.artifacts,
+                absences=JsonAbsenceStore(settings.absences_file),
+                bot=bot,
             )
         finally:
             self.closed += 1

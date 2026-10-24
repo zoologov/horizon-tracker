@@ -9,7 +9,7 @@ import logging
 import re
 import tomllib
 from collections.abc import Iterator
-from datetime import datetime, time
+from datetime import date, datetime, time
 from functools import partial
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -19,17 +19,25 @@ import pytest
 from click.testing import CliRunner
 
 from horizon_tracker import __version__
-from horizon_tracker.cli import build_notifier, main, open_adapters
-from horizon_tracker.domain.ports import HorizonClientError, Notifier
+from horizon_tracker.cli import build_bot_transport, build_notifier, main, open_adapters
+from horizon_tracker.domain.absence import Absence, AbsenceKind
+from horizon_tracker.domain.ports import (
+    BotTransportError,
+    HorizonClientError,
+    IncomingMessage,
+    Notifier,
+)
 from horizon_tracker.domain.report import Outcome, Reason
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.domain.session import SessionState
+from horizon_tracker.infrastructure.absence_store import JsonAbsenceStore
 from horizon_tracker.infrastructure.artifacts import DirectoryArtifactStore
 from horizon_tracker.infrastructure.clock import SystemClock
 from horizon_tracker.infrastructure.config import ConfigError, Settings
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from horizon_tracker.infrastructure.isdayoff import IsDayOffCalendar
 from horizon_tracker.infrastructure.telegram import TelegramNotifier
+from horizon_tracker.infrastructure.telegram_bot import TelegramBotTransport
 from tests.support.bot_api import RecordingBotApi
 from tests.support.cli_world import DESKTOP, World, cli_log_handlers_restored
 from tests.support.repository_root import repository_root
@@ -127,12 +135,13 @@ def test_the_version_reported_is_the_one_pyproject_declares() -> None:
     assert result.output == f"horizon, version {declared}\n"
 
 
-def test_help_lists_the_three_commands() -> None:
+def test_help_lists_the_four_commands() -> None:
     result = CliRunner().invoke(main, ["--help"])
 
     assert result.exit_code == 0
     commands = result.output.split("Commands:")[1]
     assert {line.split()[0] for line in commands.strip().splitlines()} == {
+        "bot",
         "checkin",
         "checkout",
         "probe",
@@ -638,11 +647,113 @@ def test_probe_with_an_unreadable_absences_file_exits_one(env: dict[str, str | N
     assert "schedule: today 07:41 / 16:43" in result.stdout.splitlines()
 
 
+# --- the bot ----------------------------------------------------------------------------
+
+
+def owner_writes(update_id: int, text: str, chat_id: str = CHAT_ID) -> IncomingMessage:
+    return IncomingMessage(update_id=update_id, chat_id=chat_id, text=text)
+
+
+def absences_in(env: dict[str, str | None]) -> tuple[Absence, ...]:
+    return JsonAbsenceStore(Path(env["HT_STATE_DIR"] or "") / "absences.json").load().absences
+
+
+def test_the_bot_answers_the_owner_and_exits_zero_when_stopped(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/add vacation 03.11-14.11")])
+
+    result = world.invoke(["bot"], env)
+
+    assert result.exit_code == 0, result.output
+    assert world.bot.replies == [
+        (CHAT_ID, "Absence 1 entered: vacation from 03.11.2026 to 14.11.2026")
+    ]
+    assert "bot started" in result.stderr
+    assert "bot stopped" in result.stderr
+    assert result.stdout == ""
+
+
+def test_the_bot_keeps_the_absence_in_the_file_under_the_state_directory(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/add dayoff 20.11")])
+
+    world.invoke(["bot"], env)
+
+    assert absences_in(env) == (
+        Absence(1, AbsenceKind.DAY_OFF, date(2026, 11, 20), date(2026, 11, 20)),
+    )
+    probe = World(at(12, 0)).invoke(["probe"], env)
+    assert "absences: ok - 1 entered, next: day off taken 20.11" in probe.stdout
+
+
+def test_the_bot_serves_only_the_configured_chat(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/add vacation 03.11-14.11", chat_id="1000")])
+
+    result = world.invoke(["bot"], env)
+
+    assert result.exit_code == 0
+    assert world.bot.replies == []
+    assert absences_in(env) == ()
+    assert "chat 1000" in result.stderr
+    assert "/add" not in result.stderr
+
+
+def test_the_bot_replies_in_the_configured_language(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/list")])
+
+    world.invoke(["bot"], {**env, "HT_LANGUAGE": "ru"})
+
+    assert world.bot.replies == [(CHAT_ID, "Отсутствий не внесено")]
+
+
+def test_the_bot_notes_an_absence_for_today_after_the_configured_check_in_range(
+    env: dict[str, str | None],
+) -> None:
+    world = World(at(8, 11))
+    world.bot.deliver([owner_writes(1, "/add sick 21.10")])
+
+    world.invoke(["bot"], env)
+
+    [(_, text)] = world.bot.replies
+    assert text.splitlines()[1] == (
+        "Today's check-in range ended at 08:10: a check-in made this morning stands"
+    )
+
+
+def test_the_bot_rides_out_a_failed_poll(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.script(BotTransportError("getUpdates failed: ConnectError"))
+    world.bot.deliver([owner_writes(1, "/list")])
+
+    result = world.invoke(["bot"], env)
+
+    assert result.exit_code == 0
+    assert world.bot.replies == [(CHAT_ID, "No absences entered")]
+    assert world.clock.sleeps == [5.0]
+    assert "poll failed (BotTransportError)" in result.stderr
+
+
+def test_the_bot_never_prints_a_secret(env: dict[str, str | None]) -> None:
+    world = World(at(12, 0))
+    world.bot.deliver([owner_writes(1, "/list"), owner_writes(2, "/help", chat_id="1000")])
+
+    result = world.invoke(["bot"], env)
+
+    for secret in (PASSWORD, TOKEN, USERNAME):
+        assert secret not in result.output
+
+
 # --- configuration ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "args", [["checkin"], ["checkin", "--dry-run"], ["checkout", "--force"], ["probe"]]
+    "args", [["checkin"], ["checkin", "--dry-run"], ["checkout", "--force"], ["probe"], ["bot"]]
 )
 def test_a_missing_variable_is_named_and_exits_one(
     args: list[str], env: dict[str, str | None]
@@ -747,8 +858,22 @@ def test_the_real_factory_builds_the_production_adapters(
         assert isinstance(adapters.notifier, TelegramNotifier)
         assert isinstance(adapters.horizon, PlaywrightHorizonClient)
         assert isinstance(adapters.artifacts, DirectoryArtifactStore)
+        assert isinstance(adapters.absences, JsonAbsenceStore)
+        assert isinstance(adapters.bot, TelegramBotTransport)
         assert "run_kind=checkout" in repr(adapters.horizon)
     assert requests_sent == []
+
+
+def test_the_bot_transport_refuses_a_malformed_token_as_configuration(
+    env: dict[str, str | None],
+) -> None:
+    settings = settings_from({**env, "TELEGRAM_BOT_TOKEN": "nonsense"})
+
+    with pytest.raises(ConfigError) as caught, httpx.Client() as http:
+        build_bot_transport(settings, http)
+
+    assert caught.value.variable == "TELEGRAM_BOT_TOKEN"
+    assert "nonsense" not in str(caught.value)
 
 
 def test_the_real_factory_refuses_a_malformed_token_as_configuration(

@@ -4,14 +4,18 @@ Each fake models the one thing a use case can observe through its port and nothi
 more. The Horizon fake keeps a single desktop's session state the way the broker
 would move it; a scripted failure is queued per method and raised on its next call.
 The absence store keeps one book in memory and can be told to fail its next load or save.
+The bot transport hands out a script of polls and records every reply; once the script is
+spent its next poll raises ``KeyboardInterrupt``, the operator stopping the bot, which is
+how a test of a loop that never returns comes to an end.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from horizon_tracker.domain.absence import AbsenceBook
-from horizon_tracker.domain.ports import AbsenceStoreError
+from horizon_tracker.domain.ports import AbsenceStoreError, BotTransportError, IncomingMessage
 from horizon_tracker.domain.report import RunReport
 from horizon_tracker.domain.session import DesktopStatus, SessionState
 
@@ -185,3 +189,42 @@ class FakeHorizonClient:
     def browser_version(self) -> str:
         self._enter("browser_version")
         return self.browser
+
+
+# One scripted poll: the messages it answers with, or the transport error it raises.
+Poll = tuple[IncomingMessage, ...] | BotTransportError
+
+
+@dataclass
+class FakeBotTransport:
+    """Answers each poll from a script and records every poll's offset and every reply.
+
+    ``fail_replies`` makes every reply raise ``BotTransportError`` after being recorded.
+    """
+
+    polls: list[Poll] = field(default_factory=list)
+    offsets: list[int | None] = field(default_factory=list)
+    replies: list[tuple[str, str]] = field(default_factory=list)
+    fail_replies: bool = False
+
+    def script(self, *polls: Poll) -> None:
+        """Queue polls to answer with, in order."""
+        self.polls.extend(polls)
+
+    def deliver(self, messages: Iterable[IncomingMessage]) -> None:
+        """Queue one poll that answers with ``messages``."""
+        self.polls.append(tuple(messages))
+
+    def poll(self, offset: int | None) -> tuple[IncomingMessage, ...]:
+        self.offsets.append(offset)
+        if not self.polls:
+            raise KeyboardInterrupt  # the operator stops the bot: the script is spent
+        answer = self.polls.pop(0)
+        if isinstance(answer, BotTransportError):
+            raise answer
+        return answer
+
+    def reply(self, chat_id: str, text: str) -> None:
+        self.replies.append((chat_id, text))
+        if self.fail_replies:
+            raise BotTransportError("sendMessage failed: ConnectError")

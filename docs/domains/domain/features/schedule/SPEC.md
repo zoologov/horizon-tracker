@@ -140,7 +140,7 @@ Scenarios:
 Derived from the imports on reindex.
 
 - Depends on: `messages`, `working-day-calendar`
-- Used by: `artifact-store`, `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `probe`, `run-report`, `settings`, `windowed-run`
+- Used by: `absence-service`, `artifact-store`, `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `probe`, `run-report`, `settings`, `windowed-run`
 
 ## Parent
 

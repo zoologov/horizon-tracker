@@ -98,7 +98,7 @@ write failing at `fsync` and at `os.replace` that leaves the previous file intac
 Derived from the imports on reindex.
 
 - Depends on: `absence`, `ports`
-- Used by: `cli` (the probe's `absences` check)
+- Used by: `cli` (built once in `open_adapters`: the probe's `absences` check and `horizon bot`)
 
 ## Parent
 

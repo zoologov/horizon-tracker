@@ -3,7 +3,8 @@
 The command-line entry point and the composition root: it reads the settings
 from the environment, builds the adapters (one `httpx.Client`, the Playwright
 Horizon client, the isdayoff calendar, the Telegram notifier, the system clock,
-the artifact store) and hands them to the use cases. Tests replace the adapter
+the artifact store, the absence store, the bot transport) and hands them to the use
+cases. Tests replace the adapter
 factory through click's context object and drive the commands with `CliRunner`.
 
 **Source:** `src/horizon_tracker/cli.py`
@@ -15,7 +16,8 @@ factory through click's context object and drive the commands with `CliRunner`.
 | `horizon checkin [--dry-run] [--force]` | the morning check-in: open the desktop, hold it until Windows logs on, then disconnect | 1 only when the run's report is FAILED; 0 for success and for every deliberate skip |
 | `horizon checkout [--dry-run] [--force]` | the evening check-out: log the desktop's Windows session off and confirm it ended | same rule |
 | `horizon probe` | check the settings, the portal (the HTML Access client bundles it serves, no login), the calendar, and Chrome (found at `HT_CHROME_PATH`, started headless, its version named) and the absences file under `HT_STATE_DIR`; name today's drawn moments last | 1 if the portal, Chrome or absences check FAILED; an unreachable calendar is DEGRADED and keeps 0 |
-| `horizon --version`, `horizon --help` | version; the three commands | 0 |
+| `horizon bot` | answer the owner's absence commands (`/add`, `/list`, `/edit`, `/del`, `/help`) in the chat `TELEGRAM_CHAT_ID` names, by long polling, until stopped; every other chat is ignored. The bot loop and the absence service are specified in their SPECs | 1 on a configuration error; 0 when stopped with Ctrl-C; it does not exit on its own |
+| `horizon --version`, `horizon --help` | version; the four commands | 0 |
 
 Each run draws today's moments first: `draw_moments` over today's date (the clock's,
 in `HT_TIMEZONE`), the seed and the ranges and durations from the settings gives the
@@ -144,6 +146,17 @@ The composition root builds the notifier with `build_notifier(settings, http)`: 
 configuration error for `TELEGRAM_BOT_TOKEN`. The acceptance suite builds its notifier
 through the same function.
 
+`open_adapters` also builds the absence store, `JsonAbsenceStore(settings.absences_file)`,
+and the bot transport, `build_bot_transport(settings, http)`: a `TelegramBotTransport` over
+the same HTTP client, its long poll setting its own longer timeout per request, and a
+refused token is the same configuration error. Every command gets both in `Adapters`
+(`absences`, `bot`), so the store is built in one place: the probe reads it, and `horizon
+bot` builds `AbsenceService(adapters.absences, adapters.clock, settings.checkin_range)` and
+`BotLoop(adapters.bot, service, settings.telegram_chat_id, settings.language,
+adapters.clock)` and runs `run_forever()`. A `KeyboardInterrupt` ends it with `bot
+stopped` in the log and exit 0. The acceptance suite builds its bot transport through
+`build_bot_transport` too.
+
 ## Testing
 
 Tests: `tests/unit/test_cli.py`. The acceptance scenarios drive the commands through
@@ -156,6 +169,6 @@ notification and of a configuration error is held by
 - Depends on: `application`, `infrastructure`, and from the domain `messages` (the CLI
   renders every message in `HT_LANGUAGE`), `schedule`, `ports`, `run-report` and
   `working-day-calendar`
-- Used by: the systemd timers on the VPS
+- Used by: the systemd timers on the VPS, and `horizon-bot.service` (HT-012 BEAD-09)
 - External contract (declared in `.beadloom/_graph/landscape.yml`): consumes `systemd:units`
   from [`vps-host`](../domains/external/vps-host/SPEC.md)

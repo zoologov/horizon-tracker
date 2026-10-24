@@ -294,6 +294,12 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "Absence {id} deleted: {kind} {days}",
         _RU: "Отсутствие {id} удалено: {kind}, {days}",
     },
+    # Added under an absence entered or edited onto today once today's check-in range is over.
+    "bot.note.after_checkin_range": {
+        _EN: "Today's check-in range ended at {end}: a check-in made this morning stands",
+        _RU: "Диапазон входа на сегодня закончился в {end}: утренний вход, если он был, "
+        "остаётся в силе",
+    },
     "bot.list.empty": {_EN: "No absences entered", _RU: "Отсутствий не внесено"},
     "bot.list.header": {_EN: "Absences entered: {count}", _RU: "Внесено отсутствий: {count}"},
     "bot.list.item": {_EN: "Absence {id}: {kind} {days}", _RU: "Отсутствие {id}: {kind}, {days}"},

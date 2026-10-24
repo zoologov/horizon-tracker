@@ -106,7 +106,7 @@ reason.
 Derived from the imports on reindex.
 
 - Depends on: `absence`, `messages`
-- Used by: (none yet; the bot loop of HT-012 BEAD-07)
+- Used by: `bot-loop`
 
 ## Contracts
 

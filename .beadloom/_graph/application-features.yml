@@ -1,5 +1,5 @@
 # Features of the `application` layer: the shared run loop, the two daily use
-# cases and the checks that run without logging in.
+# cases, the checks that run without logging in, and the bot's absence commands.
 #
 # Layer tags stay on the layer node; see domain-features.yml.
 nodes:
@@ -31,8 +31,24 @@ nodes:
     docs:
       - docs/domains/application/features/probe/SPEC.md
 
+  - ref_id: absence-service
+    kind: feature
+    summary: "The owner's absences on command: add (refuses an overlap naming the absence in the way), list, delete (an id never reissued), edit (keeps the id); each answers with a Reply of catalogue messages"
+    source: src/horizon_tracker/application/absence_service.py
+    docs:
+      - docs/domains/application/features/absence-service/SPEC.md
+
+  - ref_id: bot-loop
+    kind: feature
+    summary: "Serves the owner's bot chat: polls, drops every other chat unread (its text never logged), parses, carries the command out, one reply per message; an internal error is answered and the loop goes on; backs off on a failed poll"
+    source: src/horizon_tracker/application/bot_loop.py
+    docs:
+      - docs/domains/application/features/bot-loop/SPEC.md
+
 edges:
   - { src: windowed-run,     dst: application, kind: part_of }
   - { src: morning-checkin,  dst: application, kind: part_of }
   - { src: evening-checkout, dst: application, kind: part_of }
   - { src: probe,            dst: application, kind: part_of }
+  - { src: absence-service,  dst: application, kind: part_of }
+  - { src: bot-loop,         dst: application, kind: part_of }

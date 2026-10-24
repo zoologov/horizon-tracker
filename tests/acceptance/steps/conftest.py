@@ -4,9 +4,11 @@ A scenario builds a ``Scene`` in its Given steps and runs one ``horizon`` comman
 When step, through ``CliRunner`` with the adapter factory replaced: the Horizon client,
 the calendar and the clock are fakes, and the notifier is the real Telegram adapter, built
 by the composition root's own ``build_notifier`` from the settings the command loaded and
-posting to a recording Bot API. The Then steps read only what an observer outside the
-service could see: the command's exit code and output, the service log, the messages
-that reached the chat, and the state of the desktop as the broker shows it.
+posting to a recording Bot API. ``horizon bot`` polls that same Bot API through the real
+Telegram transport, built by ``build_bot_transport``. The Then steps read only what an
+observer outside the service could see: the command's exit code and output, the service
+log, the messages that reached the chat, and the state of the desktop as the broker shows
+it.
 """
 
 import subprocess
@@ -20,9 +22,9 @@ import pytest
 from click.testing import Result
 from pytest_bdd import given, parsers, then, when
 
-from horizon_tracker.cli import build_notifier
+from horizon_tracker.cli import build_bot_transport, build_notifier
 from horizon_tracker.domain.messages import Language
-from horizon_tracker.domain.ports import Notifier
+from horizon_tracker.domain.ports import BotTransport, Notifier
 from horizon_tracker.domain.session import SessionState
 from horizon_tracker.infrastructure.config import Settings
 from tests.support.bot_api import RecordingBotApi, SentMessage
@@ -119,6 +121,10 @@ class Scene:
             settings = replace(settings, language=self.notification_language)
         return build_notifier(settings, self.bot.client())
 
+    def poll_through(self, settings: Settings) -> BotTransport:
+        """The transport ``horizon bot`` polls through, built as the composition root builds it."""
+        return build_bot_transport(settings, self.bot.client())
+
     def run(self, args: list[str], now: datetime) -> None:
         world = World(
             now,
@@ -126,6 +132,7 @@ class Scene:
             state=self.state,
             desktop=self.desktop,
             delivery=self.deliver,
+            bot_delivery=self.poll_through,
         )
         for script in self.scripts:
             script(world)

@@ -132,8 +132,9 @@ Module `src/horizon_tracker/application/probe.py`:
 
 The CLI builds `Probe` with `chrome_path=settings.chrome_path` and
 `file_exists=Path.is_file`; the Horizon client takes its Chrome path from the same
-setting. It passes `absences=JsonAbsenceStore(settings.absences_file)` and
-`absences_file=settings.absences_file`, the file under `HT_STATE_DIR`.
+setting. It passes `absences=adapters.absences`, the `JsonAbsenceStore(settings.absences_file)`
+that `open_adapters` builds for every command, and `absences_file=settings.absences_file`,
+the file under `HT_STATE_DIR`.
 
 ## Testing
 

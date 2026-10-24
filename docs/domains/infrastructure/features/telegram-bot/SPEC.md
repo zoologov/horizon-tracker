@@ -92,7 +92,7 @@ the token appears nowhere, and the one masking filter on the `httpx` logger.
 Derived from the imports on reindex.
 
 - Depends on: `ports`, `telegram-notifier`
-- Used by: (none yet)
+- Used by: `cli` (`horizon bot`, through `build_bot_transport`)
 - External contracts (declared in `.beadloom/_graph/landscape.yml`, not derived): consumes
   `http:telegram-getUpdates` and `http:telegram-sendMessage` from
   [`telegram-bot-api`](../../../external/telegram-bot-api/SPEC.md)
