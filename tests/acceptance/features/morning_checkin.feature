@@ -24,4 +24,4 @@ Feature: Morning check-in
     Then exactly one message reaches the owner
     And the message reads "Вход выполнен"
     And the message reads "Время: 21.10.2026 07:38:00 MSK, назначено на 07:38"
-    And the message reads "Календарь: производственный календарь isdayoff.ru"
+    And the message reads "Производственный календарь: isdayoff.ru"

@@ -573,7 +573,9 @@ def test_a_scheduled_report_names_the_drawn_moment_whatever_the_outcome(
     report = world.run(world.attempt(*attempts))
 
     assert report.planned_at == MOMENT
-    assert "назначено на 07:43" in render(world.only_report, Language.RU)
+    # A day-level skip keeps the moment in the report and states no time line (HT-012).
+    rendered = "назначено на 07:43" in render(world.only_report, Language.RU)
+    assert rendered is not report.is_day_level_skip
 
 
 def test_a_run_without_a_drawn_moment_names_no_planned_time() -> None:

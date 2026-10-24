@@ -25,9 +25,9 @@ Feature: Language of the notifications and the CLI output
     And the command exits with 0
 
     Examples:
-      | code | language | headline           | time                                               | calendar                                          |
-      | ru   | Russian  | Вход выполнен      | Время: 21.10.2026 07:38:00 MSK, назначено на 07:38 | Календарь: производственный календарь isdayoff.ru |
-      | en   | English  | Check-in succeeded | Time: 21.10.2026 07:38:00 MSK, planned for 07:38   | Calendar: the isdayoff.ru production calendar     |
+      | code | language | headline           | time                                               | calendar                                |
+      | ru   | Russian  | Вход выполнен      | Время: 21.10.2026 07:38:00 MSK, назначено на 07:38 | Производственный календарь: isdayoff.ru |
+      | en   | English  | Check-in succeeded | Time: 21.10.2026 07:38:00 MSK, planned for 07:38   | Production calendar: isdayoff.ru        |
 
   Scenario: The default language is English
     Given HT_LANGUAGE is not set
@@ -35,7 +35,7 @@ Feature: Language of the notifications and the CLI output
     And the owner runs "horizon checkout --dry-run" at 16:30:00 on Wednesday 2026-10-21
     Then the message reads "Check-in succeeded"
     And the message reads "Time: 21.10.2026 07:38:00 MSK, planned for 07:38"
-    And the message reads "Calendar: the isdayoff.ru production calendar"
+    And the message reads "Production calendar: isdayoff.ru"
     And every line of the message is in English
     And the output reads "would run now: yes (run)"
     And the output reads "steps of one attempt:"

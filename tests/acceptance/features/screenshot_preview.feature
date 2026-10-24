@@ -19,7 +19,7 @@ Feature: Screenshot preview in the success notification
     And the message is the photo of the opened desktop
     And the message reads "Вход выполнен"
     And the message reads "Время: 21.10.2026 07:38:00 MSK, назначено на 07:38"
-    And the message reads "Календарь: производственный календарь isdayoff.ru"
+    And the message reads "Производственный календарь: isdayoff.ru"
     And the command exits with 0
 
   Scenario: A successful check-in's screenshot is taken after the desktop was held

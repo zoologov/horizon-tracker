@@ -67,6 +67,11 @@ no evening one.
 | 2026-10-24 | Ids are small integers, max + 1, never reused | typeable in a chat; a deleted id does not come back under a new meaning |
 | 2026-10-24 | `dd.mm` without a year means the next occurrence from today | the common case is "next month"; pinned across the year boundary |
 | 2026-10-24 | `allocate_id(absences, *, last_issued=0)` takes the highest id ever issued beside the absences (BEAD-01) | max + 1 over the absences held alone reuses the id of a deleted absence that held the highest one, so "never reused" needs the high-water mark; the store (BEAD-04) keeps it and the service (BEAD-07) passes it |
+| 2026-10-24 | The calendar line is one full-line key per source (`report.calendar.calendar`, `.weekday_fallback`, `.not_asked`) instead of a `report.calendar` frame around a `report.source.*` phrase (BEAD-03) | the Russian phrase for the calendar source would be `isdayoff.ru` alone, which holds no Cyrillic and fails the catalogue test that every `ru` text is Russian. A whole line per source keeps that test meaningful |
+| 2026-10-24 | The absence reasons are keyed `reason.on_vacation`, `reason.on_sick_leave`, `reason.on_day_off` (the `Reason` values), not the RFC's `report.reason.vacation/...` (BEAD-03) | every other reason is keyed `reason.<Reason value>` and `render` builds the key from the value, and a second scheme would need a lookup table of its own |
+| 2026-10-24 | `RunReport` refuses an absence whose reason is not its kind's, whose outcome is not `SKIPPED` or whose `verdict_source` is set, and `is_day_level_skip` is a property of the report (BEAD-03) | BEAD-05 builds these reports and decides the morning-only notice by the same predicate the time line uses, so the two cannot disagree |
+| 2026-10-24 | A one-day absence renders one day, `(05.11)`, a span crossing New Year renders without the year, `(28.12–09.01)`, and the English phrase for `DAY_OFF` is `day off taken` (BEAD-03) | `03.11–03.11` repeats itself, the reader knows the year, and `a day off` is already the holiday's reason, so the owner's own day off needs words of its own |
+| 2026-10-24 | ruff's `allowed-confusables` admits the en dash only (BEAD-03) | the PRD's texts use `Mon–Fri` and `03.11–14.11` with an en dash, and every other confusable stays reported |
 
 ## Related Files
 

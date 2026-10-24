@@ -18,8 +18,9 @@ a credential. A value with no free-text field gives both properties by construct
 ### How it works
 
 `RunReport` holds the run kind, an `Outcome`, an aware `datetime`, the `VerdictSource`
-(or `None` for a `--force` run, which asks no calendar), a `Reason`, an optional
-screenshot `Path` and `planned_at`, the drawn moment the run was due at. `planned_at`
+(or `None` for a run that asks no calendar: a `--force` run or an absence skip), a
+`Reason`, an optional screenshot `Path`, `planned_at`, the drawn moment the run was due
+at, and `absence`, the [absence](../absence/SPEC.md) a skip was for. `planned_at`
 is set for every scheduled run, whether or not it reached its window: a skip on a day
 off or a run started after its window names its moment as well. Only a `--force` run
 leaves it `None`. `__post_init__` checks the type of every field and refuses a value
@@ -32,7 +33,7 @@ of the wrong type with `TypeError`, rather than trusting the caller.
 ```text
 Check-in failed
 Time: 21.10.2026 07:39:12 CEST, planned for 07:38
-Calendar: the isdayoff.ru production calendar
+Production calendar: isdayoff.ru
 Reason: the desktop did not open
 ```
 
@@ -45,10 +46,32 @@ The first line is the run kind and the outcome, one catalogue key per pair
 (`report.checkin.failed`). The time line carries the actual time with the abbreviation
 of the configured zone (`CEST` for `Europe/Berlin` in summer, for example), followed by the planned
 moment (`planned for HH:MM` in English, the `report.time_planned` key) when `planned_at` is set. The calendar
-line names the source: the isdayoff.ru calendar, the Monday-Friday fallback, or "not
-asked, manual run --force" for a run that asked no calendar. The reason line is present
-only when there is a reason. The two formatted times are the only values the report puts
-into the text; every word comes from the catalogue. The screenshot never appears in
+line names the source, one catalogue key per source (`report.calendar.<source>`):
+`Production calendar: isdayoff.ru`, `Production calendar: unavailable, the Mon–Fri rule
+decided`, or `Production calendar: not asked, manual run --force` for a `--force` run.
+The reason line is present only when there is a reason. The formatted times and the days
+of an absence are the only values the report puts into the text; every word comes from
+the catalogue.
+
+A **day-level skip** (`RunReport.is_day_level_skip`) is a skip for the day itself: the
+outcome is `SKIPPED` and the reason is `NON_WORKING_DAY` or an absence reason. Its notice
+has no time line, since nothing was going to run that day; `planned_at` stays in the
+report. A skipped holiday in Russian:
+
+```text
+Вход пропущен
+Производственный календарь: isdayoff.ru
+Причина: выходной
+```
+
+An absence skip has no calendar line either, because the calendar was not asked. Its
+reason line carries the absence's first and last day, `dd.mm` without the year, joined by
+an en dash (one day when both are the same):
+
+```text
+Check-in skipped
+Reason: vacation (03.11–14.11)
+``` The screenshot never appears in
 the text: the notifier attaches it beside the text. A failure carries the screenshot of
 the step that failed; a success carries the use case's photo of the step it completed
 (the opened desktop, the launch list without the session). Either may be `None`, and
@@ -61,6 +84,9 @@ the report then goes out as text.
 - `RunReport.at` carries a time zone; a naive `datetime` raises `ValueError`.
 - A reason is present exactly when the outcome is not `SUCCEEDED`; any other
   combination raises `ValueError`.
+- An absence is present exactly when the reason is an absence reason, and then the reason
+  names the absence's kind, the outcome is `SKIPPED` and `verdict_source` is `None`; any
+  other combination raises `ValueError`.
 - Every `Reason` has a phrase in every language; an exception message is never a reason.
 - An English notification holds no Cyrillic letter, for every kind, outcome, source,
   reason and planned moment.
@@ -72,9 +98,14 @@ Module `src/horizon_tracker/domain/report.py`:
 - `Outcome` — `StrEnum`: `SUCCEEDED`, `FAILED`, `SKIPPED`.
 - `Reason` — `StrEnum`: `NON_WORKING_DAY`, `TOO_EARLY`, `WINDOW_MISSED`,
   `ALREADY_LOGGED_OFF`, `PORTAL_UNREACHABLE`, `LOGIN_REJECTED`, `DESKTOP_NOT_FOUND`,
-  `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `UNEXPECTED`.
+  `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `UNEXPECTED`, and the absence reasons
+  `ON_VACATION`, `ON_SICK_LEAVE`, `ON_DAY_OFF`.
+- `ABSENCE_REASONS` — read-only mapping `AbsenceKind -> Reason`;
+  `absence_reason(kind: AbsenceKind) -> Reason` reads it.
 - `RunReport(kind, outcome, at, verdict_source, reason=None, screenshot=None,
-  planned_at=None)` — frozen; validated at construction as described above.
+  planned_at=None, absence=None)` — frozen; validated at construction as described above.
+  `is_day_level_skip: bool` is the property the time line and the morning-only notice
+  are decided by.
   `planned_at: time | None` is the drawn moment the run was due at, local wall time,
   set whether or not the run reached its window. It is `None` for a `--force` run. A
   value of any other type is refused with `TypeError`.
@@ -90,6 +121,10 @@ is inside the mutation gate.
 
 Scenarios:
 
+- `tests/acceptance/features/production_calendar.feature`:
+  - `A skipped non-working day is reported without a time line`
+  - `A day the calendar marks as a holiday is skipped with a notice`
+  - `When the calendar is unreachable the weekday rule decides and says so`
 - `tests/acceptance/features/notifications.feature`:
   - `A failed run sends the reason and a screenshot`
   - `A notification never contains the password`
@@ -103,7 +138,7 @@ Scenarios:
 
 Derived from the imports on reindex.
 
-- Depends on: `messages`, `schedule`, `working-day-calendar`
+- Depends on: `absence`, `messages`, `schedule`, `working-day-calendar`
 - Used by: `cli`, `evening-checkout`, `horizon-playwright-client`, `morning-checkin`, `ports`, `telegram-notifier`, `windowed-run`
 
 ## Parent

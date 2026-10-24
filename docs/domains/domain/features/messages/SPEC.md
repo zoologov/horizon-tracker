@@ -25,8 +25,11 @@ place a person reads them:
 
 - `report.*` - the lines of the run notification: the headline per run kind and outcome
   (`report.checkin.succeeded`, ...), the time line with and without the planned moment,
-  the calendar line and its three sources, the reason line;
-- `reason.*` - one phrase per `Reason`, keyed by its value;
+  the calendar line, one key per source (`report.calendar.calendar`,
+  `report.calendar.weekday_fallback`, `report.calendar.not_asked`), the reason line and
+  the reason line with an absence's days (`report.reason_span`);
+- `reason.*` - one phrase per `Reason`, keyed by its value, the absence reasons
+  (`reason.on_vacation`, `reason.on_sick_leave`, `reason.on_day_off`) included;
 - `probe.*` - the settings line of `horizon probe`, the names and statuses of its checks
   and what each check answers;
 - `plan.*` - the dry-run plan: its header, verdict, calendar sources and the steps of

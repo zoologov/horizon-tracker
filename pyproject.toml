@@ -39,6 +39,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "W", "C4", "SIM", "RUF"]
+# The en dash is the owner's own text in the notice ("Mon–Fri", "03.11–14.11", PRD HT-012),
+# not a hyphen look-alike; every other confusable stays reported.
+allowed-confusables = ["–"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -35,7 +35,7 @@ _EN = Language.EN
 _RU = Language.RU
 
 MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
-    # --- the run report: headline, time, calendar source, reason --------------------
+    # --- the run report: headline, time, calendar line, reason -----------------------
     "report.checkin.succeeded": {_EN: "Check-in succeeded", _RU: "Вход выполнен"},
     "report.checkin.failed": {_EN: "Check-in failed", _RU: "Вход не удался"},
     "report.checkin.skipped": {_EN: "Check-in skipped", _RU: "Вход пропущен"},
@@ -47,20 +47,24 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "Time: {at}, planned for {planned}",
         _RU: "Время: {at}, назначено на {planned}",
     },
-    "report.calendar": {_EN: "Calendar: {source}", _RU: "Календарь: {source}"},
-    "report.source.calendar": {
-        _EN: "the isdayoff.ru production calendar",
-        _RU: "производственный календарь isdayoff.ru",
+    # One line per VerdictSource, and one for a --force run that asked no calendar.
+    "report.calendar.calendar": {
+        _EN: "Production calendar: isdayoff.ru",
+        _RU: "Производственный календарь: isdayoff.ru",
     },
-    "report.source.weekday_fallback": {
-        _EN: "unreachable, the Mon-Fri rule decided",
-        _RU: "недоступен, решило правило пн-пт",
+    "report.calendar.weekday_fallback": {
+        _EN: "Production calendar: unavailable, the Mon–Fri rule decided",
+        _RU: "Производственный календарь: недоступен, решило правило Пн–Пт",
     },
-    "report.source.not_asked": {
-        _EN: "not asked, manual run --force",
-        _RU: "не спрашивали, ручной прогон --force",
+    "report.calendar.not_asked": {
+        _EN: "Production calendar: not asked, manual run --force",
+        _RU: "Производственный календарь: не спрашивали, ручной прогон --force",
     },
     "report.reason": {_EN: "Reason: {reason}", _RU: "Причина: {reason}"},
+    "report.reason_span": {
+        _EN: "Reason: {reason} ({span})",
+        _RU: "Причина: {reason} ({span})",
+    },
     # --- why a run failed or was skipped: one per Reason ----------------------------
     "reason.non_working_day": {_EN: "a day off", _RU: "выходной"},
     "reason.too_early": {
@@ -99,6 +103,9 @@ MESSAGES: Final[Mapping[str, Mapping[Language, str]]] = {
         _EN: "an unexpected error, details in the journal",
         _RU: "непредвиденная ошибка, подробности в журнале",
     },
+    "reason.on_vacation": {_EN: "vacation", _RU: "отпуск"},
+    "reason.on_sick_leave": {_EN: "sick leave", _RU: "больничный"},
+    "reason.on_day_off": {_EN: "day off taken", _RU: "отгул"},
     # --- horizon probe: the settings line, the checks and their answers -------------
     "probe.settings.ok": {
         _EN: (

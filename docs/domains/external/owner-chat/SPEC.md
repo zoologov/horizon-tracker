@@ -29,14 +29,15 @@ with a presence verdict. The surface is the text the owner reads.
   screenshot, otherwise the text alone (see the `telegram-bot-api` SPEC).
 - **The text.** Rendered by the domain's `render(report, language)` in the language
   `HT_LANGUAGE` names (`en` by default, `ru`), every word from the message catalogue.
-  Three lines, and a fourth when the run did not succeed:
+  Three lines, and a fourth when the run did not succeed. A skip for the day itself (a
+  non-working day, an absence) has no time line, and an absence skip no calendar line:
 
 | Line | English form |
 |------|--------------|
 | headline | `Check-in succeeded`, `Check-in failed`, `Check-in skipped`, and the same three for `Check-out` |
 | time | `Time: <dd.mm.yyyy HH:MM:SS zone>`, with `, planned for <HH:MM>` when the run had a drawn moment |
-| calendar | `Calendar: the isdayoff.ru production calendar`, `Calendar: unreachable, the Mon-Fri rule decided` or `Calendar: not asked, manual run --force` |
-| reason | `Reason: <reason>`, from the closed vocabulary of `Reason` (a non-working day, a missed window, a rejected login, a desktop not found, and the others) |
+| calendar | `Production calendar: isdayoff.ru`, `Production calendar: unavailable, the Mon–Fri rule decided` or `Production calendar: not asked, manual run --force` |
+| reason | `Reason: <reason>`, from the closed vocabulary of `Reason` (a non-working day, a missed window, a rejected login, a desktop not found, and the others); an absence adds its days, `Reason: vacation (03.11–14.11)` |
 
 - **What it never carries.** No free text: no exception message, no URL, no account name,
   no password, no token. The screenshot is an attachment and its path is never named.
