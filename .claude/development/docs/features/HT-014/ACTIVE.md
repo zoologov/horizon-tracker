@@ -25,7 +25,7 @@ No bead is active. `ht-oe6` is complete, and `ht-0tu` is ready for test verifica
 | Bead | Status | Details |
 |------|--------|---------|
 | ht-oe6 | Done | Keyboard sign-out and readiness wait; clean room 2020 passed, 5 skipped, 4 baseline failures |
-| ht-0tu | Blocked | Depends on ht-oe6 |
+| ht-0tu | Done | Two integration tests added; adapter coverage 94.24%; clean-room and tree runs each 2022 passed, 5 skipped, 4 baseline failures |
 | ht-pea | Blocked | Depends on ht-0tu |
 | ht-ga0 | Blocked | Depends on ht-pea |
 

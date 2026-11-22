@@ -56,6 +56,8 @@
 //    success screenshot, taken after a settle, meets the login page and must not take it.
 //  - The page can be told to fill the remote surface with a colour once it draws
 //    (paint_desktop): a painted Windows desktop, for a run that cannot paint it itself.
+//    A second colour and delay (repaint_desktop, repaint_desktop_after_ms) model a desktop
+//    that becomes painted only after the client has had time to show another dialog.
 //  - The page can be told to offer Fullscreen again a while after the desktop drew
 //    (fullscreen_again_after_ms), as the live client did on 2026-10-24 after the adapter
 //    had cancelled the first offer, and to let that second offer ignore Cancel
@@ -333,6 +335,13 @@
           var context = canvas.getContext("2d");
           context.fillStyle = portal.paint_desktop;
           context.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        if (portal.repaint_desktop && portal.repaint_desktop_after_ms > 0) {
+          setTimeout(function () {
+            var repaint = canvas.getContext("2d");
+            repaint.fillStyle = portal.repaint_desktop;
+            repaint.fillRect(0, 0, canvas.width, canvas.height);
+          }, portal.repaint_desktop_after_ms);
         }
         wmks.style.display = "block";
         if (portal.drop_to_login_after_ms > 0) {

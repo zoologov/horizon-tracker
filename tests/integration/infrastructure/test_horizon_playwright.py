@@ -414,8 +414,14 @@ def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
     client.log_off(DESKTOP)
 
     events = portal.state.events
-    assert events.index("blast-open") < events.index("windows-sign-out")
-    assert "windows-input:Meta+R|shutdown /l|Enter" in events
+    windows_input = "windows-input:Meta+R|shutdown /l|Enter"
+    assert [
+        event for event in events if event in {"blast-open", windows_input, "windows-sign-out"}
+    ] == [
+        "blast-open",
+        windows_input,
+        "windows-sign-out",
+    ]
     assert "kill-session" not in events
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
@@ -549,6 +555,47 @@ def test_a_desktop_that_never_becomes_ready_receives_no_windows_input(
     assert error.screenshot is not None
 
 
+def test_a_black_desktop_times_out_without_receiving_windows_input(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 0, 0)"
+    client = make_client(
+        run_kind=RunKind.CHECKOUT,
+        timeouts=replace(FAST, desktop_paint_ms=SHORT_PAINT_MS),
+    )
+    client.login()
+
+    fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    assert not [event for event in portal.state.events if event.startswith("windows-input:")]
+    assert "Horizon desktop not ready for Windows input" in caplog.text
+
+
+def test_log_off_cancels_a_dialog_before_sending_windows_input(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 0, 0)"
+    portal.state.repaint_desktop = "rgb(0, 120, 215)"
+    portal.state.repaint_desktop_after_ms = PAINTED_AFTER_MS * 2
+    portal.state.fullscreen_again_after_ms = PAINTED_AFTER_MS
+    client = make_client(
+        run_kind=RunKind.CHECKOUT, timeouts=replace(FAST, desktop_paint_ms=PAINT_WAIT_MS)
+    )
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    cancelled_at = [index for index, event in enumerate(events) if event == "fullscreen-cancelled"]
+    assert len(cancelled_at) == 2, "the second Fullscreen offer was not cancelled"
+    assert cancelled_at[-1] < events.index("windows-input:Meta+R|shutdown /l|Enter")
+    assert "fullscreen-accepted" not in events
+
+
 def test_log_off_without_a_session_is_already_logged_off(
     client: PlaywrightHorizonClient, portal: Portal
 ) -> None:
@@ -557,6 +604,7 @@ def test_log_off_without_a_session_is_already_logged_off(
     fails_with(Reason.ALREADY_LOGGED_OFF, lambda: client.log_off(DESKTOP))
 
     assert "kill-session" not in portal.state.events
+    assert not [event for event in portal.state.events if event.startswith("windows-input:")]
 
 
 def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logged_off(

@@ -92,6 +92,9 @@ class PortalState:
     drop_to_login_after_ms: int = 0
     # The CSS colour the page fills the remote surface with once it draws; "" leaves it.
     paint_desktop: str = ""
+    # An optional later repaint, for input that must wait through an unpainted frame.
+    repaint_desktop: str = ""
+    repaint_desktop_after_ms: int = 0
     # The page offers Fullscreen again this many ms after the desktop drew; 0 never.
     fullscreen_again_after_ms: int = 0
     # That second offer ignores Cancel: a dialog the adapter cannot dismiss.
@@ -135,6 +138,8 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "kill_session_sync": self.state.kill_session_sync,
                     "drop_to_login_after_ms": self.state.drop_to_login_after_ms,
                     "paint_desktop": self.state.paint_desktop,
+                    "repaint_desktop": self.state.repaint_desktop,
+                    "repaint_desktop_after_ms": self.state.repaint_desktop_after_ms,
                     "fullscreen_again_after_ms": self.state.fullscreen_again_after_ms,
                     "fullscreen_sticks": self.state.fullscreen_sticks,
                 },
