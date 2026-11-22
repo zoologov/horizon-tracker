@@ -36,8 +36,8 @@ Each feature has a `SPEC.md` (Purpose, How it works, Invariants, API, Testing):
   builds one report per run, which the evening keeps to itself on a skipped day.
 - **[Morning check-in](features/morning-checkin/SPEC.md)** — `checkin.py`: open, hold,
   disconnect, confirm `CONNECTED` -> `DISCONNECTED`.
-- **[Evening check-out](features/evening-checkout/SPEC.md)** — `checkout.py`: log off
-  from the tile menu and confirm `NO_SESSION`.
+- **[Evening check-out](features/evening-checkout/SPEC.md)** — `checkout.py`: sign out
+  of Windows through the open desktop and confirm `NO_SESSION`.
 - **[Probe and dry run](features/probe/SPEC.md)** — `probe.py`: the dependency probe and
   the plan of a run, both without logging in.
 - **[Absence service](features/absence-service/SPEC.md)** — `absence_service.py`: add,

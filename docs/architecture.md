@@ -122,8 +122,8 @@ the units, the files. An external node is not part of `horizon-tracker`, so it c
 | Contract (`protocol:name`) | Producer → consumer | What it binds |
 |----------------------------|---------------------|---------------|
 | `http:horizon-client-bundle` | [`horizon-portal`](domains/external/horizon-portal/SPEC.md) → `horizon-playwright-client` | the client bundle read without logging in, and the markup the adapter's selectors come from |
-| `http:horizon-broker-session` | `horizon-portal` → `horizon-playwright-client` | the login, the launch items and `kill-session` over the broker's XML API |
-| `blast:desktop-session` | `horizon-portal` → `horizon-playwright-client` | the WebSocket the check-in holds, whose closing is the disconnect |
+| `http:horizon-broker-session` | `horizon-portal` → `horizon-playwright-client` | the login and freshly fetched launch items over the broker's XML API. Their session state confirms sign-out |
+| `blast:desktop-session` | `horizon-portal` → `horizon-playwright-client` | the WebSocket the check-in holds and the evening uses to send Windows sign-out input. Closing the client without signing out is the disconnect |
 | `http:isdayoff-day` | [`isdayoff`](domains/external/isdayoff/SPEC.md) → `isdayoff-calendar` | `GET /YYYYMMDD` answered with a one-character day code |
 | `http:telegram-sendMessage` | [`telegram-bot-api`](domains/external/telegram-bot-api/SPEC.md) → `telegram-notifier`, `telegram-bot` | the text report, and the bot's reply to each of the owner's commands |
 | `http:telegram-sendPhoto` | `telegram-bot-api` → `telegram-notifier` | the report with its screenshot |

@@ -16,11 +16,12 @@ address lives only in the GitHub Environment `horizon-vps` and the host's `.env`
 ### Purpose
 
 The portal is where the attendance record is made: a check-in is an open Blast connection
-to the desktop with Windows logged on, and a check-out is the broker ending that Windows
-session. The service reaches the portal only through the Playwright adapter
-(`horizon-playwright-client`), headless Chrome walking the same pages a person walks. The
-probe reads the client bundle without logging in, and it does so through the same adapter,
-called through the `HorizonClient` port.
+to the desktop with Windows logged on, and a check-out is Windows ending that session
+after sign-out input through the open desktop. The broker's freshly fetched launch-items
+list confirms that the session ended. The service reaches the portal only through the
+Playwright adapter (`horizon-playwright-client`), headless Chrome walking the same pages
+a person walks. The probe reads the client bundle without logging in, and it does so
+through the same adapter, called through the `HorizonClient` port.
 
 ### Contracts
 
@@ -52,8 +53,8 @@ with a presence verdict. The surface below is the one the code reads.
 
 #### `http:horizon-broker-session` — horizon-portal → horizon-playwright-client
 
-The web client talks to the broker. The adapter drives the client and reads the pages and
-one broker request, never a broker document's content.
+The web client talks to the broker. The adapter drives the client and reads the pages,
+never a broker document's content.
 
 - **Login.** On `#/home` the adapter types the account into `#username` and `#password`
   and clicks `#loginButton`. The broker accepted the login once the client shows
@@ -62,15 +63,13 @@ one broker request, never a broker document's content.
 - **Launch items.** The list of desktops the broker grants the account, one tile per
   desktop. A tile titled with `HORIZON_DESKTOP` that is absent is `DESKTOP_NOT_FOUND`. The
   tile's session state is read from the log off item's `hidden` attribute, on a list
-  loaded afresh, because the client clears that flag on OK before the broker has answered.
-  A desktop whose menu hides the item before the log off starts is `ALREADY_LOGGED_OFF`.
-- **`kill-session`.** A log off is the client's `POST` of one XML document to a path that
-  contains `/broker/xml`, with `<kill-session` in its body. The adapter arms a wait for
-  the answer before it clicks OK, bounded at 30 s, and logs
-  `Horizon kill-session answered: <status> after <ms> ms` whatever the status is. The
-  status decides nothing: the check-out is confirmed only when a freshly loaded
-  `#/launchitems` shows the tile without a session within 60 s, and otherwise fails
-  closed as `LOGOFF_NOT_CONFIRMED`.
+  loaded afresh, because a tile already rendered in the page can retain its last fetched
+  state. A desktop whose menu hides the item before sign-out starts is
+  `ALREADY_LOGGED_OFF`.
+- **Sign-out confirmation.** After the Windows sign-out input, every confirmation read
+  reloads `#/launchitems` and reads the tile from the newly fetched list. A tile without
+  a session within 60 s confirms the check-out. Otherwise the adapter fails closed as
+  `LOGOFF_NOT_CONFIRMED`.
 
 #### `blast:desktop-session` — horizon-portal → horizon-playwright-client
 
@@ -83,7 +82,11 @@ one broker request, never a broker document's content.
 - **The hold and the disconnect.** The check-in holds the open desktop for
   `HT_HOLD_SECONDS` (120 s by default) so Windows completes its logon, then closes the
   browser context. Closing it closes the WebSocket: that is the quiet disconnect, and the
-  Windows session lives on until the evening's log off.
+  Windows session lives on until the evening's sign-out.
+- **Windows sign-out.** The evening opens the desktop, waits for a painted remote surface
+  with no client dialog over it, then sends Meta+R, types `shutdown /l`, and presses Enter.
+  This asks Windows to end its own session. The adapter sends no tile-menu `kill-session`
+  request; the broker's fresh launch-items list remains the confirmation authority.
 
 ## Invariants
 

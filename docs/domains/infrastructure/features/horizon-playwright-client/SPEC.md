@@ -55,7 +55,7 @@ log-off item wrong.
 | Constant | Value | What the bundle renders there |
 |----------|-------|-------------------------------|
 | `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON` | `#username`, `#password`, `#loginButton` | the login form on `#/home` |
-| `DIALOG_OK`, `DIALOG_CANCEL` | `#okDialogBtn`, `#cancelDialogBtn` | the client's dialog buttons: the rejected login, the Fullscreen offer, the Log Off confirmation. The check-in capture reads a dialog over the desktop by its visible buttons, clicks Cancel and never OK |
+| `DIALOG_OK`, `DIALOG_CANCEL` | `#okDialogBtn`, `#cancelDialogBtn` | the client's dialog buttons: the rejected login and the Fullscreen offer. The check-in capture reads a dialog over the desktop by its visible buttons, clicks Cancel and never OK |
 | `ANY_TILE` | `li:has(> button[id^='launch-'])` | a desktop tile `li#<id>`, which carries no `title` |
 | tile by name | `li:has(> button[id^='launch-'][title="<name>"])` | the tile whose launch button `button#launch-<id>` carries the desktop's name; the name is written as a CSS string, so quotes, backslashes and non-ASCII letters match |
 | `LAUNCH_BUTTON` | `button[id^='launch-']` | the launch button; it also holds the tile's icons, the "…" button and, while open, the menu |

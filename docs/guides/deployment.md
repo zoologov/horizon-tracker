@@ -455,8 +455,8 @@ ht checkout --force    # log off the Windows session
 ```
 
 - A check-in takes about two and a half minutes and exits 0; its log names the login,
-  the tile, the opened desktop and the hold. A check-out exits 0 and logs
-  `Horizon kill-session answered: <status> after <ms> ms`.
+  the tile, the opened desktop and the hold. A check-out opens the desktop, sends the
+  Windows sign-out command, and exits 0 after logging `Horizon desktop logged off`.
 - **Disconnect** in the morning closes the client and keeps the Windows session; **Log
   off** in the evening ends the Windows session. They are different actions.
 - Exit code 1 only when the run's report is FAILED; 0 for a success and for every
