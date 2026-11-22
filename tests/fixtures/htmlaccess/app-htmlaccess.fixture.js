@@ -86,15 +86,16 @@
     return node;
   }
 
-  function post(path, body) {
+  function post(path, body, keepalive) {
     return fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {})
+      body: JSON.stringify(body || {}),
+      keepalive: keepalive === true
     });
   }
 
-  function record(name) { return post("/fixture/event", { name: name }); }
+  function record(name) { return post("/fixture/event", { name: name }, true); }
 
   function brokerDocument(message) {
     return "<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>" + message + "</broker>";
@@ -293,6 +294,32 @@
     var answered = false;
     var sticky = false;
     var wmks = null;
+    var runDialog = false;
+    var windowsCommand = "";
+
+    // The fixture's Windows input surface: it records the adapter's keyboard sequence and
+    // acts only on the exact Run dialog command, never on a broker kill-session request.
+    document.addEventListener("keydown", function (event) {
+      if (event.metaKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        runDialog = true;
+        windowsCommand = "";
+        return;
+      }
+      if (!runDialog) { return; }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        record("windows-input:Meta+R|" + windowsCommand + "|Enter");
+        if (windowsCommand === "shutdown /l") {
+          location.hash = "#/launchitems";
+          if (window.blast) { window.blast.close(); }
+          record("windows-sign-out");
+        }
+        runDialog = false;
+        return;
+      }
+      if (event.key.length === 1) { windowsCommand += event.key; }
+    });
 
     // Draws once per Blast connection: a later answer to an offer must not clear the frame.
     function draw() {

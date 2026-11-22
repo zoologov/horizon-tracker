@@ -29,7 +29,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
 | `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and no dialog came into the frame, bounded by `desktop_paint_ms` (60 s); a blank or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | opens the tile's "…" menu, clicks `#menu-item-logoff-btn`, confirms `#okDialogBtn`, waits (bounded) for the broker's kill-session answer, then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"); answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF` (the menu hides the item), `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | checks that the tile still has a session, opens the desktop, waits for a painted surface with no client dialog over it, sends Meta+R, types `shutdown /l`, and presses Enter; then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -96,49 +96,32 @@ the manual `checkin --force` and `checkout --force` on the VPS (`docs/guides/dep
 
 ### Confirming a log off
 
-On OK of the log-off confirmation the client clears the tile's `logoffEnabled` flag
-at once and only then sends the kill-session request
-(`launchItemsCtrlService._logoffDesktop` in the bundle). The menu derives "Log Off"
-from that flag, so the tile on the same page reads "no session" before the broker has
-answered, whatever it answers. `log_off()` therefore never confirms from that page:
+`log_off()` first reads the named tile's session state and answers `ALREADY_LOGGED_OFF`
+when Windows already has no session. Otherwise it opens the desktop over Blast. Before
+any keyboard input it polls the same composited-frame rule as the check-in capture: the
+largest remote surface must be painted and no client dialog may be over it. This wait is
+bounded by `desktop_paint_ms` and saves no artifact. A desktop that never becomes ready
+receives no Windows input and fails as `LOGOFF_NOT_CONFIRMED`.
 
-- it waits for the broker's answer to the kill-session request before it reloads
-  anything. The wait is armed before the OK click and matches a response from
-  `…/broker/xml` whose request body carries `<kill-session>` (the bundle posts each
-  broker command as one XML document there; `Kw.setRequestXML`, `Oi.createXML`). The
-  path is checked before the body is read: every page response passes the match while
-  the wait is armed, and Playwright decodes a request body as strict UTF-8, so an
-  unrelated binary POST in that window (telemetry, an upload) must not reach the
-  decode. A
-  reload before the answer can cancel the request, and when the broker sets
-  `enableCredentialCleanupForHTMLAccess` the client logs out of the broker on
-  `beforeunload`, so a reload can end the web session under an unanswered
-  kill-session. The wait is bounded by `HorizonTimeouts.kill_session_answer_ms`; an
-  answer that does not come in time is logged (`Horizon kill-session unanswered after
-  <N> ms`) and the confirmation below decides, so the log off fails closed. An OK
-  click that fails is a `LOGOFF_NOT_CONFIRMED` at once, not an unanswered request;
+The adapter sends Meta+R, types `shutdown /l`, and presses Enter. This asks Windows to
+end its own session; it does not send the broker's tile-menu `kill-session` command.
+The old `_confirm_logoff_dialog()` and `_answers_kill_session()` path is gone. The command
+does not depend on the Windows display language, screen coordinates, or Start menu layout.
+
+The broker remains the confirmation authority:
+
 - every confirmation read reloads `#/launchitems`, so the tiles are built from a list
   the broker sent, and reads the tile from that list. A reload that lands on the login
   form logs in again in a fresh context, which fetches the list as well;
 - the page is left on the last list fetched, so a `desktop_status()` after `log_off()`
   (the check-out's second read) reads the broker's state too. The port contract is
-  unchanged.
-
-An answer is logged at INFO as `Horizon kill-session answered: <status> after <ms>
-ms`: `<status>` is the HTTP status of the broker's answer, whatever it is (a 401 or a
-500 releases the wait too, and the fresh list decides), and `<ms>` is the time from the
-OK click's return to the answer, on a monotonic clock. The line carries nothing else:
-no URL, no body, no credential. The live check reads it to see that the request was
-answered before the reload, with what, and how long it took; `<ms>` includes the
-client's own path from OK to the request, so it is an upper bound on the broker's time,
-and it is the number `kill_session_answer_ms` is sized from.
+  unchanged;
+- a broker that has not ended the session by `logoff_confirm_ms` fails closed as
+  `LOGOFF_NOT_CONFIRMED`, with the existing safe failure screenshot.
 
 Not measured on the live portal: whether a reload keeps the web session (the fallback
-covers both answers; the bundle ties it to the broker's
-`enableCredentialCleanupForHTMLAccess`, and with it on the next login waits up to 3 s,
-`waitForCredentialClean`) and how long the broker takes to answer kill-session. The
-live `checkout --force` sees a successful log off either way, so it cannot tell a
-broker's answer from the client's flag; a broker-side read after the check-out can.
+covers both answers) and how long the broker takes to report `NO_SESSION` after Windows
+signs out. Only the VPS may perform the live `checkout --force` and attendance check.
 
 ### Success screenshots
 
@@ -176,7 +159,8 @@ sample does this, in order:
 2. A client dialog over the desktop is read by its visible buttons
    (`#cancelDialogBtn:visible`, `#okDialogBtn:visible`). A visible Cancel is clicked,
    with a timeout of what is left of the bound, and logged as `Horizon client dialog
-   cancelled before the photo`. OK is never clicked, because on the Fullscreen offer it
+   cancelled before desktop capture or input`. OK is never clicked, because on the
+   Fullscreen offer it
    grants full screen, so a dialog that shows only OK is waited out. Either way this
    sample takes no frame and the next poll looks again, so a dialog that closes slowly
    or comes straight back is not photographed. `open_desktop` cancels the first
@@ -258,7 +242,10 @@ succeeded therefore does not exit 1 on the way out.
   saves no frame a dialog showed in.
 - The check-in photo is the frame that was judged: the composited element screenshot,
   never a readback of the surface's bitmap.
-- `desktop_paint_ms` bounds the capture to within one in-page decode.
+- `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
+  one in-page decode.
+- `log_off` sends no Windows input until the remote desktop is painted and no client
+  dialog is over it.
 - A missing photograph never changes a step's verdict. `open_desktop` returns `None`
   and takes no success photograph. `capture_open_desktop` and `log_off` answer `None`
   when the photograph cannot be taken.
@@ -280,8 +267,8 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
   the portal URL and the run kind only.
 - `HorizonTimeouts(page_load_ms=30_000, action_ms=15_000, login_ms=30_000,
   desktop_open_ms=90_000, logoff_confirm_ms=60_000, poll_ms=1_000,
-  kill_session_answer_ms=30_000, desktop_paint_ms=60_000)` — frozen.
-  `success_settle_ms` is not a field.
+  desktop_paint_ms=60_000)` — frozen. `success_settle_ms` and
+  `kill_session_answer_ms` are not fields.
 - `open_desktop(name) -> None` — returns once the desktop is open. It takes no
   success photograph.
 - `capture_open_desktop() -> Path | None` — the saved PNG of the first painted frame
@@ -291,8 +278,7 @@ Module `src/horizon_tracker/infrastructure/horizon_playwright.py`:
 - Route and selector constants: `LOGIN_ROUTE`, `LAUNCH_ITEMS_ROUTE`, `DESKTOP_ROUTE`,
   `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON`, `DIALOG_OK`, `DIALOG_CANCEL`,
   `ANY_TILE`, `LAUNCH_BUTTON`, `TILE_MENU_BUTTON`, `TILE_MENU`, `LOGOFF_MENU_ITEM`,
-  `DESKTOP_CANVAS`, `BLAST_PATH_PREFIXES`; the broker request a log off waits for:
-  `BROKER_XML_PATH`, `KILL_SESSION_TAG`.
+  `DESKTOP_CANVAS`, `BLAST_PATH_PREFIXES`.
 
 ## Testing
 
@@ -301,61 +287,48 @@ Tests: `tests/integration/infrastructure/test_horizon_playwright.py`,
 real Chromium against a local copy of the HTML Access markup
 (`tests/fixtures/htmlaccess/`) served on localhost by `tests/support/htmlaccess_portal.py`,
 never the portal; CI installs the browser with `playwright install --with-deps
-chromium`. The paint rule is tested through `capture_open_desktop`, not through a
-private name. The fixture reproduces the
-bundle's structure where the adapter reads the page: the tile, the tile menu with its
-`[hidden]` items, its document-click dismissal and its "…" that toggles, and the canvas
-the Blast session appends. It reproduces the client's behaviour on a log off too: the
-tile's flag is cleared on OK, before the kill-session request leaves, and the menu reads
-that flag, not the broker; the request is a POST of a `<broker>` XML document with
-`<kill-session>` to `/broker/xml`, and with credential cleanup on, the page logs out of
-the broker on `beforeunload`.
+chromium`. The paint rule is tested through `capture_open_desktop` and through the input-readiness
+wait in `log_off`. The fixture reproduces the bundle's structure where the adapter reads
+the page: the tile, the tile menu with its `[hidden]` items, its document-click dismissal
+and its "…" that toggles, and the canvas the Blast session appends. Its desktop records
+Meta+R, the typed Run command, and Enter as one ordered input event. Only the exact
+`shutdown /l` command ends the fixture Windows session; no broker `kill-session` request
+is involved.
 
-The fixture's own assumptions, each stated in its header and chosen so the adapter
-cannot lean on them: the list is fetched only when the page loads and after a login,
-never on a hash navigation; the kill-session request leaves a short hop after OK, so a
-reload at once would cancel it; the broker acts on kill-session when it answers, and a
-logout before the answer cuts the request off; OK also sends a `set-last-user-activity`
-answered at once, so only the kill-session's answer releases the wait; the menu closes a
-while after the document click, which pins the adapter's wait for it to go; the tile
-geometry, which comes from a stylesheet not in the bundle. The fixture broker can also
-refuse a log off, end the session only a few lists later, serve one list per login, so
-that a reload lands on the login form, answer kill-session late (1.5 s, beyond the 1 s
-the adapter once waited after OK) with credential cleanup on, answer it with an error
-status, never answer it, and never show the log-off confirmation. The page can fall back
-to `#/home` a while after the desktop drew. `capture_open_desktop` then saves nothing
-and does not log `Horizon desktop still blank`. The fixture can paint the desktop when
-it draws (`paint_desktop`), offer Fullscreen again a while after the desktop drew
-(`fullscreen_again_after_ms`), as the live client did on 2026-10-24, and let that offer
+The fixture's own assumptions, each stated in its header and chosen so the adapter cannot
+lean on them: the list is fetched only when the page loads and after a login, never on a
+hash navigation, and the menu closes a while after the document click. The fixture broker
+can refuse a log off, end the session only a few lists later, or serve one list per login
+so that a reload lands on the login form. The page can fall back to `#/home` a while after
+the desktop drew. `capture_open_desktop` then saves nothing and does not log `Horizon
+desktop still blank`. The fixture can paint the desktop when it draws (`paint_desktop`),
+offer Fullscreen again a while later (`fullscreen_again_after_ms`), and let that offer
 ignore Cancel (`fullscreen_sticks`). Its dialog is a modal over the remote surface, so a
-frame taken while it shows carries it. The tests also make the remote surface black,
-painted, painted later by a page timer, lit in seven or eight cells or at a channel of
-23, lit past its top-left corner only, a WebGL canvas that keeps no drawing buffer
-(skipped when the browser offers no WebGL context), a transparent bitmap over a painted
-CSS background, a smaller bright canvas placed before a black desktop, or a larger video
-with no frame. They can fail the element screenshot, hand the page a PNG it cannot
-decode, close the page after a blank sample, and give the capture less than a sample
-needs. Every case the rule refuses returns `None` and writes no file. The page can also
-post a non-UTF-8 body beside the log off, answered while the adapter waits, and send
-kill-session as a synchronous XHR inside OK's click handler, so that the answer is in
-before the click returns. The real client sends it asynchronously after a hop; that
-extreme exists only to pin a wait armed before the click. That pin rests on an ordering
-measured, not promised by Playwright: with the synchronous request, a wait armed after
-the click missed the answer in 100 of 100 runs and one armed before it caught it in 100
-of 100. A wait armed late costs the bound and a warning, not a false result, since the
-fresh list still decides.
+frame taken while it shows carries it.
 
-Two acceptance scenarios drive this adapter on the fixture portal, through the
+The tests also make the remote surface black, painted, painted later by a page timer, lit
+in seven or eight cells or at a channel of 23, lit past its top-left corner only, a WebGL
+canvas that keeps no drawing buffer (skipped when the browser offers no WebGL context), a
+transparent bitmap over a painted CSS background, a smaller bright canvas placed before a
+black desktop, or a larger video with no frame. They can fail the element screenshot, hand
+the page a PNG it cannot decode, close the page after a blank sample, and give the capture
+less than a sample needs. Every case the capture rule refuses returns `None` and writes no
+file. The sign-out tests prove that a black desktop receives no Windows input and that a
+desktop painted later receives it only after the paint.
+
+Three acceptance scenarios drive this adapter on the fixture portal. Two run through the
 check-in to the message the owner gets
 (`tests/acceptance/features/client_dialog_in_the_photo.feature`):
 
 - `A successful check-in's photo shows the desktop without a client dialog`
 - `A client dialog that cannot be dismissed leaves the check-in a text success`
 
-They read the photo with `tests/support/photo.py`, which decodes the PNG in a browser
-page. Every other scenario runs on a fake of the port (`tests/support/fakes.py`). A test
-on the fixture proves the fixture's contract. The live portal is reached only on the
-VPS.
+`Windows keyboard sign-out is confirmed by a fresh broker list`
+(`tests/acceptance/features/windows_sign_out.feature`) drives the evening adapter
+directly. The check-in scenarios read the photo with `tests/support/photo.py`, which
+decodes the PNG in a browser page. Every scenario in the other features runs on a fake
+of the port (`tests/support/fakes.py`). A test on the fixture proves the fixture's
+contract. The live portal is reached only on the VPS.
 
 ## Dependencies
 

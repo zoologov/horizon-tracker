@@ -1,22 +1,20 @@
 # ACTIVE: HT-014 — Sign out of Windows during evening check-out
 
 > **Last updated:** 2026-11-22
-> **Phase:** Development
+> **Phase:** Test verification
 
 ---
 
 ## Current Bead
 
-**Bead:** ht-oe6 — Implement Windows keyboard sign-out in the Playwright adapter
-**Goal:** Replace the tile-menu broker logout with a real Windows sign-out through the open desktop.
-**Done when:** The adapter opens the desktop, waits for safe input, sends Win+R → `shutdown /l` → Enter, and confirms `NO_SESSION` through freshly fetched launch items without changing the public port or evening use case.
+No bead is active. `ht-oe6` is complete, and `ht-0tu` is ready for test verification.
 
 ## Progress
 
 - [x] Explore derived the axes; scope was limited to `horizon-playwright-client`
 - [x] BRIEF approved by the owner
 - [x] Parent bug and dev → test → review → tech-writer DAG created
-- [ ] Development implementation and targeted tests
+- [x] Development implementation and targeted tests
 - [ ] Test verification and full-suite comparison with the baseline
 - [ ] Read-only review
 - [ ] Documentation refresh and Beadloom validation
@@ -26,7 +24,7 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Ready | Windows keyboard sign-out in the Playwright adapter |
+| ht-oe6 | Done | Keyboard sign-out and readiness wait; clean room 2020 passed, 5 skipped, 4 baseline failures |
 | ht-0tu | Blocked | Depends on ht-oe6 |
 | ht-pea | Blocked | Depends on ht-0tu |
 | ht-ga0 | Blocked | Depends on ht-pea |

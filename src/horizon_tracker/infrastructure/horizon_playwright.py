@@ -37,7 +37,6 @@ from playwright.sync_api import (
     Locator,
     Page,
     Playwright,
-    Response,
     WebSocket,
     sync_playwright,
 )
@@ -95,10 +94,6 @@ _LIT_CELLS_REQUIRED = 8
 # by the review of HT-010), so a sample started with less could only time out.
 _SAMPLE_FLOOR_MS = 250
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
-# The client posts every broker command as one XML document to ``…/broker/xml``; a log
-# off's carries ``<kill-session>`` (``Kw.setRequestXML`` and ``Oi.createXML`` in the bundle).
-BROKER_XML_PATH = "/broker/xml"
-KILL_SESSION_TAG = "<kill-session"
 
 # Finds the remote surface a frame is taken of: the largest canvas or video inside the
 # container, by its box. Answers null when no surface has a box, else the surface's index
@@ -172,13 +167,8 @@ class HorizonTimeouts:
     desktop_open_ms: int = 90_000
     logoff_confirm_ms: int = 60_000
     poll_ms: int = 1_000
-    # The broker's answer to a log off's kill-session, awaited before the launch list is
-    # reloaded: a reload can log out of the broker (enableCredentialCleanupForHTMLAccess)
-    # and cut off a request still unanswered. How long the live broker takes is not
-    # measured; it answers once it has handed the log off on, so this is generous. Past
-    # it the fresh-list confirmation decides, and it fails closed.
-    kill_session_answer_ms: int = 30_000
-    # How long ``capture_open_desktop`` polls for a non-blank remote surface.
+    # How long ``capture_open_desktop`` polls for a non-blank remote surface and the
+    # evening sign-out waits for one that is safe to send Windows input to.
     # A fixed pause cannot tell a black frame from a painted desktop.
     desktop_paint_ms: int = 60_000
 
@@ -350,20 +340,49 @@ class PlaywrightHorizonClient:
             return
         page.wait_for_timeout(min(self._timeouts.poll_ms, _remaining_ms(deadline)))
 
+    def _wait_for_desktop_input(self) -> bool:
+        """Wait until a painted remote surface is visible with no client dialog over it."""
+        deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
+        while _remaining_ms(deadline) >= _SAMPLE_FLOOR_MS:
+            ready = self._desktop_input_sample(deadline)
+            if ready is True:
+                return True
+            if ready is _Frame.STOP:
+                return False
+            self._pause_between_samples(deadline)
+        logger.warning("Horizon desktop not ready for Windows input")
+        return False
+
+    def _desktop_input_sample(self, deadline: float) -> bool | _Frame:
+        """One input-readiness sample, judged on pixels without saving an artifact."""
+        page = self._page
+        if page is None or page.is_closed() or _route(page.url) != DESKTOP_ROUTE:
+            return _Frame.STOP
+        if self._dialog_in_the_way(page, deadline):
+            return _Frame.DIALOG
+        surface = _largest_surface(page)
+        if surface is None:
+            return _Frame.WAIT
+        png = surface.screenshot(type="png", timeout=_remaining_ms(deadline))
+        if not _frame_is_painted(page, png):
+            return _Frame.WAIT
+        return True if not self._dialog_in_the_way(page, deadline) else _Frame.DIALOG
+
     def _dialog_in_the_way(self, page: Page, deadline: float) -> bool:
         """Cancel a client dialog over the desktop; True while one may still be in the frame.
 
         The client can show its Fullscreen offer again after ``open_desktop`` cancelled
-        it. Cancel is clicked, within what is left of the capture's bound, and the sample
-        is not taken: the next poll looks again, so a dialog that closes slowly or comes
-        straight back is not photographed. A dialog with no Cancel is never answered with
-        OK; it stays in the way until it goes or the bound runs out.
+        it. Cancel is clicked, within what is left of the caller's bound, and the sample
+        is not used: the next poll looks again, so a dialog that closes slowly or comes
+        straight back is neither photographed nor sent Windows input. A dialog with no
+        Cancel is never answered with OK; it stays in the way until it goes or the bound
+        runs out.
         """
         cancel = page.locator(_SHOWN_DIALOG_CANCEL)
         if cancel.count() > 0:
             with suppress(PlaywrightTimeoutError):
                 cancel.first.click(timeout=_remaining_ms(deadline))
-                logger.info("Horizon client dialog cancelled before the photo")
+                logger.info("Horizon client dialog cancelled before desktop capture or input")
             return True
         return page.locator(_SHOWN_DIALOG_OK).count() > 0
 
@@ -377,22 +396,22 @@ class PlaywrightHorizonClient:
         logger.info("Horizon client disconnected")
 
     def log_off(self, name: str) -> Path | None:
-        """Log off from the tile's "…" menu, confirm the dialog, wait for the broker to agree.
+        """Open the desktop, sign out of Windows through Run, and wait for the broker to agree.
 
-        The client hides the tile's "Log Off" the moment OK is clicked, before the broker
-        has answered, so the tile on this page says nothing about the broker. Every
-        confirmation read loads the launch items afresh first; the page is left on that
+        Every confirmation read loads the launch items afresh first; the page is left on that
         fresh list, which is what a ``desktop_status`` after this call reads. Answers with a
         screenshot of that list, or ``None`` when it could not be taken.
         """
         with self._step(Reason.LOGOFF_NOT_CONFIRMED):
-            tile = self._tile(name)
-            logoff = self._open_tile_menu(tile)
-            if not _offered(logoff):
-                self._close_tile_menu(tile)
+            if self._tile_session_state(self._tile(name)) is SessionState.NO_SESSION:
                 raise self._failure(Reason.ALREADY_LOGGED_OFF)
-            logoff.click()
-            self._confirm_logoff_dialog()
+            self.open_desktop(name)
+            if not self._wait_for_desktop_input():
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
+            page = self._live_page()
+            page.keyboard.press("Meta+R")
+            page.keyboard.type("shutdown /l")
+            page.keyboard.press("Enter")
             confirmed = self._poll(
                 lambda: self._broker_session_state(name) is SessionState.NO_SESSION or None,
                 self._timeouts.logoff_confirm_ms,
@@ -517,34 +536,6 @@ class PlaywrightHorizonClient:
             cancel.click()
         return self._desktop_is_open() or None
 
-    def _confirm_logoff_dialog(self) -> None:
-        """Click OK on the log-off dialog, then wait (bounded) for the broker's kill-session answer.
-
-        The request leaves after OK through the client's own command path, and a reload
-        before the broker answers can cancel it or, with credential cleanup, log out of
-        the broker under it. The wait is armed before the click so a quick answer is not
-        missed. The answer is logged with its status and the time since the click returned,
-        whatever the status: the fresh-list confirmation decides either way. An answer that
-        does not come in time is logged and left to that confirmation too, which fails closed.
-        """
-        page = self._live_page()
-        bound_ms = self._timeouts.kill_session_answer_ms
-        clicked = False
-        try:
-            with page.expect_response(_answers_kill_session, timeout=bound_ms) as answer:
-                page.locator(DIALOG_OK).click()
-                clicked = True
-                started = time.monotonic()
-        except PlaywrightTimeoutError:
-            if not clicked:
-                raise
-            logger.warning("Horizon kill-session unanswered after %d ms", bound_ms)
-            return
-        elapsed_ms = round((time.monotonic() - started) * 1000)
-        logger.info(
-            "Horizon kill-session answered: %d after %d ms", answer.value.status, elapsed_ms
-        )
-
     def _tile(self, name: str) -> Locator:
         """The named desktop's tile on ``#/launchitems``; logs in first when no page is live."""
         page = self._launch_items_page()
@@ -566,10 +557,9 @@ class PlaywrightHorizonClient:
     def _reload_launch_items(self) -> None:
         """Load ``#/launchitems`` again so its tiles are built from a list the broker sent.
 
-        The client clears a tile's log-off flag on OK, before the kill-session request
-        leaves (``launchItemsCtrlService._logoffDesktop``); only a list fetched again
-        shows what the broker holds. A reload that lands on the login form logs in
-        afresh, which fetches the list as well.
+        Windows sign-out changes the broker's session, not this page's in-memory tile
+        model. Only a list fetched again shows what the broker holds. A reload that lands
+        on the login form logs in afresh, which fetches the list as well.
         """
         page = self._live_page()
         page.reload(timeout=self._timeouts.page_load_ms)
@@ -739,18 +729,6 @@ def _close_quietly(part: str, close: Callable[[], None]) -> None:
         close()
     except PlaywrightError as error:
         logger.warning("Horizon %s did not close: %s", part, type(error).__name__)
-
-
-def _answers_kill_session(response: Response) -> bool:
-    """Whether a response is the broker's answer to a request that carries kill-session.
-
-    The path is checked first: every page response passes here while the wait is armed,
-    and ``post_data`` decodes the body as strict UTF-8, so an unrelated binary POST
-    (telemetry, an upload) would raise. Only a broker document's body is read.
-    """
-    if BROKER_XML_PATH not in urlsplit(response.url).path:
-        return False
-    return KILL_SESSION_TAG in (response.request.post_data or "")
 
 
 def _offered(menu_item: Locator) -> bool:
