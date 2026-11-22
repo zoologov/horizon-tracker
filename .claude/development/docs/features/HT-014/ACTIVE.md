@@ -1,13 +1,13 @@
 # ACTIVE: HT-014 — Sign out of Windows during evening check-out
 
 > **Last updated:** 2026-11-22
-> **Phase:** Test verification
+> **Phase:** CI verification
 
 ---
 
 ## Current Bead
 
-No bead is active. `ht-oe6` is complete, and `ht-0tu` is ready for test verification.
+No bead is active. The development and test waves are closed; CI verification is pending on the follow-up commit.
 
 ## Progress
 
@@ -24,7 +24,7 @@ No bead is active. `ht-oe6` is complete, and `ht-0tu` is ready for test verifica
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Keyboard sign-out and readiness wait; clean room 2020 passed, 5 skipped, 4 baseline failures |
+| ht-oe6 | Done | Windows sign-out plus ShellCheck 0.11 CI fix; full room 2024 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | Two integration tests added; adapter coverage 94.24%; clean-room and tree runs each 2022 passed, 5 skipped, 4 baseline failures |
 | ht-pea | Blocked | Depends on ht-0tu |
 | ht-ga0 | Blocked | Depends on ht-pea |

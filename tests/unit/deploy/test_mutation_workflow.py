@@ -198,6 +198,39 @@ def test_the_script_keeps_its_full_domain_default() -> None:
     assert "export-cicd-stats" in text
 
 
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_the_exit_trap_removes_stale_bytecode_when_the_run_fails(tmp_path: Path) -> None:
+    """Exercise the indirect call ShellCheck cannot see, without running mutmut."""
+    assert BASH is not None
+    script = tmp_path / "scripts" / SCRIPT.name
+    script.parent.mkdir()
+    shutil.copy(SCRIPT, script)
+    caches = [
+        tmp_path / "src" / "horizon_tracker" / "__pycache__",
+        tmp_path / "tests" / "__pycache__",
+    ]
+    for cache in caches:
+        cache.mkdir(parents=True)
+        (cache / "stale.pyc").write_bytes(b"stale")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake_uv.chmod(0o755)
+
+    result = subprocess.run(
+        [BASH, str(script)],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert not any(cache.exists() for cache in caches), "the EXIT trap did not remove bytecode"
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck absent")
 def test_the_script_passes_shellcheck() -> None:
     result = subprocess.run(

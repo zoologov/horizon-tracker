@@ -75,7 +75,7 @@ elif [[ -n "$out" || -n "$seed" ]]; then
 fi
 [[ "$min_score" =~ ^[0-9]+([.][0-9]+)?$ ]] || usage
 
-# shellcheck disable=SC2317 # reached through the EXIT trap, not a call
+# shellcheck disable=SC2317,SC2329 # called by the EXIT trap, including ShellCheck 0.11's indirect-call check
 clean_bytecode() {
     find "$root/src" "$root/tests" -name __pycache__ -type d -prune -exec rm -rf {} +
 }
