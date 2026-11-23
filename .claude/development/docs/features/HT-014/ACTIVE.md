@@ -30,7 +30,7 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | WMKS surface focus before keyboard input; full room 2031 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | Bounded Run-dialog pacing and screenshot-skip diagnostics; full room 2031 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | Live-focus 09a9980: 24/24 ordering checks and 66 adapter tests passed; clean room 2031 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | WebMKS focus and the locally verified v1.1.1 failure documented; stale pairs 0 |

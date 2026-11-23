@@ -94,6 +94,10 @@ _LIT_CELLS_REQUIRED = 8
 # by the review of HT-010), so a sample started with less could only time out.
 _SAMPLE_FLOOR_MS = 250
 BLAST_PATH_PREFIXES = ("/r/", "/d/")
+# Windows gives no DOM signal when Run is ready. Bound that blind wait and pace the text
+# so a slow dialog and the Blast delivery do not lose the first characters.
+_RUN_DIALOG_WAIT_MS = 2_000
+_WINDOWS_TYPE_DELAY_MS = 50
 
 # Finds the remote surface a frame is taken of: the largest canvas or video inside the
 # container, by its box. Answers null when no surface has a box, else the surface's index
@@ -414,7 +418,8 @@ class PlaywrightHorizonClient:
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             surface.click()
             page.keyboard.press("Meta+R")
-            page.keyboard.type("shutdown /l")
+            page.wait_for_timeout(_RUN_DIALOG_WAIT_MS)
+            page.keyboard.type("shutdown /l", delay=_WINDOWS_TYPE_DELAY_MS)
             page.keyboard.press("Enter")
             confirmed = self._poll(
                 lambda: self._broker_session_state(name) is SessionState.NO_SESSION or None,
@@ -668,10 +673,15 @@ class PlaywrightHorizonClient:
         Playwright or disk error is logged by its type only and answers ``None``.
         """
         page = self._page
-        if page is None or page.is_closed():
+        if page is None:
+            logger.warning("Horizon screenshot skipped: no page")
+            return None
+        if page.is_closed():
+            logger.warning("Horizon screenshot skipped: page closed")
             return None
         try:
             if _route(page.url) not in _SCREENSHOT_ROUTES:
+                logger.warning("Horizon screenshot skipped: route outside allowlist")
                 return None
             path = self._artifacts.screenshot_path(kind)
             page.screenshot(path=path)

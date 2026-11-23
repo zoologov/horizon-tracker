@@ -78,6 +78,7 @@
   var wmksCount = 0;
   var windowsInputHandler = null;
   var KILL_SESSION_HOP_MS = 40;
+  var RUN_DIALOG_READY_MS = 250;
   var MENU_CLOSE_MS = 150;
 
   function byId(id) { return document.getElementById(id); }
@@ -301,6 +302,7 @@
     var sticky = false;
     var wmks = null;
     var runDialog = false;
+    var runReadyAt = 0;
     var windowsCommand = "";
 
     // The real WMKS binds keyboard handlers to its element, not to the document: input
@@ -309,10 +311,13 @@
       if (event.metaKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         runDialog = true;
+        runReadyAt = Date.now() + RUN_DIALOG_READY_MS;
         windowsCommand = "";
         return;
       }
       if (!runDialog) { return; }
+      // Unlike the DOM fixture, Windows needs time to open Run and focus its edit field.
+      if (Date.now() < runReadyAt) { event.preventDefault(); return; }
       if (event.key === "Enter") {
         event.preventDefault();
         if (windowsCommand === "shutdown /l") {

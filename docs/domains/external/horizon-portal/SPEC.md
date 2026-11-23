@@ -84,8 +84,8 @@ never a broker document's content.
   browser context. Closing it closes the WebSocket: that is the quiet disconnect, and the
   Windows session lives on until the evening's sign-out.
 - **Windows sign-out.** The evening opens the desktop, waits for a painted remote surface
-  with no client dialog over it, clicks the remote surface to focus WMKS, then sends
-  Meta+R, types `shutdown /l`, and presses Enter.
+  with no client dialog over it, clicks the remote surface to focus WMKS, sends Meta+R,
+  waits 2 s for Run, and types `shutdown /l` with 50 ms between keys before Enter.
   This asks Windows to end its own session. The adapter sends no tile-menu `kill-session`
   request; the broker's fresh launch-items list remains the confirmation authority.
 
