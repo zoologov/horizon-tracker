@@ -28,7 +28,7 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Atomic fixture input/sign-out recording; 24/24 order checks, full room 2031 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | WMKS surface focus before keyboard input; full room 2031 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | Release beca65d: 24/24 ordering checks, v1.1.1 metadata green; clean room 2031 passed, 5 skipped, 3 macOS baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Current Windows sign-out and portal documentation refreshed; stale pairs 0 |

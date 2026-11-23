@@ -29,7 +29,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
 | `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and no dialog came into the frame, bounded by `desktop_paint_ms` (60 s); a blank or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | checks that the tile still has a session, opens the desktop, waits for a painted surface with no client dialog over it, sends Meta+R, types `shutdown /l`, and presses Enter; then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | checks that the tile still has a session, opens the desktop, waits for a painted surface with no client dialog over it, clicks the largest remote surface to focus WMKS, sends Meta+R, types `shutdown /l`, and presses Enter; then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -103,10 +103,14 @@ largest remote surface must be painted and no client dialog may be over it. This
 bounded by `desktop_paint_ms` and saves no artifact. A desktop that never becomes ready
 receives no Windows input and fails as `LOGOFF_NOT_CONFIRMED`.
 
-The adapter sends Meta+R, types `shutdown /l`, and presses Enter. This asks Windows to
-end its own session; it does not send the broker's tile-menu `kill-session` command.
-The old `_confirm_logoff_dialog()` and `_answers_kill_session()` path is gone. The command
-does not depend on the Windows display language, screen coordinates, or Start menu layout.
+Once the surface is ready, the adapter clicks it before sending Meta+R, typing
+`shutdown /l`, and pressing Enter. WMKS binds keyboard handlers to its own element, not
+to the document, so leaving focus on the launch button would deliver no Windows input.
+Its modifier synchronizer reads `metaKey`, and `enableWindowsKey` defaults to true, which
+makes Meta+R the Windows Run shortcut. The adapter does not send the broker's tile-menu
+`kill-session` command. The old `_confirm_logoff_dialog()` and `_answers_kill_session()`
+path is gone. The command does not depend on the Windows display language, hardcoded
+screen coordinates, or Start menu layout.
 
 The broker remains the confirmation authority:
 
