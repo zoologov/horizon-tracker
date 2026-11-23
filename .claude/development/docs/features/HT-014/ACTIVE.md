@@ -28,7 +28,7 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Windows sign-out and CI fixes; shared systemd filter, full room 2030 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | Atomic fixture input/sign-out recording; 24/24 order checks, full room 2031 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | Final 1cda2e3: 84 targeted tests passed; clean room 2030 passed, 5 skipped, 3 macOS baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Current Windows sign-out and portal documentation refreshed; stale pairs 0 |
