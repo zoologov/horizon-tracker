@@ -123,8 +123,23 @@ then failed after about 31 s with `logoff_not_confirmed` and `TimeoutError`. The
 disconnected, and no attempt reached `NO_SESSION`. The adapter had left keyboard focus on
 the tile launch button. Public WebMKS source binds keyboard handlers to the widget
 element, which established the missing focus as the cause. Released v1.1.1 does not
-contain the surface-click correction above. That correction has passed local fixture
-verification but has not been retested against the live portal.
+contain the surface-click correction above. That correction shipped in v1.1.2, whose
+live result follows.
+
+**Live evidence from v1.1.2.** On 2026-11-24 at 00:50 MSK, the released v1.1.2
+`checkout --force` again made three attempts. Each opened the desktop and then failed
+after about 31 s with `logoff_not_confirmed`. The run failed without reaching
+`NO_SESSION`. Surface focus alone was therefore insufficient. This release still typed
+the whole command immediately after Meta+R. A fixture Run dialog that rejects input for
+its first 250 ms reproduced the live-shaped failure, showing that immediate typing can be
+lost even with correct focus. Released v1.1.2 does not contain the 2 s wait and 50 ms key
+pacing above. That pacing correction has passed local fixture verification but has not
+been retested against the live portal.
+
+The v1.1.2 run wrote no new failure screenshots. At that release, a missing or closed
+page and a route outside the screenshot allowlist each returned `None` silently, so the
+logs cannot say which skip occurred. The safe skip diagnostics below now distinguish
+those cases.
 
 The broker remains the confirmation authority:
 
@@ -157,11 +172,13 @@ case can put into the run report. A screenshot never changes a step's verdict.
 
 The shared page screenshot is what failures and `log_off` use. Its allowlist is the
 same pair of routes, read when the shot is taken, so a page on `#/home` is not
-photographed and the answer is `None`. A missing or closed page and a route outside the
-allowlist are logged as `Horizon screenshot skipped: <reason>` without a URL or any page
-content. A Playwright error or a disk error (an
-`OSError`, for instance from writing the file) while taking that screenshot is logged
-as `Horizon screenshot failed: <Type>` and answers `None`. The step still succeeds. A
+photographed and the answer is `None`. A missing page logs
+`Horizon screenshot skipped: no page`. A closed page logs
+`Horizon screenshot skipped: page closed`. A route outside the allowlist logs
+`Horizon screenshot skipped: route outside allowlist`. These skip reasons contain no URL
+or page content. A Playwright error or a disk error (an `OSError`, for instance from
+writing the file) while taking that screenshot is logged as
+`Horizon screenshot failed: <Type>` and answers `None`. The step still succeeds. A
 failure screenshot is named by the `run_kind` the client was built with. Because the
 shared method catches disk errors too, a failure whose screenshot the disk refuses
 raises a `HorizonClientError` without a screenshot rather than an `OSError`.
@@ -266,6 +283,8 @@ succeeded therefore does not exit 1 on the way out.
   one in-page decode.
 - `log_off` sends no Windows input until the remote desktop is painted, no client dialog
   is over it, and the largest remote surface has been clicked to focus WMKS.
+- After Meta+R, `log_off` waits 2 s before typing `shutdown /l` with 50 ms between keys
+  and then pressing Enter.
 - A missing photograph never changes a step's verdict. `open_desktop` returns `None`
   and takes no success photograph. `capture_open_desktop` and `log_off` answer `None`
   when the photograph cannot be taken.
@@ -318,6 +337,13 @@ fixture reproduces `logoff_not_confirmed`. Page-level keyboard delivery cannot m
 test pass. Its desktop records Meta+R, the typed Run command, and Enter as one ordered
 input event. Only the exact `shutdown /l` command ends the fixture Windows session; no
 broker `kill-session` request is involved.
+
+The fixture's Run dialog ignores command characters for its first 250 ms after Meta+R.
+The sign-out regression asserts one 2000 ms wait and a 50 ms `Keyboard.type` delay before
+Enter, in addition to surface focus and event order. Immediate typing therefore
+reproduces `logoff_not_confirmed` instead of passing. A rejected-login test also asserts
+the `route outside allowlist` screenshot-skip diagnostic and checks that the password is
+absent from the log.
 
 The fixture's own assumptions, each stated in its header and chosen so the adapter cannot
 lean on them: the list is fetched only when the page loads and after a login, never on a
