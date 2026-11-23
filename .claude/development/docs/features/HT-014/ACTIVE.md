@@ -1,15 +1,15 @@
 # ACTIVE: HT-014 — Sign out of Windows during evening check-out
 
-> **Last updated:** 2026-11-23
+> **Last updated:** 2026-11-24
 > **Phase:** Release
 
 ---
 
 ## Current Bead
 
-**Bead:** ht-51k — Release v1.1.2 and repeat the owner's live verification
-**Goal:** Deploy the WebMKS keyboard-focus correction, then run `checkout --force` on the VPS with an existing session.
-**Done when:** The release is green, the host runs v1.1.2, and the live check-out confirms the Windows session ended.
+**Bead:** ht-51k — Release v1.1.3 and repeat the owner's live verification
+**Goal:** Deploy Run-dialog readiness and paced Windows input, then run `checkout --force` on the VPS with an existing session.
+**Done when:** The release is green, the host runs v1.1.3, and the live check-out confirms the Windows session ended.
 
 ## Progress
 
@@ -22,18 +22,19 @@
 - [x] Documentation refresh and Beadloom validation
 - [x] PR #16 merged; required CI and post-merge CI green
 - [x] Release v1.1.1 deployed; live check-out exposed missing WebMKS keyboard focus
-- [x] WebMKS focus correction tested, reviewed and documented
-- [ ] Release v1.1.2 through the tag workflow
+- [x] Release v1.1.2 deployed with surface focus; live check-out exposed Run-dialog timing loss
+- [x] Run-dialog readiness and input pacing tested, reviewed and documented
+- [ ] Release v1.1.3 through the tag workflow
 - [ ] Repeat live VPS `checkout --force` and attendance-record verification after deployment
 
 ## Results
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | WMKS surface focus before keyboard input; full room 2031 passed, 5 skipped, 3 baseline failures |
-| ht-0tu | Done | Live-focus 09a9980: 24/24 ordering checks and 66 adapter tests passed; clean room 2031 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | Bounded Run-dialog pacing and screenshot-skip diagnostics; full room 2031 passed, 5 skipped, 3 baseline failures |
+| ht-0tu | Done | Run pacing dda6395: 24/24 delayed-Run/focus/order checks and 66 adapter tests passed; clean room 2031 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
-| ht-ga0 | Done | WebMKS focus and the locally verified v1.1.1 failure documented; stale pairs 0 |
+| ht-ga0 | Done | Run readiness, pacing, the v1.1.2 live failure and screenshot-skip diagnostics documented; stale pairs 0 |
 
 ## Notes
 
@@ -42,9 +43,9 @@ macOS child-process assertions in `test_entering_the_client_starts_nothing_until
 was ShellCheck SC2329 for `clean_bytecode` in `scripts/mutation.sh`, since fixed and covered by an execution test. Later
 runs distinguish the three remaining platform-specific baseline failures from regressions.
 
-Release v1.1.1 deployed successfully, and a live check-in succeeded. The following live check-out made three attempts,
-each opening the desktop and ending `logoff_not_confirmed`: the launch button retained focus, so WebMKS did not receive
-the Windows keys. The correction clicks the painted remote surface first and is locally verified only until v1.1.2 is
-deployed and the live check-out is repeated. No live portal login was permitted from the development sandbox; the owner
-explicitly authorised the VPS checks. The existing `.beads/issues.jsonl` modification and untracked `.DS_Store` /
-metrics files predated HT-014 and are not part of its implementation.
+Release v1.1.1 deployed successfully, and a live check-in succeeded. Its check-out left focus on the launch button and
+failed `logoff_not_confirmed`. Release v1.1.2 added the surface click but still failed live: typing began before the Run
+dialog was ready. The v1.1.3 correction waits two seconds and types at 50 ms per key; it is locally verified only until
+the live check-out is repeated. No live portal login was permitted from the development sandbox; the owner explicitly
+authorised the VPS checks. The existing `.beads/issues.jsonl` modification and untracked `.DS_Store` / metrics files
+predated HT-014 and are not part of its implementation.

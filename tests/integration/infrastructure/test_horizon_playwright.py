@@ -215,7 +215,9 @@ def test_a_rejected_login_takes_no_screenshot_of_the_login_page(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
     artifacts: RecordingArtifacts,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.WARNING)
     client = make_client(password="wrong")
 
     error = fails_with(Reason.LOGIN_REJECTED, client.login)
@@ -224,6 +226,8 @@ def test_a_rejected_login_takes_no_screenshot_of_the_login_page(
     assert error.screenshot is None
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
+    assert "Horizon screenshot skipped: route outside allowlist" in caplog.text
+    assert PASSWORD not in caplog.text
 
 
 def test_an_unreachable_portal_is_named(
@@ -432,7 +436,11 @@ def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
     focused_at_input: list[bool] = []
+    typed_delays: list[float | int | None] = []
+    run_waits: list[float] = []
     real_press = Keyboard.press
+    real_type = Keyboard.type
+    real_wait = Page.wait_for_timeout
 
     def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
         if key == "Meta+R":
@@ -445,11 +453,25 @@ def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
             )
         real_press(keyboard, key, *args, **kwargs)
 
+    def type_text(keyboard: Keyboard, text: str, *args: Any, **kwargs: Any) -> None:
+        if text == "shutdown /l":
+            typed_delays.append(kwargs.get("delay"))
+        real_type(keyboard, text, *args, **kwargs)
+
+    def wait(page: Page, timeout: float) -> None:
+        if timeout == 2_000:
+            run_waits.append(timeout)
+        real_wait(page, timeout)
+
     monkeypatch.setattr(Keyboard, "press", press)
+    monkeypatch.setattr(Keyboard, "type", type_text)
+    monkeypatch.setattr(Page, "wait_for_timeout", wait)
 
     client.log_off(DESKTOP)
 
     assert focused_at_input == [True], "Win+R was sent without focusing the remote surface"
+    assert run_waits == [2_000], "the command was typed before Run could accept input"
+    assert typed_delays == [50], "Windows input was not paced"
     events = portal.state.events
     windows_input = "windows-input:Meta+R|shutdown /l|Enter"
     assert [
