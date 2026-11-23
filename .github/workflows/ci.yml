@@ -173,13 +173,10 @@ jobs:
             printf '%s\n' "$output"
             exit 1
           fi
-          # Discard only diagnostics attributed to absolute paths outside the project
-          # copies. Project, relative and unattributed diagnostics all remain fatal.
-          project_output="$(printf '%s' "$output" | awk -v units="$units/" '
-            index($0, units) == 1 { print; next }
-            /^\/[^:]+:[0-9]+:/ { next }
-            { print }
-          ')"
+          # The direct unit test uses this same filter. Discard only diagnostics
+          # attributed to absolute host paths; project and unattributed output is fatal.
+          project_output="$(printf '%s' "$output" | python3 \
+            .github/scripts/systemd_diagnostics.py --units "$units")"
           if [ -n "$project_output" ]; then
             printf '%s\n' "$project_output"
             echo "::error title=systemd::systemd-analyze verify warned about the units"

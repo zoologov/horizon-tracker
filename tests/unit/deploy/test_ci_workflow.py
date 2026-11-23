@@ -258,6 +258,9 @@ def write_units(deploy_dir: Path, *, break_timer: bool = False) -> None:
             if break_timer and unit.suffix == ".timer":
                 text = text.replace("[Timer]", "[Timer]\nOnCalendr=daily")
             (deploy_dir / unit.name).write_text(text, encoding="utf-8")
+    helper = deploy_dir.parent / ".github" / "scripts" / "systemd_diagnostics.py"
+    helper.parent.mkdir(parents=True)
+    shutil.copy(ROOT / ".github" / "scripts" / helper.name, helper)
 
 
 @pytest.mark.skipif(BASH is None or shutil.which("systemd-analyze") is None, reason="no systemd")

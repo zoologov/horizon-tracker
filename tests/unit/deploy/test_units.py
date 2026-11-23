@@ -11,6 +11,7 @@ stopped by the signal its command treats as a clean stop.
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -252,11 +253,46 @@ def test_systemd_accepts_the_calendar_expression(run: str, start: str) -> None:
     assert f"{start}:00 {SHIPPED_ZONE}" in result.stdout
 
 
+DIAGNOSTIC_FILTER = repository_root() / ".github" / "scripts" / "systemd_diagnostics.py"
+HOST_DIAGNOSTICS = "\n".join(
+    f"/usr/lib/systemd/system/{name}:26: Support for option CPUAccounting= has been removed"
+    for name in ("xfs_scrub_all.service", "system-xfs_scrub.slice", "walinuxagent.service")
+)
+
+
+def project_diagnostics(units: Path, output: str) -> str:
+    """Run the same diagnostic filter as CI, without requiring systemd or Linux."""
+    result = subprocess.run(
+        [sys.executable, str(DIAGNOSTIC_FILTER), "--units", str(units)],
+        input=output,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def test_host_unit_diagnostics_do_not_fail_project_verification(tmp_path: Path) -> None:
+    assert project_diagnostics(tmp_path, HOST_DIAGNOSTICS) == ""
+
+
+def test_project_unit_diagnostics_remain_fatal_beside_host_ones(tmp_path: Path) -> None:
+    warning = f"{tmp_path}/horizon-checkin.timer:9: Unknown key 'OnCalendr', ignoring"
+    assert warning in project_diagnostics(tmp_path, f"{HOST_DIAGNOSTICS}\n{warning}")
+
+
+def test_unattributed_diagnostics_remain_fatal_beside_host_ones(tmp_path: Path) -> None:
+    warning = "Failed to parse a unit setting, ignoring"
+    assert warning in project_diagnostics(tmp_path, f"{HOST_DIAGNOSTICS}\n{warning}")
+
+
 @pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze absent")
 def test_systemd_verifies_the_units_without_a_warning(tmp_path: Path) -> None:
     # The CLI exists only on the VPS, so ExecStart is pointed at a binary that exists here;
     # everything else is the shipped text. verify exits 0 on a value it ignores
-    # ("Failed to parse TimeoutStartSec=..., ignoring"), so its output must be empty too.
+    # ("Failed to parse TimeoutStartSec=..., ignoring"), so project diagnostics must be
+    # empty too; unrelated host-unit warnings are removed by the same filter CI uses.
     executable = shutil.which("true")
     assert executable is not None
     paths = []
@@ -272,4 +308,4 @@ def test_systemd_verifies_the_units_without_a_warning(tmp_path: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout + result.stderr == ""
+    assert project_diagnostics(tmp_path, result.stdout + result.stderr) == ""
