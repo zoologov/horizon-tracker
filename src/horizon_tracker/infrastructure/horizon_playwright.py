@@ -396,7 +396,7 @@ class PlaywrightHorizonClient:
         logger.info("Horizon client disconnected")
 
     def log_off(self, name: str) -> Path | None:
-        """Open the desktop, sign out of Windows through Run, and wait for the broker to agree.
+        """Open and focus the desktop, sign out through Run, and wait for broker agreement.
 
         Every confirmation read loads the launch items afresh first; the page is left on that
         fresh list, which is what a ``desktop_status`` after this call reads. Answers with a
@@ -409,6 +409,10 @@ class PlaywrightHorizonClient:
             if not self._wait_for_desktop_input():
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             page = self._live_page()
+            surface = _largest_surface(page)
+            if surface is None:
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
+            surface.click()
             page.keyboard.press("Meta+R")
             page.keyboard.type("shutdown /l")
             page.keyboard.press("Enter")

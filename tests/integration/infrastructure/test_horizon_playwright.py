@@ -423,15 +423,33 @@ def test_windows_sign_out_event_records_input_before_ending_the_session(portal: 
 
 
 def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
-    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     portal.state.session = "disconnected"
     portal.state.paint_desktop = "rgb(0, 120, 215)"
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
+    focused_at_input: list[bool] = []
+    real_press = Keyboard.press
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        if key == "Meta+R":
+            page = client._page
+            assert page is not None
+            focused_at_input.append(
+                page.evaluate(
+                    "document.activeElement === document.querySelector('#canvas-container canvas')"
+                )
+            )
+        real_press(keyboard, key, *args, **kwargs)
+
+    monkeypatch.setattr(Keyboard, "press", press)
 
     client.log_off(DESKTOP)
 
+    assert focused_at_input == [True], "Win+R was sent without focusing the remote surface"
     events = portal.state.events
     windows_input = "windows-input:Meta+R|shutdown /l|Enter"
     assert [

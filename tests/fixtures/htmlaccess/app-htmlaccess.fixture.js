@@ -76,6 +76,7 @@
   var binaryPost = false;
   var killSessionSync = false;
   var wmksCount = 0;
+  var windowsInputHandler = null;
   var KILL_SESSION_HOP_MS = 40;
   var MENU_CLOSE_MS = 150;
 
@@ -284,6 +285,9 @@
     container.style.position = "absolute";
     container.style.display = "none";
     container.appendChild(element("canvas", { id: "mainCanvas", tabindex: "1" }));
+    if (windowsInputHandler !== null) {
+      container.addEventListener("keydown", windowsInputHandler);
+    }
     byId("canvas-container").appendChild(container);
     return container;
   }
@@ -299,9 +303,9 @@
     var runDialog = false;
     var windowsCommand = "";
 
-    // The fixture's Windows input surface: it records the adapter's keyboard sequence and
-    // acts only on the exact Run dialog command, never on a broker kill-session request.
-    document.addEventListener("keydown", function (event) {
+    // The real WMKS binds keyboard handlers to its element, not to the document: input
+    // reaches Windows only after the remote surface has focus. Meta is its Windows key.
+    windowsInputHandler = function (event) {
       if (event.metaKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         runDialog = true;
@@ -325,7 +329,7 @@
         return;
       }
       if (event.key.length === 1) { windowsCommand += event.key; }
-    });
+    };
 
     // Draws once per Blast connection: a later answer to an offer must not clear the frame.
     function draw() {
