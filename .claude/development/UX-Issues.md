@@ -115,3 +115,9 @@ Entry template: `## #N — short name` · **Tool** · **What happened** · **Wha
 - **What happened:** the re-review ran `beadloom review-brief <bead> --release` and got exit 1 on both beads, because the verdict and the authors' comments were all written as `v.zoologov` (every subagent on this machine inherits the git identity). The reviewer noted that the tracker cannot prove the verdict preceded the release.
 - **What was expected:** a documented way to name the role (`BEADS_ACTOR=review`) in the agent files, or a `--release` that reads the verdict comment's position rather than its author.
 - **Where:** HT-010 re-review ht-m13.2, 2026-10-24. **Class:** friction.
+
+## #20 — `bd create --graph` rejects the priority spelling that `bd create` accepts
+- **Tool:** bd 1.3.1 (External)
+- **What happened:** a graph plan whose nodes carried `"priority": "P1"` failed with `cannot unmarshal string into Go struct field GraphApplyNode.nodes.priority of type int`; the CLI's own `--priority` help advertises `0-4 or P0-P4`, and the /task-init example does not show a priority field. Changing the four values to integer `1` made the same plan succeed.
+- **What was expected:** graph nodes accept the same P0–P4 spellings as the CLI, or the graph schema/example explicitly documents integer-only priorities.
+- **Where:** HT-014 bead DAG creation, 2026-11-22. **Class:** external / friction.

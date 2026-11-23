@@ -157,7 +157,8 @@ jobs:
         # As tests/unit/deploy/test_units.py does: the CLI exists only on the VPS, so
         # ExecStart is pointed at a binary that exists here; everything else is the
         # shipped text. verify exits 0 on a value it only warns about ("Unknown key name
-        # ..., ignoring"), so its output must be empty too.
+        # ..., ignoring"), so project diagnostics must be empty too. Loading dependencies
+        # can also warn about the runner's own units, which this change does not control.
         run: |
           set -euo pipefail
           units="$RUNNER_TEMP/units"
@@ -172,8 +173,12 @@ jobs:
             printf '%s\n' "$output"
             exit 1
           fi
-          if [ -n "$output" ]; then
-            printf '%s\n' "$output"
+          # The direct unit test uses this same filter. Discard only diagnostics
+          # attributed to absolute host paths; project and unattributed output is fatal.
+          project_output="$(printf '%s' "$output" | python3 \
+            .github/scripts/systemd_diagnostics.py --units "$units")"
+          if [ -n "$project_output" ]; then
+            printf '%s\n' "$project_output"
             echo "::error title=systemd::systemd-analyze verify warned about the units"
             exit 1
           fi

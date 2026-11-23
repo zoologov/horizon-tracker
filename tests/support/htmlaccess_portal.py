@@ -51,7 +51,6 @@ FAST = HorizonTimeouts(
     desktop_open_ms=4_000,
     logoff_confirm_ms=3_000,
     poll_ms=100,
-    kill_session_answer_ms=3_000,
     desktop_paint_ms=600,
 )
 # How long a kill-session the broker never answers holds its handler thread when the
@@ -93,6 +92,9 @@ class PortalState:
     drop_to_login_after_ms: int = 0
     # The CSS colour the page fills the remote surface with once it draws; "" leaves it.
     paint_desktop: str = ""
+    # An optional later repaint, for input that must wait through an unpainted frame.
+    repaint_desktop: str = ""
+    repaint_desktop_after_ms: int = 0
     # The page offers Fullscreen again this many ms after the desktop drew; 0 never.
     fullscreen_again_after_ms: int = 0
     # That second offer ignores Cancel: a dialog the adapter cannot dismiss.
@@ -136,6 +138,8 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "kill_session_sync": self.state.kill_session_sync,
                     "drop_to_login_after_ms": self.state.drop_to_login_after_ms,
                     "paint_desktop": self.state.paint_desktop,
+                    "repaint_desktop": self.state.repaint_desktop,
+                    "repaint_desktop_after_ms": self.state.repaint_desktop_after_ms,
                     "fullscreen_again_after_ms": self.state.fullscreen_again_after_ms,
                     "fullscreen_sticks": self.state.fullscreen_sticks,
                 },
@@ -156,7 +160,11 @@ class PortalHandler(SimpleHTTPRequestHandler):
         if self.path == "/fixture/login":
             self._login(body)
         elif self.path == "/fixture/event":
-            self.state.record(str(body["name"]))
+            event = str(body["name"])
+            if event == "windows-sign-out":
+                self._windows_sign_out()
+            else:
+                self.state.record(event)
             self._json(200, {})
         else:
             self._json(404, {})
@@ -228,6 +236,14 @@ class PortalHandler(SimpleHTTPRequestHandler):
                 {"id": QUOTED_DESKTOP_ID, "name": QUOTED_DESKTOP, "session": "none"},
             ],
         )
+
+    def _windows_sign_out(self) -> None:
+        """End the Windows session when the fixture desktop receives ``shutdown /l``."""
+        self.state.record("windows-sign-out")
+        if not self.state.ignore_logoff:
+            self.state.logoff_pending = self.state.logoff_lag_lists > 0
+            if not self.state.logoff_pending:
+                self.state.session = "none"
 
     def _kill_session(self) -> None:
         """Answer kill-session after the broker's delay, acting on it only if it is answered.

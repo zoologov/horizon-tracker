@@ -1,7 +1,7 @@
 # Evening check-out
 
-Logs the desktop's Windows session off from the tile menu and confirms it ended. A
-desktop with no session is reported as already logged off.
+Signs out of the desktop's Windows session through the open desktop and confirms that
+the broker reports `NO_SESSION`. A desktop with no session is reported as already logged off.
 
 ## Source
 

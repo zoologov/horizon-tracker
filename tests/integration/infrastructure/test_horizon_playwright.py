@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext, Locator, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Keyboard, Locator, Page, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
@@ -44,16 +44,6 @@ from tests.support.photo import colours_unlike
 
 # The fixture page falls back to the login page this long after the desktop drew.
 DROP_TO_LOGIN_AFTER_MS = 300
-# Longer than the live poll interval (1 s) the adapter once waited after OK, and well
-# inside FAST.kill_session_answer_ms.
-SLOW_KILL_SESSION_ANSWER_S = 1.5
-# Long enough that the fixture's binary POST, sent on OK, is answered while the adapter
-# still waits for the kill-session answer.
-BINARY_POST_KILL_SESSION_ANSWER_S = 0.3
-ADAPTER_LOGGER = "horizon_tracker.infrastructure.horizon_playwright"
-KILL_SESSION_ANSWERED = re.compile(
-    r"Horizon kill-session answered: (?P<status>\d{3}) after (?P<ms>\d+) ms"
-)
 
 
 # --- the fixture portal ---------------------------------------------------------------
@@ -108,16 +98,6 @@ def make_client(
 @pytest.fixture
 def client(make_client: Callable[..., PlaywrightHorizonClient]) -> PlaywrightHorizonClient:
     return make_client()
-
-
-def kill_session_answers(caplog: pytest.LogCaptureFixture) -> list[re.Match[str]]:
-    """The adapter's "kill-session answered" lines, each matched against the whole line."""
-    return [
-        match
-        for record in caplog.records
-        if record.name == ADAPTER_LOGGER
-        and (match := KILL_SESSION_ANSWERED.fullmatch(record.getMessage())) is not None
-    ]
 
 
 def fails_with(reason: Reason, action: Callable[[], object]) -> HorizonClientError:
@@ -423,18 +403,66 @@ def test_a_teardown_error_is_logged_by_type_and_never_raised(
 # --- log off -------------------------------------------------------------------------------
 
 
-def test_log_off_through_the_tile_menu_ends_the_session(
+def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
 
     client.log_off(DESKTOP)
 
-    assert portal.state.events.count("kill-session") == 1
-    assert "blast-open" not in portal.state.events
+    events = portal.state.events
+    windows_input = "windows-input:Meta+R|shutdown /l|Enter"
+    assert [
+        event for event in events if event in {"blast-open", windows_input, "windows-sign-out"}
+    ] == [
+        "blast-open",
+        windows_input,
+        "windows-sign-out",
+    ]
+    assert "kill-session" not in events
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_log_off_waits_for_a_painted_desktop_before_sending_windows_input(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    client = make_client(
+        run_kind=RunKind.CHECKOUT, timeouts=replace(FAST, desktop_paint_ms=PAINT_WAIT_MS)
+    )
+    client.login()
+    real_open = client.open_desktop
+
+    def open_on_a_black_desktop(name: str) -> None:
+        real_open(name)
+        paint_remote_surface(client, "rgb(0, 0, 0)")
+        paint_remote_surface_later(client, "rgb(0, 120, 215)", PAINTED_AFTER_MS)
+
+    painted_at_input: list[bool] = []
+    real_press = Keyboard.press
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        if key == "Meta+R":
+            page = client._page
+            assert page is not None
+            surface = horizon_playwright._largest_surface(page)
+            assert surface is not None
+            painted_at_input.append(
+                horizon_playwright._frame_is_painted(page, surface.screenshot(type="png"))
+            )
+        real_press(keyboard, key, *args, **kwargs)
+
+    monkeypatch.setattr(client, "open_desktop", open_on_a_black_desktop)
+    monkeypatch.setattr(Keyboard, "press", press)
+
+    client.log_off(DESKTOP)
+
+    assert painted_at_input == [True], "Win+R reached Windows while its desktop was black"
 
 
 def test_log_off_after_reading_the_state_ends_the_session(
@@ -443,13 +471,15 @@ def test_log_off_after_reading_the_state_ends_the_session(
     # The check-out's own order: read the state, then log off. The menu the read opened
     # must be closed by then, and the client's menu ignores Escape.
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
 
     assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
     client.log_off(DESKTOP)
 
-    assert portal.state.events.count("kill-session") == 1
+    assert "windows-sign-out" in portal.state.events
+    assert "kill-session" not in portal.state.events
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
@@ -459,26 +489,26 @@ def test_a_log_off_the_portal_never_confirms_fails_with_a_screenshot(
     artifacts: RecordingArtifacts,
 ) -> None:
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     portal.state.ignore_logoff = True
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
 
     error = fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
 
-    assert "kill-session" in portal.state.events
+    assert "windows-sign-out" in portal.state.events
     assert artifacts.asked == [RunKind.CHECKOUT]
     assert error.screenshot is not None
-    # The check-out reads the state again; it must see the broker's session, not the
-    # flag the client cleared on OK.
     assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
 
 
 def test_a_log_off_is_confirmed_only_once_a_fresh_list_shows_the_session_gone(
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
-    # The client hides "Log Off" the moment OK is clicked; a broker that ends the session
-    # a few lists later must be waited for, not taken at the client's word.
+    # A broker that ends the session a few lists after the Windows command must be waited
+    # for: the open desktop's disappearance is not the broker confirmation.
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     portal.state.logoff_lag_lists = 2
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
@@ -493,163 +523,77 @@ def test_a_log_off_is_confirmed_through_a_fresh_login_when_a_reload_ends_the_web
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     portal.state.login_survives_reload = False
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
 
     client.log_off(DESKTOP)
 
-    assert portal.state.events.count("kill-session") == 1
+    assert "windows-sign-out" in portal.state.events
     assert portal.state.events.count("login-accepted") == 2
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
-def test_a_log_off_waits_for_the_brokers_kill_session_answer_before_reloading(
+def test_a_desktop_that_never_becomes_ready_receives_no_windows_input(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
-    caplog: pytest.LogCaptureFixture,
+    artifacts: RecordingArtifacts,
 ) -> None:
-    # With credential cleanup on, a reload logs out of the broker; a kill-session still
-    # unanswered then is cut off and the session stays.
-    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
     portal.state.session = "disconnected"
-    portal.state.credential_cleanup = True
-    portal.state.kill_session_answer_s = SLOW_KILL_SESSION_ANSWER_S
-    client = make_client(run_kind=RunKind.CHECKOUT)
-    client.login()
-
-    client.log_off(DESKTOP)
-
-    events = portal.state.events
-    assert "kill-session-cut-off" not in events
-    assert events.count("kill-session-answered") == 1
-    assert events.index("kill-session-answered") < events.index("broker-logout"), (
-        "the page was reloaded before the broker answered kill-session"
+    client = make_client(
+        run_kind=RunKind.CHECKOUT,
+        timeouts=replace(FAST, desktop_paint_ms=SHORTER_THAN_A_SAMPLE_MS),
     )
-    # The logged time is the wait's own, measured on a clock, not the bound.
-    (answer,) = kill_session_answers(caplog)
-    assert int(answer.group("ms")) >= SLOW_KILL_SESSION_ANSWER_S * 1000
-    assert portal.state.session == "none"
-    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
-
-
-def test_the_kill_session_answer_is_logged_with_its_status_and_time_and_no_secret(
-    make_client: Callable[..., PlaywrightHorizonClient],
-    portal: Portal,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    # The live check reads the broker's answer and sizes kill_session_answer_ms from it.
-    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
-    portal.state.session = "disconnected"
-    client = make_client(run_kind=RunKind.CHECKOUT)
-    client.login()
-
-    client.log_off(DESKTOP)
-
-    (answer,) = kill_session_answers(caplog)
-    assert answer.group("status") == "200"
-    line = answer.string
-    assert PASSWORD not in line
-    assert USERNAME not in line
-    assert "unanswered" not in caplog.text
-
-
-def test_a_kill_session_answered_with_an_error_is_logged_and_the_fresh_list_decides(
-    make_client: Callable[..., PlaywrightHorizonClient],
-    portal: Portal,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    # Any status releases the wait; the log names it, and a broker that did not act
-    # fails the log off closed.
-    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
-    portal.state.session = "disconnected"
-    portal.state.kill_session_status = 500
-    portal.state.ignore_logoff = True
-    client = make_client(run_kind=RunKind.CHECKOUT)
-    client.login()
-
-    fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
-
-    (answer,) = kill_session_answers(caplog)
-    assert answer.group("status") == "500"
-
-
-def test_the_wait_for_the_answer_is_armed_before_the_ok_click(
-    make_client: Callable[..., PlaywrightHorizonClient],
-    portal: Portal,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    # The page answers kill-session inside OK's click handler, so the answer is in before
-    # the click returns: a wait armed after the click misses it (measured 100 of 100) and
-    # sits out the bound. The fresh list still confirms, so only the log tells.
-    caplog.set_level(logging.INFO, logger=ADAPTER_LOGGER)
-    portal.state.session = "disconnected"
-    portal.state.kill_session_sync = True
-    client = make_client(run_kind=RunKind.CHECKOUT)
-    client.login()
-
-    client.log_off(DESKTOP)
-
-    assert portal.state.events.count("kill-session-answered") == 1
-    assert "unanswered" not in caplog.text, "the wait was armed after the answer came"
-    assert len(kill_session_answers(caplog)) == 1
-
-
-def test_a_log_off_whose_kill_session_is_never_answered_is_not_confirmed(
-    make_client: Callable[..., PlaywrightHorizonClient],
-    portal: Portal,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    # The wait for the answer is bounded; past it the fresh-list confirmation decides,
-    # and a broker that never acted fails the log off closed.
-    portal.state.session = "disconnected"
-    portal.state.kill_session_unanswered = True
-    client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
 
     error = fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
 
-    assert "kill-session" in portal.state.events
-    assert "kill-session-answered" not in portal.state.events
-    assert "Horizon kill-session unanswered after 3000 ms" in caplog.text
+    assert not [event for event in portal.state.events if event.startswith("windows-input:")]
+    assert "kill-session" not in portal.state.events
+    assert artifacts.asked == [RunKind.CHECKOUT]
     assert error.screenshot is not None
-    assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
 
 
-def test_a_log_off_whose_confirmation_never_shows_fails_without_awaiting_an_answer(
+def test_a_black_desktop_times_out_without_receiving_windows_input(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     portal.state.session = "disconnected"
-    portal.state.logoff_dialog = False
-    client = make_client(run_kind=RunKind.CHECKOUT)
+    portal.state.paint_desktop = "rgb(0, 0, 0)"
+    client = make_client(
+        run_kind=RunKind.CHECKOUT,
+        timeouts=replace(FAST, desktop_paint_ms=SHORT_PAINT_MS),
+    )
     client.login()
 
     fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
 
-    assert "kill-session" not in portal.state.events
-    assert "kill-session unanswered" not in caplog.text, "a failed OK click read as no answer"
+    assert not [event for event in portal.state.events if event.startswith("windows-input:")]
+    assert "Horizon desktop not ready for Windows input" in caplog.text
 
 
-def test_an_unrelated_binary_post_while_awaiting_the_answer_does_not_fail_the_log_off(
+def test_log_off_cancels_a_dialog_before_sending_windows_input(
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
-    # Every page response passes the wait's predicate. A POST whose body is not UTF-8
-    # (telemetry, an upload) answered before the kill-session must not be read as text.
     portal.state.session = "disconnected"
-    portal.state.binary_post = True
-    portal.state.kill_session_answer_s = BINARY_POST_KILL_SESSION_ANSWER_S
-    client = make_client(run_kind=RunKind.CHECKOUT)
+    portal.state.paint_desktop = "rgb(0, 0, 0)"
+    portal.state.repaint_desktop = "rgb(0, 120, 215)"
+    portal.state.repaint_desktop_after_ms = PAINTED_AFTER_MS * 2
+    portal.state.fullscreen_again_after_ms = PAINTED_AFTER_MS
+    client = make_client(
+        run_kind=RunKind.CHECKOUT, timeouts=replace(FAST, desktop_paint_ms=PAINT_WAIT_MS)
+    )
     client.login()
 
     client.log_off(DESKTOP)
 
     events = portal.state.events
-    assert events.index("telemetry") < events.index("kill-session-answered"), (
-        "the binary POST was not answered inside the wait"
-    )
-    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+    cancelled_at = [index for index, event in enumerate(events) if event == "fullscreen-cancelled"]
+    assert len(cancelled_at) == 2, "the second Fullscreen offer was not cancelled"
+    assert cancelled_at[-1] < events.index("windows-input:Meta+R|shutdown /l|Enter")
+    assert "fullscreen-accepted" not in events
 
 
 def test_log_off_without_a_session_is_already_logged_off(
@@ -660,6 +604,7 @@ def test_log_off_without_a_session_is_already_logged_off(
     fails_with(Reason.ALREADY_LOGGED_OFF, lambda: client.log_off(DESKTOP))
 
     assert "kill-session" not in portal.state.events
+    assert not [event for event in portal.state.events if event.startswith("windows-input:")]
 
 
 def test_a_checkout_of_a_desktop_without_a_session_reads_it_and_is_already_logged_off(
@@ -1301,6 +1246,7 @@ def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
     photographed: list[str],
 ) -> None:
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
 
@@ -1309,8 +1255,8 @@ def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
     assert shot is not None
     assert shot.read_bytes().startswith(b"\x89PNG")
     assert artifacts.asked == [RunKind.CHECKOUT]
-    # Taken on the fresh list that confirmed the log off, after the confirmation.
-    assert photographed == ["#/launchitems"]
+    # Readiness samples the desktop but saves nothing; the only artifact is the fresh list.
+    assert photographed == ["#/desktop", "#/launchitems"]
     assert portal.state.session == "none"
 
 
@@ -1319,10 +1265,10 @@ def test_a_log_off_is_photographed_only_once_the_broker_has_ended_the_session(
     portal: Portal,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The client hides "Log Off" on OK, so the page looks logged off before the broker
-    # agrees; a broker that ends the session two lists later tells a photograph taken
-    # after the confirmation from one taken right after the click.
+    # A broker that ends the session two lists after the Windows command tells a photograph
+    # taken after the confirmation from one taken as soon as Enter was pressed.
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     portal.state.logoff_lag_lists = 2
     broker_at_photo: list[str] = []
     real_screenshot = Page.screenshot
@@ -1358,8 +1304,11 @@ def refuse_the_disk(monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifac
 
 
 @pytest.mark.parametrize(
-    ("fault", "error_type"),
-    [(refuse_the_screenshot, "Error"), (refuse_the_disk, "FileExistsError")],
+    ("fault", "error_types"),
+    [
+        (refuse_the_screenshot, ("Error",)),
+        (refuse_the_disk, ("FileExistsError", "NotADirectoryError")),
+    ],
 )
 def test_a_log_off_screenshot_that_fails_is_logged_by_type_and_the_step_still_succeeds(
     make_client: Callable[..., PlaywrightHorizonClient],
@@ -1368,9 +1317,10 @@ def test_a_log_off_screenshot_that_fails_is_logged_by_type_and_the_step_still_su
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     fault: Callable[[pytest.MonkeyPatch, RecordingArtifacts], None],
-    error_type: str,
+    error_types: tuple[str, ...],
 ) -> None:
     portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
     fault(monkeypatch, artifacts)
@@ -1379,7 +1329,9 @@ def test_a_log_off_screenshot_that_fails_is_logged_by_type_and_the_step_still_su
 
     assert shot is None
     assert artifacts.asked == [RunKind.CHECKOUT], "the screenshot was never attempted"
-    assert f"Horizon screenshot failed: {error_type}" in caplog.text
+    assert any(
+        f"Horizon screenshot failed: {error_type}" in caplog.text for error_type in error_types
+    )
     assert PASSWORD not in caplog.text
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 

@@ -56,6 +56,8 @@
 //    success screenshot, taken after a settle, meets the login page and must not take it.
 //  - The page can be told to fill the remote surface with a colour once it draws
 //    (paint_desktop): a painted Windows desktop, for a run that cannot paint it itself.
+//    A second colour and delay (repaint_desktop, repaint_desktop_after_ms) model a desktop
+//    that becomes painted only after the client has had time to show another dialog.
 //  - The page can be told to offer Fullscreen again a while after the desktop drew
 //    (fullscreen_again_after_ms), as the live client did on 2026-10-24 after the adapter
 //    had cancelled the first offer, and to let that second offer ignore Cancel
@@ -86,15 +88,16 @@
     return node;
   }
 
-  function post(path, body) {
+  function post(path, body, keepalive) {
     return fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {})
+      body: JSON.stringify(body || {}),
+      keepalive: keepalive === true
     });
   }
 
-  function record(name) { return post("/fixture/event", { name: name }); }
+  function record(name) { return post("/fixture/event", { name: name }, true); }
 
   function brokerDocument(message) {
     return "<?xml version='1.0' encoding='UTF-8'?><broker version='15.0'>" + message + "</broker>";
@@ -293,6 +296,32 @@
     var answered = false;
     var sticky = false;
     var wmks = null;
+    var runDialog = false;
+    var windowsCommand = "";
+
+    // The fixture's Windows input surface: it records the adapter's keyboard sequence and
+    // acts only on the exact Run dialog command, never on a broker kill-session request.
+    document.addEventListener("keydown", function (event) {
+      if (event.metaKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        runDialog = true;
+        windowsCommand = "";
+        return;
+      }
+      if (!runDialog) { return; }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        record("windows-input:Meta+R|" + windowsCommand + "|Enter");
+        if (windowsCommand === "shutdown /l") {
+          location.hash = "#/launchitems";
+          if (window.blast) { window.blast.close(); }
+          record("windows-sign-out");
+        }
+        runDialog = false;
+        return;
+      }
+      if (event.key.length === 1) { windowsCommand += event.key; }
+    });
 
     // Draws once per Blast connection: a later answer to an offer must not clear the frame.
     function draw() {
@@ -306,6 +335,13 @@
           var context = canvas.getContext("2d");
           context.fillStyle = portal.paint_desktop;
           context.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        if (portal.repaint_desktop && portal.repaint_desktop_after_ms > 0) {
+          setTimeout(function () {
+            var repaint = canvas.getContext("2d");
+            repaint.fillStyle = portal.repaint_desktop;
+            repaint.fillRect(0, 0, canvas.width, canvas.height);
+          }, portal.repaint_desktop_after_ms);
         }
         wmks.style.display = "block";
         if (portal.drop_to_login_after_ms > 0) {
