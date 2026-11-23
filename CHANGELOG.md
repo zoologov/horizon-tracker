@@ -9,6 +9,21 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-23
+
+`1.1.1` is a patch: the evening check-out performs a real Windows sign-out, and the CI
+portability fixes change no public surface.
+
+### Fixed
+
+- **Evening check-out.** The service opens the desktop over Blast, waits for a painted,
+  dialog-free surface, sends **Win+R**, `shutdown /l` and **Enter**, and confirms through a
+  fresh broker answer that no session remains. The previous tile-menu `kill-session` path did
+  not record the Windows logoff expected by the attendance system.
+- **CI on current runners.** ShellCheck recognises the mutation cleanup's indirect `EXIT` trap,
+  and systemd unit verification ignores only diagnostics attributed to the runner's own unit
+  files; diagnostics about this repository's units and unattributed output remain fatal.
+
 ## [1.1.0] - 2026-10-24
 
 `1.1.0` is a minor release: the public surface gains the `horizon bot` command, the `horizon-bot.service` unit, the `HT_STATE_DIR` setting and the probe's `absences:` line, and nothing on it is removed or renamed.
@@ -118,7 +133,8 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.1
 [1.1.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.0
