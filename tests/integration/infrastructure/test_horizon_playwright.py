@@ -4,11 +4,14 @@ The fixture portal (``tests/support/htmlaccess_portal.py``) serves the fixture p
 plays the broker and the Blast handshake; the tests below steer it through its state.
 """
 
+import http.client
+import json
 import logging
 import re
 import struct
 import time
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -401,6 +404,22 @@ def test_a_teardown_error_is_logged_by_type_and_never_raised(
 
 
 # --- log off -------------------------------------------------------------------------------
+
+
+def test_windows_sign_out_event_records_input_before_ending_the_session(portal: Portal) -> None:
+    sequence = "Meta+R|shutdown /l|Enter"
+    with closing(http.client.HTTPConnection(urlsplit(portal.url).netloc)) as connection:
+        connection.request(
+            "POST",
+            "/fixture/event",
+            body=json.dumps({"name": "windows-sign-out", "input": sequence}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        response.read()
+
+    assert response.status == 200
+    assert portal.state.events == [f"windows-input:{sequence}", "windows-sign-out"]
 
 
 def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(

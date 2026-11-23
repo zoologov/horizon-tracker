@@ -162,7 +162,7 @@ class PortalHandler(SimpleHTTPRequestHandler):
         elif self.path == "/fixture/event":
             event = str(body["name"])
             if event == "windows-sign-out":
-                self._windows_sign_out()
+                self._windows_sign_out(str(body.get("input", "")))
             else:
                 self.state.record(event)
             self._json(200, {})
@@ -237,8 +237,10 @@ class PortalHandler(SimpleHTTPRequestHandler):
             ],
         )
 
-    def _windows_sign_out(self) -> None:
-        """End the Windows session when the fixture desktop receives ``shutdown /l``."""
+    def _windows_sign_out(self, input_sequence: str) -> None:
+        """Record keyboard input and its resulting session end in one fixture event order."""
+        if input_sequence:
+            self.state.record(f"windows-input:{input_sequence}")
         self.state.record("windows-sign-out")
         if not self.state.ignore_logoff:
             self.state.logoff_pending = self.state.logoff_lag_lists > 0

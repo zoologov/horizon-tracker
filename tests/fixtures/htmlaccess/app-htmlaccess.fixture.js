@@ -311,11 +311,15 @@
       if (!runDialog) { return; }
       if (event.key === "Enter") {
         event.preventDefault();
-        record("windows-input:Meta+R|" + windowsCommand + "|Enter");
         if (windowsCommand === "shutdown /l") {
           location.hash = "#/launchitems";
           if (window.blast) { window.blast.close(); }
-          record("windows-sign-out");
+          post("/fixture/event", {
+            name: "windows-sign-out",
+            input: "Meta+R|" + windowsCommand + "|Enter"
+          }, true);
+        } else {
+          record("windows-input:Meta+R|" + windowsCommand + "|Enter");
         }
         runDialog = false;
         return;
