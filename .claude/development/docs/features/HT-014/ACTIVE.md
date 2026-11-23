@@ -31,7 +31,7 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Bounded Run-dialog pacing and screenshot-skip diagnostics; full room 2031 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | Fullscreen focus restoration and staged diagnostics; full room 2032 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | Run pacing dda6395: 24/24 delayed-Run/focus/order checks and 66 adapter tests passed; clean room 2031 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Run readiness, pacing, the v1.1.2 live failure and screenshot-skip diagnostics documented; stale pairs 0 |

@@ -416,7 +416,13 @@ class PlaywrightHorizonClient:
             surface = _largest_surface(page)
             if surface is None:
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
-            surface.click()
+            surface.focus()
+            # Focusing the remote surface can make the Fullscreen offer reappear. Cancel
+            # it again before any key reaches the client; an OK-only dialog still blocks.
+            if not self._wait_for_desktop_input():
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
+            # Cancelling that dialog focused its button; give the surface the keys again.
+            surface.focus()
             page.keyboard.press("Meta+R")
             page.wait_for_timeout(_RUN_DIALOG_WAIT_MS)
             page.keyboard.type("shutdown /l", delay=_WINDOWS_TYPE_DELAY_MS)

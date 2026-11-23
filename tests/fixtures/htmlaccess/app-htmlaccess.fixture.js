@@ -75,6 +75,7 @@
   var logoffDialog = true;
   var binaryPost = false;
   var killSessionSync = false;
+  var fullscreenOnSurfaceClick = false;
   var wmksCount = 0;
   var windowsInputHandler = null;
   var KILL_SESSION_HOP_MS = 40;
@@ -285,7 +286,15 @@
     wmksCount += 1;
     container.style.position = "absolute";
     container.style.display = "none";
-    container.appendChild(element("canvas", { id: "mainCanvas", tabindex: "1" }));
+    var canvas = element("canvas", { id: "mainCanvas", tabindex: "1" });
+    canvas.addEventListener("focus", function () {
+      if (!fullscreenOnSurfaceClick) { return; }
+      byId("dialogMessage").textContent = "Enter full screen mode?";
+      byId("dialog").hidden = false;
+      record("fullscreen-offered-focus");
+      fullscreenOnSurfaceClick = false;
+    });
+    container.appendChild(canvas);
     if (windowsInputHandler !== null) {
       container.addEventListener("keydown", windowsInputHandler);
     }
@@ -308,6 +317,7 @@
     // The real WMKS binds keyboard handlers to its element, not to the document: input
     // reaches Windows only after the remote surface has focus. Meta is its Windows key.
     windowsInputHandler = function (event) {
+      if (!byId("dialog").hidden) { event.preventDefault(); return; }
       if (event.metaKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         runDialog = true;
@@ -420,6 +430,7 @@
     logoffDialog = portal.logoff_dialog;
     binaryPost = portal.binary_post;
     killSessionSync = portal.kill_session_sync;
+    fullscreenOnSurfaceClick = portal.fullscreen_on_surface_click;
   });
   render();
 }());

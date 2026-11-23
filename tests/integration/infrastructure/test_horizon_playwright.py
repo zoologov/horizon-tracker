@@ -655,6 +655,24 @@ def test_log_off_cancels_a_dialog_before_sending_windows_input(
     assert "fullscreen-accepted" not in events
 
 
+def test_log_off_recancels_fullscreen_after_focusing_the_surface(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.fullscreen_on_surface_click = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    offered = events.index("fullscreen-offered-focus")
+    cancelled = events.index("fullscreen-cancelled", offered)
+    assert cancelled < events.index("windows-input:Meta+R|shutdown /l|Enter")
+    assert "fullscreen-accepted" not in events
+
+
 def test_log_off_without_a_session_is_already_logged_off(
     client: PlaywrightHorizonClient, portal: Portal
 ) -> None:
@@ -1314,8 +1332,8 @@ def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
     assert shot is not None
     assert shot.read_bytes().startswith(b"\x89PNG")
     assert artifacts.asked == [RunKind.CHECKOUT]
-    # Readiness samples the desktop but saves nothing; the only artifact is the fresh list.
-    assert photographed == ["#/desktop", "#/launchitems"]
+    # Two readiness samples save nothing; the only artifact is the fresh list.
+    assert photographed == ["#/desktop", "#/desktop", "#/launchitems"]
     assert portal.state.session == "none"
 
 
