@@ -112,6 +112,15 @@ makes Meta+R the Windows Run shortcut. The adapter does not send the broker's ti
 path is gone. The command does not depend on the Windows display language, hardcoded
 screen coordinates, or Start menu layout.
 
+**Live evidence from v1.1.1.** On 2026-11-23, after a successful check-in, the released
+v1.1.1 `checkout --force` made three attempts at 22:18 MSK. Each opened the desktop and
+then failed after about 31 s with `logoff_not_confirmed` and `TimeoutError`. The retries
+disconnected, and no attempt reached `NO_SESSION`. The adapter had left keyboard focus on
+the tile launch button. Public WebMKS source binds keyboard handlers to the widget
+element, which established the missing focus as the cause. Released v1.1.1 does not
+contain the surface-click correction above. That correction has passed local fixture
+verification but has not been retested against the live portal.
+
 The broker remains the confirmation authority:
 
 - every confirmation read reloads `#/launchitems`, so the tiles are built from a list
@@ -248,8 +257,8 @@ succeeded therefore does not exit 1 on the way out.
   never a readback of the surface's bitmap.
 - `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
   one in-page decode.
-- `log_off` sends no Windows input until the remote desktop is painted and no client
-  dialog is over it.
+- `log_off` sends no Windows input until the remote desktop is painted, no client dialog
+  is over it, and the largest remote surface has been clicked to focus WMKS.
 - A missing photograph never changes a step's verdict. `open_desktop` returns `None`
   and takes no success photograph. `capture_open_desktop` and `log_off` answer `None`
   when the photograph cannot be taken.
@@ -294,10 +303,14 @@ never the portal; CI installs the browser with `playwright install --with-deps
 chromium`. The paint rule is tested through `capture_open_desktop` and through the input-readiness
 wait in `log_off`. The fixture reproduces the bundle's structure where the adapter reads
 the page: the tile, the tile menu with its `[hidden]` items, its document-click dismissal
-and its "…" that toggles, and the canvas the Blast session appends. Its desktop records
-Meta+R, the typed Run command, and Enter as one ordered input event. Only the exact
-`shutdown /l` command ends the fixture Windows session; no broker `kill-session` request
-is involved.
+and its "…" that toggles, and the canvas the Blast session appends. Its Windows `keydown`
+handler is bound to the WMKS container rather than the document, matching the real
+client's focus requirement. The sign-out regression also requires the remote canvas to be
+`document.activeElement` when the input arrives. Without the adapter's surface click, the
+fixture reproduces `logoff_not_confirmed`. Page-level keyboard delivery cannot make the
+test pass. Its desktop records Meta+R, the typed Run command, and Enter as one ordered
+input event. Only the exact `shutdown /l` command ends the fixture Windows session; no
+broker `kill-session` request is involved.
 
 The fixture's own assumptions, each stated in its header and chosen so the adapter cannot
 lean on them: the list is fetched only when the page loads and after a login, never on a
