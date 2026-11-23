@@ -9,6 +9,19 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-23
+
+`1.1.2` is a patch: it delivers the evening sign-out keys to the focused WebMKS desktop
+surface, and the public surface does not change.
+
+### Fixed
+
+- **Windows keyboard delivery.** The v1.1.1 live check-out left focus on the desktop's launch
+  button, so WebMKS did not receive **Win+R** and every attempt ended with
+  `logoff_not_confirmed`. The adapter now clicks the painted remote surface before sending
+  **Win+R**, `shutdown /l` and **Enter**. A WMKS-scoped fixture reproduces the missing-focus
+  failure and verifies the corrected order.
+
 ## [1.1.1] - 2026-11-23
 
 `1.1.1` is a patch: the evening check-out performs a real Windows sign-out, and the CI
@@ -133,7 +146,8 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.2
 [1.1.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.1
 [1.1.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.0.1
