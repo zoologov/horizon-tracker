@@ -9,6 +9,19 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-24
+
+`1.1.3` is a patch: it waits for the Windows Run dialog before typing the sign-out command,
+and the public surface does not change.
+
+### Fixed
+
+- **Run dialog readiness.** The v1.1.2 live check-out focused the WebMKS surface but typed
+  immediately after **Win+R**, before the real Run dialog was ready. The adapter now waits two
+  seconds and types `shutdown /l` at 50 ms per key before **Enter**. A delayed-Run fixture
+  reproduces the lost input, and screenshot-skip diagnostics now name closed or missing pages
+  and disallowed routes without exposing the login page.
+
 ## [1.1.2] - 2026-11-23
 
 `1.1.2` is a patch: it delivers the evening sign-out keys to the focused WebMKS desktop
@@ -146,7 +159,8 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.3
 [1.1.2]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.2
 [1.1.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.1
 [1.1.0]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.0
