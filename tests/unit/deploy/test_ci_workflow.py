@@ -283,6 +283,60 @@ def test_the_unit_verification_refuses_a_key_systemd_only_warns_about(tmp_path: 
     assert "OnCalendr" in result.stdout + result.stderr
 
 
+def verify_with_diagnostic(tmp_path: Path, diagnostic: str) -> subprocess.CompletedProcess[str]:
+    """Run the verification step with a systemd-analyze that prints one chosen diagnostic."""
+    write_units(tmp_path / "deploy")
+    runner_temp = tmp_path / "runner"
+    runner_temp.mkdir()
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    analyzer = fake_bin / "systemd-analyze"
+    analyzer.write_text("#!/bin/sh\nprintf '%s\\n' \"$SYSTEMD_DIAGNOSTIC\"\n", encoding="utf-8")
+    analyzer.chmod(0o755)
+    script = str(step_named(ci(), "workflow-lint", VERIFY_UNITS)["run"])
+    return run_step(
+        script,
+        {
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "RUNNER_TEMP": str(runner_temp),
+            "SYSTEMD_DIAGNOSTIC": diagnostic,
+        },
+        cwd=tmp_path,
+    )
+
+
+HOST_CPU_WARNING = (
+    "/usr/lib/systemd/system/xfs_scrub_all.service:26: "
+    "Support for option CPUAccounting= has been removed and it is ignored"
+)
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_unit_verification_ignores_diagnostics_about_runner_host_units(tmp_path: Path) -> None:
+    result = verify_with_diagnostic(tmp_path, HOST_CPU_WARNING)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_unit_verification_keeps_a_project_warning_beside_a_host_one(tmp_path: Path) -> None:
+    project = tmp_path / "runner" / "units" / "horizon-checkin.timer"
+    warning = f"{project}:9: Unknown key 'OnCalendr' in [Timer], ignoring"
+    result = verify_with_diagnostic(tmp_path, f"{HOST_CPU_WARNING}\n{warning}")
+
+    assert result.returncode != 0
+    assert warning in result.stdout + result.stderr
+
+
+@pytest.mark.skipif(BASH is None, reason="bash absent")
+def test_unit_verification_keeps_an_unattributed_diagnostic(tmp_path: Path) -> None:
+    warning = "Failed to parse a unit setting, ignoring"
+    result = verify_with_diagnostic(tmp_path, f"{HOST_CPU_WARNING}\n{warning}")
+
+    assert result.returncode != 0
+    assert warning in result.stdout + result.stderr
+
+
 # --- stage 2: tests -------------------------------------------------------------------------
 
 

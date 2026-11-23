@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-No bead is active. The development and test waves are closed; CI verification is pending on the follow-up commit.
+No bead is active. The development and test waves are closed; CI verification is pending on the systemd diagnostic follow-up.
 
 ## Progress
 
@@ -24,7 +24,7 @@ No bead is active. The development and test waves are closed; CI verification is
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Windows sign-out plus ShellCheck 0.11 CI fix; full room 2024 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | Windows sign-out and CI fixes; project-only systemd diagnostics, full room 2027 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | CI follow-up 7304e71: 31 targeted tests passed; clean room 2024 passed, 5 skipped, 3 macOS baseline failures |
 | ht-pea | Blocked | Depends on ht-0tu |
 | ht-ga0 | Blocked | Depends on ht-pea |
