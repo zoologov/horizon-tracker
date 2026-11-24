@@ -16,11 +16,12 @@ needs to perform the same real Windows sign-out as the owner's manual **Start â†
 ## Solution
 
 Keep the `HorizonClient.log_off(name)` contract and the `EveningCheckout` use case unchanged. Inside the Playwright
-adapter, open the named desktop over Blast, wait until the remote desktop is drawn and ready for input, send
-**Win+R**, type `shutdown /l`, and press **Enter**. Then read freshly fetched launch items until the broker reports
-`NO_SESSION`, preserving the existing confirmation, failure and screenshot semantics. Keyboard input replaces the
-broker's tile-menu `kill-session` path; it does not depend on Windows display language, screen coordinates or Start
-menu layout.
+adapter, open the named desktop over Blast and wait until the remote desktop is drawn and ready for input. Right-click
+Start at remote `(20,700)`, left-click Run at `(85,600)` on the owner's 1280Ã—720 desktop, scaling both points into the
+current surface bounds, then use **Ctrl+A**, type `shutdown /l` with pacing, capture the field, and press **Enter**
+once. Cancel any HTML Access dialog and restore painted readiness and surface focus at every action boundary. Then read
+freshly fetched launch items until the broker reports `NO_SESSION`, preserving the existing confirmation, failure and
+screenshot semantics. This live-proven Win+X path replaces both Meta+R and the broker's tile-menu `kill-session` path.
 
 The work is sequential: dev changes the adapter, test extends its local HTML Access fixture and adapter checks,
 review verifies the result, and tech-writer refreshes the affected documentation. No live portal login is permitted
@@ -124,5 +125,5 @@ and carries no status. The Tracker cell holds `-` until the beads are created, a
 
 ## Acceptance Criteria
 
-- [ ] Scenario: `Evening check-out logs the desktop off`
+- [ ] Scenario: `Windows Win+X sign-out is confirmed by a fresh broker list`
 - [ ] Scenario: `Evening check-out on an already logged-off desktop reports it and stops`

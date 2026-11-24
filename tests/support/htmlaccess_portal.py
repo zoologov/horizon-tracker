@@ -99,6 +99,8 @@ class PortalState:
     fullscreen_again_after_ms: int = 0
     # A surface click offers Fullscreen again, after the first readiness check.
     fullscreen_on_surface_click: bool = False
+    # The Windows Start right-click raises one more HTML Access Fullscreen offer.
+    fullscreen_on_start_click: bool = False
     # That second offer ignores Cancel: a dialog the adapter cannot dismiss.
     fullscreen_sticks: bool = False
     released: threading.Event = field(default_factory=threading.Event)
@@ -144,6 +146,7 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "repaint_desktop_after_ms": self.state.repaint_desktop_after_ms,
                     "fullscreen_again_after_ms": self.state.fullscreen_again_after_ms,
                     "fullscreen_on_surface_click": self.state.fullscreen_on_surface_click,
+                    "fullscreen_on_start_click": self.state.fullscreen_on_start_click,
                     "fullscreen_sticks": self.state.fullscreen_sticks,
                 },
             )

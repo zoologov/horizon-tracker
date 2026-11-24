@@ -9,6 +9,18 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-11-25
+
+`1.1.5` is a patch: it performs the evening sign-out through the Windows Win+X Run dialog,
+and the public surface does not change.
+
+### Fixed
+
+- **Windows sign-out through Win+X.** The adapter right-clicks Start, chooses **Выполнить**,
+  replaces the field with `shutdown /l` and presses Enter once, with painted/dialog guards,
+  focus restoration and a pre-Enter screenshot. This replaces the unreliable `Meta+R` path and
+  is confirmed by a staged live run that ended the Windows session.
+
 ## [1.1.4] - 2026-11-24
 
 `1.1.4` is a patch: it stops a uniform gray canvas repaint from passing as a ready Windows
@@ -171,7 +183,8 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.5
 [1.1.4]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.4
 [1.1.3]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.3
 [1.1.2]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.2

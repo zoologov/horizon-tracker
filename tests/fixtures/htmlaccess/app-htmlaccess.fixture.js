@@ -76,8 +76,10 @@
   var binaryPost = false;
   var killSessionSync = false;
   var fullscreenOnSurfaceClick = false;
+  var fullscreenOnStartClick = false;
   var wmksCount = 0;
   var windowsInputHandler = null;
+  var windowsMouseHandler = null;
   var KILL_SESSION_HOP_MS = 40;
   var RUN_DIALOG_READY_MS = 250;
   var MENU_CLOSE_MS = 150;
@@ -298,6 +300,9 @@
     if (windowsInputHandler !== null) {
       container.addEventListener("keydown", windowsInputHandler);
     }
+    if (windowsMouseHandler !== null) {
+      container.addEventListener("mousedown", windowsMouseHandler);
+    }
     byId("canvas-container").appendChild(container);
     return container;
   }
@@ -313,9 +318,44 @@
     var runDialog = false;
     var runReadyAt = 0;
     var windowsCommand = "";
+    var startMenuOpen = false;
+    var inputPrefix = "";
 
-    // The real WMKS binds keyboard handlers to its element, not to the document: input
-    // reaches Windows only after the remote surface has focus. Meta is its Windows key.
+    // The real WMKS binds input handlers to its element, not to the document. Mouse
+    // coordinates arrive in the CSS surface box and Windows sees the 1280x720 remote
+    // coordinate space, which lets the fixture prove the adapter scaled its clicks.
+    windowsMouseHandler = function (event) {
+      if (!byId("dialog").hidden) { event.preventDefault(); return; }
+      var canvas = byId("mainCanvas");
+      var bounds = canvas.getBoundingClientRect();
+      var x = (event.clientX - bounds.left) * 1280 / bounds.width;
+      var y = (event.clientY - bounds.top) * 720 / bounds.height;
+      var near = function (targetX, targetY) {
+        return Math.abs(x - targetX) <= 12 && Math.abs(y - targetY) <= 12;
+      };
+      if (event.button === 2 && near(20, 700)) {
+        event.preventDefault();
+        startMenuOpen = true;
+        runDialog = false;
+        inputPrefix = "Win+X@20,700";
+        windowsCommand = "";
+        if (fullscreenOnStartClick) {
+          fullscreenOnStartClick = false;
+          offerFullscreen(false);
+        }
+        return;
+      }
+      if (event.button === 0 && startMenuOpen && near(85, 600)) {
+        event.preventDefault();
+        startMenuOpen = false;
+        runDialog = true;
+        runReadyAt = Date.now() + RUN_DIALOG_READY_MS;
+        inputPrefix += "|Run@85,600";
+        windowsCommand = "";
+      }
+    };
+
+    // Keyboard input reaches Windows only after the remote surface has focus.
     windowsInputHandler = function (event) {
       if (!byId("dialog").hidden) { event.preventDefault(); return; }
       if (event.metaKey && event.key.toLowerCase() === "r") {
@@ -323,11 +363,17 @@
         runDialog = true;
         runReadyAt = Date.now() + RUN_DIALOG_READY_MS;
         windowsCommand = "";
+        inputPrefix = "Meta+R";
         return;
       }
       if (!runDialog) { return; }
       // Unlike the DOM fixture, Windows needs time to open Run and focus its edit field.
       if (Date.now() < runReadyAt) { event.preventDefault(); return; }
+      if (event.ctrlKey && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        windowsCommand = "";
+        return;
+      }
       if (event.key === "Enter") {
         event.preventDefault();
         if (windowsCommand === "shutdown /l") {
@@ -335,10 +381,10 @@
           if (window.blast) { window.blast.close(); }
           post("/fixture/event", {
             name: "windows-sign-out",
-            input: "Meta+R|" + windowsCommand + "|Enter"
+            input: inputPrefix + "|" + windowsCommand + "|Enter"
           }, true);
         } else {
-          record("windows-input:Meta+R|" + windowsCommand + "|Enter");
+          record("windows-input:" + inputPrefix + "|" + windowsCommand + "|Enter");
         }
         runDialog = false;
         return;
@@ -431,6 +477,7 @@
     binaryPost = portal.binary_post;
     killSessionSync = portal.kill_session_sync;
     fullscreenOnSurfaceClick = portal.fullscreen_on_surface_click;
+    fullscreenOnStartClick = portal.fullscreen_on_start_click;
   });
   render();
 }());
