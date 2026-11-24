@@ -27,9 +27,9 @@ needs it, and each `login` opens a fresh browser context on it.
 | `login()` | opens `#/home`, fills `#username` and `#password`, clicks `#loginButton`, then polls: `#/launchitems` means accepted, a visible `#okDialogBtn` means rejected | `PORTAL_UNREACHABLE` (the page does not load), `LOGIN_REJECTED`, `UNEXPECTED` (no verdict in time) |
 | `desktop_status(name)` | `CONNECTED` while this client holds that desktop open; otherwise opens the named tile's "…" menu, reads whether it offers Log Off, closes the menu; logs in first when no page is live | `DESKTOP_NOT_FOUND`, `UNEXPECTED`, or the reasons of `login()` when it logs in first |
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
-| `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and no dialog came into the frame, bounded by `desktop_paint_ms` (60 s); a blank or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
+| `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and either the grid's luminance range or a cell's chroma reaches 24, with no dialog in the frame, bounded by `desktop_paint_ms` (60 s); a blank, uniformly gray, or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | checks that the tile still has a session, opens the desktop, waits for a painted surface with no client dialog over it, clicks the largest remote surface to focus WMKS, sends Meta+R, waits 2 s for Run, and types `shutdown /l` with 50 ms between keys before Enter; then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | checks that the tile still has a session, opens the desktop, waits for a painted surface with no client dialog over it, focuses the largest remote surface, cancels any new dialog and restores focus, then sends Meta+R, waits 2 s for Run, and types `shutdown /l` with 50 ms between keys before Enter; then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -103,10 +103,20 @@ largest remote surface must be painted and no client dialog may be over it. This
 bounded by `desktop_paint_ms` and saves no artifact. A desktop that never becomes ready
 receives no Windows input and fails as `LOGOFF_NOT_CONFIRMED`.
 
-Once the surface is ready, the adapter clicks it and sends Meta+R. WMKS binds keyboard
-handlers to its own element, not to the document, so leaving focus on the launch button
-would deliver no Windows input. Its modifier synchronizer reads `metaKey`, and
-`enableWindowsKey` defaults to true, which makes Meta+R the Windows Run shortcut.
+Painted requires at least eight lit cells and either a luminance range of at least 24
+across the sampled cells or chroma of at least 24 within one cell. A uniform bright-gray
+repaint has neither form of variation, so it is not ready. A solid-colour desktop can pass
+through chroma, while ordinary grayscale window content can pass through luminance
+variation.
+
+Once the surface is ready, the adapter focuses it. WMKS binds keyboard handlers to its
+own element, not to the document, so leaving focus on the launch button would deliver no
+Windows input. Its modifier synchronizer reads `metaKey`, and `enableWindowsKey` defaults
+to true, which makes Meta+R the Windows Run shortcut. Focusing can make the Fullscreen
+offer reappear, so the adapter rechecks and cancels it, then restores surface focus:
+Cancel moves focus to the dialog button. It uses `focus()` rather than a click, whose
+actionability could be blocked by a dialog between mouse-down and mouse-up.
+
 Windows gives the browser no readiness signal for Run's edit field, so the adapter waits
 2 s and then types `shutdown /l` with 50 ms between keys before pressing Enter. The wait
 is bounded and the fixture discards input that arrives too early, so the tests reproduce
@@ -133,13 +143,28 @@ after about 31 s with `logoff_not_confirmed`. The run failed without reaching
 the whole command immediately after Meta+R. A fixture Run dialog that rejects input for
 its first 250 ms reproduced the live-shaped failure, showing that immediate typing can be
 lost even with correct focus. Released v1.1.2 does not contain the 2 s wait and 50 ms key
-pacing above. That pacing correction has passed local fixture verification but has not
-been retested against the live portal.
+pacing above. That pacing correction shipped in v1.1.3, whose live result follows.
 
 The v1.1.2 run wrote no new failure screenshots. At that release, a missing or closed
 page and a route outside the screenshot allowlist each returned `None` silently, so the
 logs cannot say which skip occurred. The safe skip diagnostics below now distinguish
 those cases.
+
+**Live and staged evidence from v1.1.3.** On 2026-11-24 at 03:07 MSK, the released
+v1.1.3 `checkout --force` completed three attempts with `logoff_not_confirmed`, despite
+surface focus, the 2 s Run wait, and 50 ms key pacing. A later staged diagnostic captured
+a gray frame after focus, a desktop without Run after Meta+R, an unchanged desktop with
+no visible command after typing, and the HTML Access Fullscreen dialog after Enter. No
+HTML Access dialog was present before focus, Meta+R, or typing. The focus, Cancel, and
+refocus sequence above guards that dialog path without accepting OK.
+
+A second staged run captured uniform light-gray frames both before and after Meta+R. The
+real blue desktop appeared only afterward, still with no Run dialog. The old readiness
+predicate accepted any eight bright cells, so the uniform gray repaint was falsely judged
+ready and Meta+R went out before the real desktop. The luminance-or-chroma variation rule
+above is the correction. It has passed local fixture verification but has not been
+retested against the live portal. The staged diagnostics are evidence of the failure, not
+a live-success record.
 
 The broker remains the confirmation authority:
 
@@ -212,8 +237,12 @@ sample does this, in order:
 5. The page judges that PNG. The bytes arrive as base64 and become a `Blob` and an
    `ImageBitmap` (`createImageBitmap`), drawn onto a 32 by 32 canvas (`_SAMPLE_SIDE`)
    with smoothing off, so each cell is one pixel of the frame. The page answers the
-   number of cells with `max(R, G, B) >= 24` (`_LIT_CHANNEL`), and Python counts the
-   frame painted when that number is at least 8 (`_LIT_CELLS_REQUIRED`).
+   number of cells with `max(R, G, B) >= 24` (`_LIT_CHANNEL`), the luminance range
+   across cells, and the largest chroma within a cell. Python requires at least 8 lit
+   cells (`_LIT_CELLS_REQUIRED`) and either luminance range or chroma of at least 24
+   (`_FRAME_VARIATION_REQUIRED`). A uniform gray frame therefore cannot pass, while a
+   solid-colour desktop passes through chroma and normal grayscale windows pass through
+   luminance variation.
 6. A painted frame is checked for a client dialog once more, as in step 2. A dialog
    that came in after the first look is in this frame, so the frame is discarded and
    the next poll looks again.
@@ -279,10 +308,13 @@ succeeded therefore does not exit 1 on the way out.
   saves no frame a dialog showed in.
 - The check-in photo is the frame that was judged: the composited element screenshot,
   never a readback of the surface's bitmap.
+- A uniform gray or blank frame is not painted, even when every cell is bright. Real
+  content is distinguished by luminance variation across cells or chroma within a cell.
 - `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
   one in-page decode.
-- `log_off` sends no Windows input until the remote desktop is painted, no client dialog
-  is over it, and the largest remote surface has been clicked to focus WMKS.
+- Before Meta+R, `log_off` requires two painted and dialog-free readiness passes. It
+  focuses the largest remote surface between them and focuses it again after the second,
+  because cancelling a client dialog leaves focus on the dialog button.
 - After Meta+R, `log_off` waits 2 s before typing `shutdown /l` with 50 ms between keys
   and then pressing Enter.
 - A missing photograph never changes a step's verdict. `open_desktop` returns `None`
@@ -332,7 +364,7 @@ the page: the tile, the tile menu with its `[hidden]` items, its document-click 
 and its "…" that toggles, and the canvas the Blast session appends. Its Windows `keydown`
 handler is bound to the WMKS container rather than the document, matching the real
 client's focus requirement. The sign-out regression also requires the remote canvas to be
-`document.activeElement` when the input arrives. Without the adapter's surface click, the
+`document.activeElement` when the input arrives. Without the adapter's surface focus, the
 fixture reproduces `logoff_not_confirmed`. Page-level keyboard delivery cannot make the
 test pass. Its desktop records Meta+R, the typed Run command, and Enter as one ordered
 input event. Only the exact `shutdown /l` command ends the fixture Windows session; no
@@ -344,6 +376,12 @@ Enter, in addition to surface focus and event order. Immediate typing therefore
 reproduces `logoff_not_confirmed` instead of passing. A rejected-login test also asserts
 the `route outside allowlist` screenshot-skip diagnostic and checks that the password is
 absent from the log.
+
+The paint regressions reject a uniform `rgb(220, 220, 220)` frame without saving it and
+accept a blue desktop carrying normal grayscale windows. A focus/refocus regression
+changes the surface from that gray to `rgb(0, 120, 215)` and asserts that Meta+R is sent
+only on the blue frame, after both focus calls. Another regression makes focus trigger
+the Fullscreen offer and requires Cancel before Windows input, with no OK acceptance.
 
 The fixture's own assumptions, each stated in its header and chosen so the adapter cannot
 lean on them: the list is fetched only when the page loads and after a login, never on a

@@ -89,6 +89,9 @@ _DESKTOP_SURFACE = "#canvas-container canvas, #canvas-container video"
 _SAMPLE_SIDE = 32
 _LIT_CHANNEL = 24
 _LIT_CELLS_REQUIRED = 8
+# A bright frame can still be the blank gray repaint. Require either changing luminance
+# across cells or chroma within a cell, so both normal windows and solid-colour desktops pass.
+_FRAME_VARIATION_REQUIRED = 24
 # The least of the capture's bound a sample is started with. A frame and its decode take
 # longer than this (about 280 ms and 480 ms for a worst-case 1920 by 1080 frame, measured
 # by the review of HT-010), so a sample started with less could only time out.
@@ -121,7 +124,8 @@ _LARGEST_SURFACE = """(selector) => {
     const height = isVideo ? surface.videoHeight : surface.height;
     return { index: largest, drawn: Boolean(width && height) };
 }"""
-# Counts the lit cells of a frame the adapter took, so no PNG is decoded here. The frame
+# Counts lit cells and measures luminance/chroma variation in a frame the adapter took,
+# so no PNG is decoded here. The frame
 # arrives as base64 and becomes a Blob and an ImageBitmap: no URL is loaded, so no page
 # policy applies, and a Blob never taints the grid. The live surface itself is never
 # read, so a WebGL canvas that keeps no drawing buffer is judged by what was composited.
@@ -138,12 +142,18 @@ _LIT_CELLS = """async ({ data, side, channel }) => {
     frame.close();
     const cells = context.getImageData(0, 0, side, side).data;
     let lit = 0;
+    let minLuminance = 255;
+    let maxLuminance = 0;
+    let maxChroma = 0;
     for (let offset = 0; offset < cells.length; offset += 4) {
-        if (Math.max(cells[offset], cells[offset + 1], cells[offset + 2]) >= channel) {
-            lit += 1;
-        }
+        const luminance = Math.max(cells[offset], cells[offset + 1], cells[offset + 2]);
+        const chroma = luminance - Math.min(cells[offset], cells[offset + 1], cells[offset + 2]);
+        if (luminance >= channel) { lit += 1; }
+        minLuminance = Math.min(minLuminance, luminance);
+        maxLuminance = Math.max(maxLuminance, luminance);
+        maxChroma = Math.max(maxChroma, chroma);
     }
-    return lit;
+    return { lit, luminanceRange: maxLuminance - minLuminance, maxChroma };
 }"""
 _CANVAS_IS_DRAWN = """(selector) => Array.from(document.querySelectorAll(selector)).some(
     (canvas) => {
@@ -416,7 +426,13 @@ class PlaywrightHorizonClient:
             surface = _largest_surface(page)
             if surface is None:
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
-            surface.click()
+            surface.focus()
+            # Focusing the remote surface can make the Fullscreen offer reappear. Cancel
+            # it again before any key reaches the client; an OK-only dialog still blocks.
+            if not self._wait_for_desktop_input():
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
+            # Cancelling that dialog focused its button; give the surface the keys again.
+            surface.focus()
             page.keyboard.press("Meta+R")
             page.wait_for_timeout(_RUN_DIALOG_WAIT_MS)
             page.keyboard.type("shutdown /l", delay=_WINDOWS_TYPE_DELAY_MS)
@@ -719,12 +735,12 @@ def _largest_surface(page: Page) -> Locator | None:
 
 
 def _frame_is_painted(page: Page, png: bytes) -> bool:
-    """Whether at least ``_LIT_CELLS_REQUIRED`` grid cells are lit, as the page decodes the PNG.
+    """Whether enough cells are lit and show luminance or chroma variation.
 
-    Raises ``ValueError`` when the page answers something other than a count, and a
-    Playwright error when the page cannot decode the frame.
+    Raises ``ValueError`` when the page answers something other than the paint metrics,
+    and a Playwright error when the page cannot decode the frame.
     """
-    lit = page.evaluate(
+    reading = page.evaluate(
         _LIT_CELLS,
         {
             "data": base64.b64encode(png).decode("ascii"),
@@ -732,9 +748,19 @@ def _frame_is_painted(page: Page, png: bytes) -> bool:
             "channel": _LIT_CHANNEL,
         },
     )
-    if not isinstance(lit, int) or isinstance(lit, bool):
+    if not isinstance(reading, dict):
         raise ValueError("paint reading")
-    return lit >= _LIT_CELLS_REQUIRED
+    fields = cast(dict[str, object], reading)
+    lit = fields.get("lit")
+    luminance_range = fields.get("luminanceRange")
+    max_chroma = fields.get("maxChroma")
+    for value in (lit, luminance_range, max_chroma):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("paint reading")
+    return cast(int, lit) >= _LIT_CELLS_REQUIRED and (
+        cast(int, luminance_range) >= _FRAME_VARIATION_REQUIRED
+        or cast(int, max_chroma) >= _FRAME_VARIATION_REQUIRED
+    )
 
 
 def _close_quietly(part: str, close: Callable[[], None]) -> None:

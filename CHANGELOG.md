@@ -9,6 +9,18 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-11-24
+
+`1.1.4` is a patch: it stops a uniform gray canvas repaint from passing as a ready Windows
+desktop, and the public surface does not change.
+
+### Fixed
+
+- **Desktop paint readiness.** The v1.1.3 staged screenshots showed that the brightness-only
+  check accepted a uniform light-gray frame and sent **Win+R** before the real desktop existed.
+  Readiness now also requires luminance variation across sampled cells or chroma within a cell,
+  so keyboard input waits for actual desktop content.
+
 ## [1.1.3] - 2026-11-24
 
 `1.1.3` is a patch: it waits for the Windows Run dialog before typing the sign-out command,
@@ -159,7 +171,8 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.4
 [1.1.3]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.3
 [1.1.2]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.2
 [1.1.1]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.1
