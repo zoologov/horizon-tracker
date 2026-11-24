@@ -32,7 +32,7 @@
 | Bead | Status | Details |
 |------|--------|---------|
 | ht-oe6 | Done | Variation-aware painted predicate; full room 2035 passed, 5 skipped, 3 baseline failures |
-| ht-0tu | Done | Dialog refocus 95c46a6: 36/36 focus/Run/order checks and 67 adapter tests passed; clean room 2032 passed, 5 skipped, 3 baseline failures |
+| ht-0tu | Done | Paint predicate 5c90833: 12/12 gray/desktop checks and 36/36 regressions passed; clean room 2035 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Run readiness, pacing, the v1.1.2 live failure and screenshot-skip diagnostics documented; stale pairs 0 |
 
