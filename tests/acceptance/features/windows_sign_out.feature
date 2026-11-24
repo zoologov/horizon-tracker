@@ -12,3 +12,12 @@ Feature: Windows sign-out through Horizon HTML Access
     And Windows received Start right-click, Run, "shutdown /l" and Enter in order
     And no kill-session command reached the broker
     And the desktop has no session on the fixture broker
+
+  Scenario: An already-open Windows Run dialog is reused without Win+X
+    Given the fixture portal's desktop has a disconnected session
+    And the fixture Windows Run dialog is already open
+    When the Playwright client logs off "DEV desktop"
+    Then Windows received the existing Run field, "shutdown /l" and Enter in order
+    And no Win+X mouse sequence reached Windows
+    And no kill-session command reached the broker
+    And the desktop has no session on the fixture broker
