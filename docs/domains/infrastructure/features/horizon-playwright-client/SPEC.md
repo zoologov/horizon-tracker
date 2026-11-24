@@ -27,7 +27,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `login()` | opens `#/home`, fills `#username` and `#password`, clicks `#loginButton`, then polls: `#/launchitems` means accepted, a visible `#okDialogBtn` means rejected | `PORTAL_UNREACHABLE` (the page does not load), `LOGIN_REJECTED`, `UNEXPECTED` (no verdict in time) |
 | `desktop_status(name)` | `CONNECTED` while this client holds that desktop open; otherwise opens the named tile's "…" menu, reads whether it offers Log Off, closes the menu; logs in first when no page is live | `DESKTOP_NOT_FOUND`, `UNEXPECTED`, or the reasons of `login()` when it logs in first |
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
-| `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and no dialog came into the frame, bounded by `desktop_paint_ms` (60 s); a blank or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
+| `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and either the grid's luminance range or a cell's chroma reaches 24, with no dialog in the frame, bounded by `desktop_paint_ms` (60 s); a blank, uniformly gray, or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
 | `log_off(name)` | checks that the tile still has a session, opens the desktop, waits for a painted surface with no client dialog over it, focuses the largest remote surface, cancels any new dialog and restores focus, then sends Meta+R, waits 2 s for Run, and types `shutdown /l` with 50 ms between keys before Enter; then polls until a freshly loaded launch-items list shows the tile without a session (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
@@ -216,8 +216,12 @@ sample does this, in order:
 5. The page judges that PNG. The bytes arrive as base64 and become a `Blob` and an
    `ImageBitmap` (`createImageBitmap`), drawn onto a 32 by 32 canvas (`_SAMPLE_SIDE`)
    with smoothing off, so each cell is one pixel of the frame. The page answers the
-   number of cells with `max(R, G, B) >= 24` (`_LIT_CHANNEL`), and Python counts the
-   frame painted when that number is at least 8 (`_LIT_CELLS_REQUIRED`).
+   number of cells with `max(R, G, B) >= 24` (`_LIT_CHANNEL`), the luminance range
+   across cells, and the largest chroma within a cell. Python requires at least 8 lit
+   cells (`_LIT_CELLS_REQUIRED`) and either luminance range or chroma of at least 24
+   (`_FRAME_VARIATION_REQUIRED`). A uniform gray frame therefore cannot pass, while a
+   solid-colour desktop passes through chroma and normal grayscale windows pass through
+   luminance variation.
 6. A painted frame is checked for a client dialog once more, as in step 2. A dialog
    that came in after the first look is in this frame, so the frame is discarded and
    the next poll looks again.
@@ -283,6 +287,8 @@ succeeded therefore does not exit 1 on the way out.
   saves no frame a dialog showed in.
 - The check-in photo is the frame that was judged: the composited element screenshot,
   never a readback of the surface's bitmap.
+- A uniform gray or blank frame is not painted, even when every cell is bright. Real
+  content is distinguished by luminance variation across cells or chroma within a cell.
 - `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
   one in-page decode.
 - `log_off` sends no Windows input until the remote desktop is painted, no client dialog

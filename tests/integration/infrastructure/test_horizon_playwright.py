@@ -524,6 +524,52 @@ def test_log_off_waits_for_a_painted_desktop_before_sending_windows_input(
     assert painted_at_input == [True], "Win+R reached Windows while its desktop was black"
 
 
+def test_log_off_waits_for_a_real_repaint_after_focus(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    client = make_client(
+        run_kind=RunKind.CHECKOUT, timeouts=replace(FAST, desktop_paint_ms=PAINT_WAIT_MS)
+    )
+    client.login()
+    focused = 0
+    real_focus = Locator.focus
+
+    def gray_on_first_focus(locator: Locator, *args: Any, **kwargs: Any) -> None:
+        nonlocal focused
+        if focused == 0:
+            paint_remote_surface(client, "rgb(220, 220, 220)")
+            paint_remote_surface_later(client, "rgb(0, 120, 215)", PAINTED_AFTER_MS)
+        focused += 1
+        real_focus(locator, *args, **kwargs)
+
+    colours_at_input: list[list[int]] = []
+    real_press = Keyboard.press
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        if key == "Meta+R":
+            page = client._page
+            assert page is not None
+            colours_at_input.append(
+                page.evaluate(
+                    "Array.from(document.querySelector('#canvas-container canvas')"
+                    ".getContext('2d').getImageData(0, 0, 1, 1).data.slice(0, 3))"
+                )
+            )
+        real_press(keyboard, key, *args, **kwargs)
+
+    monkeypatch.setattr(Locator, "focus", gray_on_first_focus)
+    monkeypatch.setattr(Keyboard, "press", press)
+
+    client.log_off(DESKTOP)
+
+    assert focused == 2, "focus was not restored after the readiness check"
+    assert colours_at_input == [[0, 120, 215]], "Meta+R was sent on the gray repaint"
+
+
 def test_log_off_after_reading_the_state_ends_the_session(
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
@@ -833,6 +879,41 @@ def test_a_black_remote_surface_is_not_saved(
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
     assert "Horizon desktop still blank" in caplog.text
+
+
+def test_a_uniform_bright_gray_surface_is_not_saved(
+    client: PlaywrightHorizonClient,
+    artifacts: RecordingArtifacts,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(220, 220, 220)")
+
+    assert client.capture_open_desktop() is None
+    assert artifacts.asked == []
+
+
+def test_a_normal_windows_desktop_is_saved(
+    client: PlaywrightHorizonClient,
+) -> None:
+    client.login()
+    client.open_desktop(DESKTOP)
+    paint_remote_surface(client, "rgb(0, 120, 215)")
+    page = client._page
+    assert page is not None
+    page.evaluate(
+        """() => {
+            const context = document.querySelector("#canvas-container canvas").getContext("2d");
+            context.fillStyle = "rgb(240, 240, 240)";
+            context.fillRect(180, 100, 600, 400);
+            context.fillStyle = "rgb(45, 45, 45)";
+            context.fillRect(180, 100, 600, 48);
+            context.fillStyle = "rgb(255, 255, 255)";
+            context.fillRect(210, 180, 300, 220);
+        }"""
+    )
+
+    assert client.capture_open_desktop() is not None
 
 
 def test_a_painted_remote_surface_is_saved(
@@ -1199,7 +1280,9 @@ def test_a_page_closed_after_a_blank_sample_stops_the_capture_without_a_failure(
 
     assert client.capture_open_desktop() is None
 
-    assert closed_after == [0], "the page did not close after a blank sample"
+    assert closed_after == [{"lit": 0, "luminanceRange": 0, "maxChroma": 0}], (
+        "the page did not close after a blank sample"
+    )
     assert artifacts.asked == []
     assert list(artifacts.root.iterdir()) == []
     assert "Horizon screenshot failed" not in caplog.text
