@@ -7,9 +7,9 @@
 
 ## Current Bead
 
-**Bead:** ht-51k — Release v1.1.3 and repeat the owner's live verification
-**Goal:** Deploy Run-dialog readiness and paced Windows input, then run `checkout --force` on the VPS with an existing session.
-**Done when:** The release is green, the host runs v1.1.3, and the live check-out confirms the Windows session ended.
+**Bead:** ht-51k — Release v1.1.4 and repeat the owner's live verification
+**Goal:** Deploy variation-aware desktop readiness, then run `checkout --force` on the VPS with an existing session.
+**Done when:** The release is green, the host runs v1.1.4, and the live check-out confirms the Windows session ended.
 
 ## Progress
 
@@ -23,8 +23,9 @@
 - [x] PR #16 merged; required CI and post-merge CI green
 - [x] Release v1.1.1 deployed; live check-out exposed missing WebMKS keyboard focus
 - [x] Release v1.1.2 deployed with surface focus; live check-out exposed Run-dialog timing loss
-- [x] Run-dialog readiness and input pacing tested, reviewed and documented
-- [ ] Release v1.1.3 through the tag workflow
+- [x] Release v1.1.3 deployed with pacing; staged screenshots exposed false painted readiness on gray frames
+- [x] Variation-aware painted predicate tested, reviewed and documented
+- [ ] Release v1.1.4 through the tag workflow
 - [ ] Repeat live VPS `checkout --force` and attendance-record verification after deployment
 
 ## Results
@@ -34,7 +35,7 @@
 | ht-oe6 | Done | Variation-aware painted predicate; full room 2035 passed, 5 skipped, 3 baseline failures |
 | ht-0tu | Done | Paint predicate 5c90833: 12/12 gray/desktop checks and 36/36 regressions passed; clean room 2035 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
-| ht-ga0 | Done | Run readiness, pacing, the v1.1.2 live failure and screenshot-skip diagnostics documented; stale pairs 0 |
+| ht-ga0 | Done | Luminance/chroma readiness and staged gray-frame evidence documented; stale pairs 0 |
 
 ## Notes
 
@@ -43,9 +44,9 @@ macOS child-process assertions in `test_entering_the_client_starts_nothing_until
 was ShellCheck SC2329 for `clean_bytecode` in `scripts/mutation.sh`, since fixed and covered by an execution test. Later
 runs distinguish the three remaining platform-specific baseline failures from regressions.
 
-Release v1.1.1 deployed successfully, and a live check-in succeeded. Its check-out left focus on the launch button and
-failed `logoff_not_confirmed`. Release v1.1.2 added the surface click but still failed live: typing began before the Run
-dialog was ready. The v1.1.3 correction waits two seconds and types at 50 ms per key; it is locally verified only until
-the live check-out is repeated. No live portal login was permitted from the development sandbox; the owner explicitly
-authorised the VPS checks. The existing `.beads/issues.jsonl` modification and untracked `.DS_Store` / metrics files
-predated HT-014 and are not part of its implementation.
+Live v1.1.1 exposed missing keyboard focus; v1.1.2 added it but exposed input timing; v1.1.3 added pacing and still
+failed. Staged screenshots then showed a uniform gray repaint passing the brightness-only readiness check before
+`Meta+R`. The v1.1.4 predicate requires luminance variation or chroma, so it waits for actual desktop content. This is
+locally verified only until the live check-out is repeated. No live portal login was permitted from the development
+sandbox; the owner explicitly authorised the VPS checks. The existing `.beads/issues.jsonl` modification and untracked
+`.DS_Store` / metrics files predated HT-014 and are not part of its implementation.
