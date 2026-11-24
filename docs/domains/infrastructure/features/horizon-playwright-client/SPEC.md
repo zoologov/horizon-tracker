@@ -103,6 +103,12 @@ largest remote surface must be painted and no client dialog may be over it. This
 bounded by `desktop_paint_ms` and saves no artifact. A desktop that never becomes ready
 receives no Windows input and fails as `LOGOFF_NOT_CONFIRMED`.
 
+Painted requires at least eight lit cells and either a luminance range of at least 24
+across the sampled cells or chroma of at least 24 within one cell. A uniform bright-gray
+repaint has neither form of variation, so it is not ready. A solid-colour desktop can pass
+through chroma, while ordinary grayscale window content can pass through luminance
+variation.
+
 Once the surface is ready, the adapter focuses it. WMKS binds keyboard handlers to its
 own element, not to the document, so leaving focus on the launch button would deliver no
 Windows input. Its modifier synchronizer reads `metaKey`, and `enableWindowsKey` defaults
@@ -137,13 +143,28 @@ after about 31 s with `logoff_not_confirmed`. The run failed without reaching
 the whole command immediately after Meta+R. A fixture Run dialog that rejects input for
 its first 250 ms reproduced the live-shaped failure, showing that immediate typing can be
 lost even with correct focus. Released v1.1.2 does not contain the 2 s wait and 50 ms key
-pacing above. That pacing correction has passed local fixture verification but has not
-been retested against the live portal.
+pacing above. That pacing correction shipped in v1.1.3, whose live result follows.
 
 The v1.1.2 run wrote no new failure screenshots. At that release, a missing or closed
 page and a route outside the screenshot allowlist each returned `None` silently, so the
 logs cannot say which skip occurred. The safe skip diagnostics below now distinguish
 those cases.
+
+**Live and staged evidence from v1.1.3.** On 2026-11-24 at 03:07 MSK, the released
+v1.1.3 `checkout --force` completed three attempts with `logoff_not_confirmed`, despite
+surface focus, the 2 s Run wait, and 50 ms key pacing. A later staged diagnostic captured
+a gray frame after focus, a desktop without Run after Meta+R, an unchanged desktop with
+no visible command after typing, and the HTML Access Fullscreen dialog after Enter. No
+HTML Access dialog was present before focus, Meta+R, or typing. The focus, Cancel, and
+refocus sequence above guards that dialog path without accepting OK.
+
+A second staged run captured uniform light-gray frames both before and after Meta+R. The
+real blue desktop appeared only afterward, still with no Run dialog. The old readiness
+predicate accepted any eight bright cells, so the uniform gray repaint was falsely judged
+ready and Meta+R went out before the real desktop. The luminance-or-chroma variation rule
+above is the correction. It has passed local fixture verification but has not been
+retested against the live portal. The staged diagnostics are evidence of the failure, not
+a live-success record.
 
 The broker remains the confirmation authority:
 
@@ -291,8 +312,9 @@ succeeded therefore does not exit 1 on the way out.
   content is distinguished by luminance variation across cells or chroma within a cell.
 - `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
   one in-page decode.
-- `log_off` sends no Windows input until the remote desktop is painted, no client dialog
-  is over it, and the largest remote surface has been clicked to focus WMKS.
+- Before Meta+R, `log_off` requires two painted and dialog-free readiness passes. It
+  focuses the largest remote surface between them and focuses it again after the second,
+  because cancelling a client dialog leaves focus on the dialog button.
 - After Meta+R, `log_off` waits 2 s before typing `shutdown /l` with 50 ms between keys
   and then pressing Enter.
 - A missing photograph never changes a step's verdict. `open_desktop` returns `None`
@@ -342,7 +364,7 @@ the page: the tile, the tile menu with its `[hidden]` items, its document-click 
 and its "…" that toggles, and the canvas the Blast session appends. Its Windows `keydown`
 handler is bound to the WMKS container rather than the document, matching the real
 client's focus requirement. The sign-out regression also requires the remote canvas to be
-`document.activeElement` when the input arrives. Without the adapter's surface click, the
+`document.activeElement` when the input arrives. Without the adapter's surface focus, the
 fixture reproduces `logoff_not_confirmed`. Page-level keyboard delivery cannot make the
 test pass. Its desktop records Meta+R, the typed Run command, and Enter as one ordered
 input event. Only the exact `shutdown /l` command ends the fixture Windows session; no
@@ -354,6 +376,12 @@ Enter, in addition to surface focus and event order. Immediate typing therefore
 reproduces `logoff_not_confirmed` instead of passing. A rejected-login test also asserts
 the `route outside allowlist` screenshot-skip diagnostic and checks that the password is
 absent from the log.
+
+The paint regressions reject a uniform `rgb(220, 220, 220)` frame without saving it and
+accept a blue desktop carrying normal grayscale windows. A focus/refocus regression
+changes the surface from that gray to `rgb(0, 120, 215)` and asserts that Meta+R is sent
+only on the blue frame, after both focus calls. Another regression makes focus trigger
+the Fullscreen offer and requires Cancel before Windows input, with no OK acceptance.
 
 The fixture's own assumptions, each stated in its header and chosen so the adapter cannot
 lean on them: the list is fetched only when the page loads and after a login, never on a
