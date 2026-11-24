@@ -83,12 +83,14 @@ never a broker document's content.
   `HT_HOLD_SECONDS` (120 s by default) so Windows completes its logon, then closes the
   browser context. Closing it closes the WebSocket: that is the quiet disconnect, and the
   Windows session lives on until the evening's sign-out.
-- **Windows sign-out.** The evening opens the desktop, waits for a painted remote surface
-  with no client dialog over it, focuses the remote surface, cancels any new dialog and
-  restores focus, sends Meta+R, waits 2 s for Run, and types `shutdown /l` with 50 ms
-  between keys before Enter.
-  This asks Windows to end its own session. The adapter sends no tile-menu `kill-session`
-  request; the broker's fresh launch-items list remains the confirmation authority.
+- **Windows sign-out.** The evening opens the desktop and guards every action with
+  painted/dialog-free readiness and restored surface focus. It right-clicks Start at
+  remote `(20,700)` and left-clicks Run at `(85,600)`, scaling both owner-desktop points
+  into the surface bounds, waits 2 s, replaces the field through Ctrl+A and paced
+  `shutdown /l` typing, captures checkout evidence, then presses Enter once.
+  This asks Windows to end its own session. The adapter sends no Meta+R or tile-menu
+  `kill-session` request; the broker's fresh launch-items list remains the confirmation
+  authority.
 
 ## Invariants
 

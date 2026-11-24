@@ -1,4 +1,4 @@
-"""Windows keyboard sign-out through the real adapter on the local HTML Access fixture."""
+"""Windows Win+X sign-out through the real adapter on the local HTML Access fixture."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -62,9 +62,10 @@ def opened_before_sign_out(fixture_portal: Portal) -> None:
     assert events.index("blast-open") < events.index("windows-sign-out")
 
 
-@then('Windows received Win+R, "shutdown /l" and Enter in order')
-def keyboard_sign_out(fixture_portal: Portal) -> None:
-    assert "windows-input:Meta+R|shutdown /l|Enter" in fixture_portal.state.events
+@then('Windows received Start right-click, Run, "shutdown /l" and Enter in order')
+def mouse_and_keyboard_sign_out(fixture_portal: Portal) -> None:
+    sequence = "Win+X@20,700|Run@85,600|shutdown /l|Enter"
+    assert f"windows-input:{sequence}" in fixture_portal.state.events
 
 
 @then("no kill-session command reached the broker")

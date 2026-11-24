@@ -18,7 +18,15 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext, Keyboard, Locator, Page, sync_playwright
+from playwright.sync_api import (
+    Browser,
+    BrowserContext,
+    Keyboard,
+    Locator,
+    Mouse,
+    Page,
+    sync_playwright,
+)
 from playwright.sync_api import Error as PlaywrightError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
@@ -411,7 +419,7 @@ def test_a_teardown_error_is_logged_by_type_and_never_raised(
 
 
 def test_windows_sign_out_event_records_input_before_ending_the_session(portal: Portal) -> None:
-    sequence = "Meta+R|shutdown /l|Enter"
+    sequence = "Win+X@20,700|Run@85,600|shutdown /l|Enter"
     with closing(http.client.HTTPConnection(urlsplit(portal.url).netloc)) as connection:
         connection.request(
             "POST",
@@ -426,31 +434,68 @@ def test_windows_sign_out_event_records_input_before_ending_the_session(portal: 
     assert portal.state.events == [f"windows-input:{sequence}", "windows-sign-out"]
 
 
-def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
+def test_log_off_opens_the_desktop_and_signs_out_through_scaled_winx_mouse(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
+    artifacts: RecordingArtifacts,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     portal.state.session = "disconnected"
     portal.state.paint_desktop = "rgb(0, 120, 215)"
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
-    focused_at_input: list[bool] = []
+    real_open = client.open_desktop
+
+    def open_on_a_scaled_surface(name: str) -> None:
+        real_open(name)
+        page = client._page
+        assert page is not None
+        page.evaluate(
+            """() => {
+                const surface = document.querySelector('#canvas-container .wmks');
+                surface.style.left = '100px';
+                surface.style.top = '50px';
+                const canvas = surface.querySelector('canvas');
+                canvas.style.width = '640px';
+                canvas.style.height = '360px';
+            }"""
+        )
+
+    clicks: list[tuple[float, float, str | None]] = []
+    click_bounds: list[dict[str, float]] = []
+    presses: list[str] = []
+    focused_at_select_all: list[bool] = []
     typed_delays: list[float | int | None] = []
     run_waits: list[float] = []
+    page_screenshots = 0
+    screenshots_at_enter: list[int] = []
+    real_click = Mouse.click
     real_press = Keyboard.press
     real_type = Keyboard.type
     real_wait = Page.wait_for_timeout
+    real_screenshot = Page.screenshot
+
+    def click(mouse: Mouse, x: float, y: float, *args: Any, **kwargs: Any) -> None:
+        page = client._page
+        assert page is not None
+        bounds = page.locator("#mainCanvas").bounding_box()
+        assert bounds is not None
+        click_bounds.append(bounds)
+        clicks.append((x, y, kwargs.get("button")))
+        real_click(mouse, x, y, *args, **kwargs)
 
     def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
-        if key == "Meta+R":
-            page = client._page
-            assert page is not None
-            focused_at_input.append(
+        presses.append(key)
+        page = client._page
+        assert page is not None
+        if key == "Control+A":
+            focused_at_select_all.append(
                 page.evaluate(
                     "document.activeElement === document.querySelector('#canvas-container canvas')"
                 )
             )
+        if key == "Enter":
+            screenshots_at_enter.append(page_screenshots)
         real_press(keyboard, key, *args, **kwargs)
 
     def type_text(keyboard: Keyboard, text: str, *args: Any, **kwargs: Any) -> None:
@@ -463,17 +508,42 @@ def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
             run_waits.append(timeout)
         real_wait(page, timeout)
 
+    def screenshot(page: Page, *args: Any, **kwargs: Any) -> bytes:
+        nonlocal page_screenshots
+        page_screenshots += 1
+        return real_screenshot(page, *args, **kwargs)
+
+    monkeypatch.setattr(client, "open_desktop", open_on_a_scaled_surface)
+    monkeypatch.setattr(Mouse, "click", click)
     monkeypatch.setattr(Keyboard, "press", press)
     monkeypatch.setattr(Keyboard, "type", type_text)
     monkeypatch.setattr(Page, "wait_for_timeout", wait)
+    monkeypatch.setattr(Page, "screenshot", screenshot)
 
     client.log_off(DESKTOP)
 
-    assert focused_at_input == [True], "Win+R was sent without focusing the remote surface"
+    assert len(click_bounds) == 2
+    start, run = click_bounds
+    assert (start["width"], start["height"]) != (1280.0, 720.0)
+    assert clicks == [
+        (
+            start["x"] + 20.0 * start["width"] / 1280.0,
+            start["y"] + 700.0 * start["height"] / 720.0,
+            "right",
+        ),
+        (
+            run["x"] + 85.0 * run["width"] / 1280.0,
+            run["y"] + 600.0 * run["height"] / 720.0,
+            "left",
+        ),
+    ]
+    assert presses == ["Control+A", "Enter"], "Meta+R or a second Enter was sent"
+    assert focused_at_select_all == [True], "Run input was not refocused before replacement"
     assert run_waits == [2_000], "the command was typed before Run could accept input"
     assert typed_delays == [50], "Windows input was not paced"
+    assert screenshots_at_enter == [1], "the Run command was not captured before Enter"
     events = portal.state.events
-    windows_input = "windows-input:Meta+R|shutdown /l|Enter"
+    windows_input = "windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter"
     assert [
         event for event in events if event in {"blast-open", windows_input, "windows-sign-out"}
     ] == [
@@ -482,6 +552,7 @@ def test_log_off_opens_the_desktop_and_signs_out_through_windows_keyboard(
         "windows-sign-out",
     ]
     assert "kill-session" not in events
+    assert artifacts.asked == [RunKind.CHECKOUT, RunKind.CHECKOUT]
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
@@ -503,10 +574,10 @@ def test_log_off_waits_for_a_painted_desktop_before_sending_windows_input(
         paint_remote_surface_later(client, "rgb(0, 120, 215)", PAINTED_AFTER_MS)
 
     painted_at_input: list[bool] = []
-    real_press = Keyboard.press
+    real_click = Mouse.click
 
-    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
-        if key == "Meta+R":
+    def click(mouse: Mouse, x: float, y: float, *args: Any, **kwargs: Any) -> None:
+        if kwargs.get("button") == "right":
             page = client._page
             assert page is not None
             surface = horizon_playwright._largest_surface(page)
@@ -514,14 +585,14 @@ def test_log_off_waits_for_a_painted_desktop_before_sending_windows_input(
             painted_at_input.append(
                 horizon_playwright._frame_is_painted(page, surface.screenshot(type="png"))
             )
-        real_press(keyboard, key, *args, **kwargs)
+        real_click(mouse, x, y, *args, **kwargs)
 
     monkeypatch.setattr(client, "open_desktop", open_on_a_black_desktop)
-    monkeypatch.setattr(Keyboard, "press", press)
+    monkeypatch.setattr(Mouse, "click", click)
 
     client.log_off(DESKTOP)
 
-    assert painted_at_input == [True], "Win+R reached Windows while its desktop was black"
+    assert painted_at_input == [True], "Win+X reached Windows while its desktop was black"
 
 
 def test_log_off_waits_for_a_real_repaint_after_focus(
@@ -547,10 +618,10 @@ def test_log_off_waits_for_a_real_repaint_after_focus(
         real_focus(locator, *args, **kwargs)
 
     colours_at_input: list[list[int]] = []
-    real_press = Keyboard.press
+    real_click = Mouse.click
 
-    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
-        if key == "Meta+R":
+    def click(mouse: Mouse, x: float, y: float, *args: Any, **kwargs: Any) -> None:
+        if kwargs.get("button") == "right":
             page = client._page
             assert page is not None
             colours_at_input.append(
@@ -559,15 +630,35 @@ def test_log_off_waits_for_a_real_repaint_after_focus(
                     ".getContext('2d').getImageData(0, 0, 1, 1).data.slice(0, 3))"
                 )
             )
-        real_press(keyboard, key, *args, **kwargs)
+        real_click(mouse, x, y, *args, **kwargs)
 
     monkeypatch.setattr(Locator, "focus", gray_on_first_focus)
-    monkeypatch.setattr(Keyboard, "press", press)
+    monkeypatch.setattr(Mouse, "click", click)
 
     client.log_off(DESKTOP)
 
-    assert focused == 2, "focus was not restored after the readiness check"
-    assert colours_at_input == [[0, 120, 215]], "Meta+R was sent on the gray repaint"
+    assert focused >= 2, "focus was not restored after the readiness check"
+    assert colours_at_input == [[0, 120, 215]], "Win+X was sent on the gray repaint"
+
+
+def test_log_off_without_surface_bounds_sends_no_windows_input(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    artifacts: RecordingArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    monkeypatch.setattr(Locator, "bounding_box", lambda _locator: None)
+
+    error = fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    assert not [event for event in portal.state.events if event.startswith("windows-input:")]
+    assert "kill-session" not in portal.state.events
+    assert artifacts.asked == [RunKind.CHECKOUT]
+    assert error.screenshot is not None
 
 
 def test_log_off_after_reading_the_state_ends_the_session(
@@ -602,7 +693,7 @@ def test_a_log_off_the_portal_never_confirms_fails_with_a_screenshot(
     error = fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
 
     assert "windows-sign-out" in portal.state.events
-    assert artifacts.asked == [RunKind.CHECKOUT]
+    assert artifacts.asked == [RunKind.CHECKOUT, RunKind.CHECKOUT]
     assert error.screenshot is not None
     assert client.desktop_status(DESKTOP).state is SessionState.DISCONNECTED
 
@@ -697,7 +788,27 @@ def test_log_off_cancels_a_dialog_before_sending_windows_input(
     events = portal.state.events
     cancelled_at = [index for index, event in enumerate(events) if event == "fullscreen-cancelled"]
     assert len(cancelled_at) == 2, "the second Fullscreen offer was not cancelled"
-    assert cancelled_at[-1] < events.index("windows-input:Meta+R|shutdown /l|Enter")
+    windows_input = "windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter"
+    assert cancelled_at[-1] < events.index(windows_input)
+    assert "fullscreen-accepted" not in events
+
+
+def test_log_off_recancels_fullscreen_after_the_start_right_click(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.fullscreen_on_start_click = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    offered = events.index("fullscreen-offered-again")
+    cancelled = events.index("fullscreen-cancelled", offered)
+    windows_input = "windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter"
+    assert cancelled < events.index(windows_input)
     assert "fullscreen-accepted" not in events
 
 
@@ -715,7 +826,7 @@ def test_log_off_recancels_fullscreen_after_focusing_the_surface(
     events = portal.state.events
     offered = events.index("fullscreen-offered-focus")
     cancelled = events.index("fullscreen-cancelled", offered)
-    assert cancelled < events.index("windows-input:Meta+R|shutdown /l|Enter")
+    assert cancelled < events.index("windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter")
     assert "fullscreen-accepted" not in events
 
 
@@ -1414,19 +1525,21 @@ def test_a_log_off_answers_with_a_screenshot_of_the_list_without_the_session(
 
     assert shot is not None
     assert shot.read_bytes().startswith(b"\x89PNG")
-    assert artifacts.asked == [RunKind.CHECKOUT]
-    # Two readiness samples save nothing; the only artifact is the fresh list.
-    assert photographed == ["#/desktop", "#/desktop", "#/launchitems"]
+    assert artifacts.asked == [RunKind.CHECKOUT, RunKind.CHECKOUT]
+    # Readiness samples save nothing. The last desktop photo precedes Enter; the final
+    # artifact is the freshly loaded launch-items list after broker confirmation.
+    assert photographed[-2:] == ["#/desktop", "#/launchitems"]
+    assert set(photographed[:-2]) == {"#/desktop"}
     assert portal.state.session == "none"
 
 
-def test_a_log_off_is_photographed_only_once_the_broker_has_ended_the_session(
+def test_a_log_off_is_finally_photographed_only_once_the_broker_has_ended_the_session(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A broker that ends the session two lists after the Windows command tells a photograph
-    # taken after the confirmation from one taken as soon as Enter was pressed.
+    # A broker that ends the session two lists after the Windows command distinguishes
+    # the final confirmation photo from the pre-Enter evidence on the desktop.
     portal.state.session = "disconnected"
     portal.state.paint_desktop = "rgb(0, 120, 215)"
     portal.state.logoff_lag_lists = 2
@@ -1444,7 +1557,7 @@ def test_a_log_off_is_photographed_only_once_the_broker_has_ended_the_session(
     shot = client.log_off(DESKTOP)
 
     assert shot is not None
-    assert broker_at_photo == ["none"]
+    assert broker_at_photo == ["connected", "none"]
 
 
 def refuse_the_screenshot(monkeypatch: pytest.MonkeyPatch, artifacts: RecordingArtifacts) -> None:
@@ -1488,7 +1601,9 @@ def test_a_log_off_screenshot_that_fails_is_logged_by_type_and_the_step_still_su
     shot = client.log_off(DESKTOP)
 
     assert shot is None
-    assert artifacts.asked == [RunKind.CHECKOUT], "the screenshot was never attempted"
+    assert artifacts.asked == [RunKind.CHECKOUT, RunKind.CHECKOUT], (
+        "the pre-Enter or final screenshot was never attempted"
+    )
     assert any(
         f"Horizon screenshot failed: {error_type}" in caplog.text for error_type in error_types
     )

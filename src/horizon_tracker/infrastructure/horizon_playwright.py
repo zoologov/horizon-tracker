@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import Self, TypeVar, cast
+from typing import Literal, Self, TypeVar, cast
 from urllib.parse import urljoin, urlsplit
 
 from playwright.sync_api import (
@@ -101,6 +101,14 @@ BLAST_PATH_PREFIXES = ("/r/", "/d/")
 # so a slow dialog and the Blast delivery do not lose the first characters.
 _RUN_DIALOG_WAIT_MS = 2_000
 _WINDOWS_TYPE_DELAY_MS = 50
+# Live-proven Windows coordinates on the owner's 1280x720 desktop. Every click is scaled
+# into the current CSS bounds of the remote surface rather than treated as a page pixel.
+_REMOTE_WIDTH = 1280.0
+_REMOTE_HEIGHT = 720.0
+_START_X = 20.0
+_START_Y = 700.0
+_RUN_X = 85.0
+_RUN_Y = 600.0
 
 # Finds the remote surface a frame is taken of: the largest canvas or video inside the
 # container, by its box. Answers null when no surface has a box, else the surface's index
@@ -409,8 +417,29 @@ class PlaywrightHorizonClient:
             context.close()
         logger.info("Horizon client disconnected")
 
+    def _refocus_ready_surface(self, surface: Locator) -> bool:
+        """Cancel client dialogs, await painted input and restore focus for the next action."""
+        if not self._wait_for_desktop_input():
+            return False
+        surface.focus()
+        # Focus itself can raise Fullscreen; cancel it and leave focus on the surface again.
+        if not self._wait_for_desktop_input():
+            return False
+        surface.focus()
+        return True
+
+    def _open_windows_run(self, page: Page, surface: Locator) -> bool:
+        """Open Windows Run through the live-proven, scaled Win+X mouse path."""
+        return (
+            self._refocus_ready_surface(surface)
+            and _click_remote(page, surface, _START_X, _START_Y, "right")
+            and self._refocus_ready_surface(surface)
+            and _click_remote(page, surface, _RUN_X, _RUN_Y, "left")
+            and self._refocus_ready_surface(surface)
+        )
+
     def log_off(self, name: str) -> Path | None:
-        """Open and focus the desktop, sign out through Run, and wait for broker agreement.
+        """Open the desktop, sign out through Win+X Run, and wait for broker agreement.
 
         Every confirmation read loads the launch items afresh first; the page is left on that
         fresh list, which is what a ``desktop_status`` after this call reads. Answers with a
@@ -420,22 +449,18 @@ class PlaywrightHorizonClient:
             if self._tile_session_state(self._tile(name)) is SessionState.NO_SESSION:
                 raise self._failure(Reason.ALREADY_LOGGED_OFF)
             self.open_desktop(name)
-            if not self._wait_for_desktop_input():
-                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             page = self._live_page()
             surface = _largest_surface(page)
-            if surface is None:
+            if surface is None or not self._open_windows_run(page, surface):
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
-            surface.focus()
-            # Focusing the remote surface can make the Fullscreen offer reappear. Cancel
-            # it again before any key reaches the client; an OK-only dialog still blocks.
-            if not self._wait_for_desktop_input():
-                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
-            # Cancelling that dialog focused its button; give the surface the keys again.
-            surface.focus()
-            page.keyboard.press("Meta+R")
             page.wait_for_timeout(_RUN_DIALOG_WAIT_MS)
+            page.keyboard.press("Control+A")
             page.keyboard.type("shutdown /l", delay=_WINDOWS_TYPE_DELAY_MS)
+            if not self._refocus_ready_surface(surface):
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
+            # Preserve evidence of the fully replaced Run command without making a failed
+            # screenshot a new logout failure. No dialog is answered with OK.
+            self._screenshot(RunKind.CHECKOUT)
             page.keyboard.press("Enter")
             confirmed = self._poll(
                 lambda: self._broker_session_state(name) is SessionState.NO_SESSION or None,
@@ -715,6 +740,23 @@ def _log_screenshot_failure(error: BaseException) -> None:
 def _remaining_ms(deadline: float) -> int:
     """Milliseconds left until ``deadline``, at least 1: Playwright reads 0 as no timeout."""
     return max(1, round((deadline - time.monotonic()) * 1000))
+
+
+def _click_remote(
+    page: Page,
+    surface: Locator,
+    remote_x: float,
+    remote_y: float,
+    button: Literal["left", "right"],
+) -> bool:
+    """Click one 1280x720 Windows point scaled into the remote surface's CSS bounds."""
+    bounds = surface.bounding_box()
+    if bounds is None or bounds["width"] <= 0 or bounds["height"] <= 0:
+        return False
+    x = bounds["x"] + remote_x * bounds["width"] / _REMOTE_WIDTH
+    y = bounds["y"] + remote_y * bounds["height"] / _REMOTE_HEIGHT
+    page.mouse.click(x, y, button=button)
+    return True
 
 
 def _largest_surface(page: Page) -> Locator | None:
