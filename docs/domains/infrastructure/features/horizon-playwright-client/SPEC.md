@@ -170,10 +170,14 @@ verification but had not been retested against the live portal. Those staged dia
 were evidence of the failure, not a live-success record.
 
 **Live Win+X proof on 2026-11-24.** The uncommitted staged diagnostic replaced Meta+R
-with a scaled Start right-click and Run left-click. Its `shutdown /l` → Enter sequence
-ended the Windows session, and a subsequent production check-out returned
-`already_logged_off`. The production path above ports that sequence; the diagnostic stays
-outside the tracked source and no sandbox run logs in to the live portal.
+with a scaled Start right-click and Run left-click. It used Ctrl+A to replace the partial
+command already in Run, typed `shutdown /l`, captured the field before Enter, and pressed
+Enter once. The Windows session ended, and a subsequent production check-out returned
+`already_logged_off` with exit 0. This proves the diagnostic sequence, not the new
+production implementation. The production path above ports that sequence and has passed
+local fixture and acceptance verification, but it has not itself been retested against
+the live portal. The diagnostic stays outside the tracked source and no sandbox run logs
+in to the live portal.
 
 The broker remains the confirmation authority:
 
