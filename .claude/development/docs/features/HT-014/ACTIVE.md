@@ -34,7 +34,7 @@
 | Bead | Status | Details |
 |------|--------|---------|
 | ht-oe6 | Done | Guarded existing-Run reuse and Win+X fallback; tree and clean room 2039 passed, 5 skipped, 3 baseline failures |
-| ht-0tu | Done | Scaled Win+X a5655fb: 48/48 regressions and 72 adapter tests passed; clean room 2037 passed, 5 skipped, 3 baseline failures |
+| ht-0tu | Done | Existing Run e52fefb: 8/8 state checks and 73 adapter tests passed; clean room 2039 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Win+X guards, paced input, pre-Enter evidence and staged live success documented; stale pairs 0 |
 
