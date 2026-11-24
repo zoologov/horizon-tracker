@@ -35,7 +35,7 @@
 | Bead | Status | Details |
 |------|--------|---------|
 | ht-oe6 | Done | Live-proven scaled Win+X path; tree and clean room 2037 passed, 5 skipped, 3 baseline failures |
-| ht-0tu | Done | Paint predicate 5c90833: 12/12 gray/desktop checks and 36/36 regressions passed; clean room 2035 passed, 5 skipped, 3 baseline failures |
+| ht-0tu | Done | Scaled Win+X a5655fb: 48/48 regressions and 72 adapter tests passed; clean room 2037 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Luminance/chroma readiness and staged gray-frame evidence documented; stale pairs 0 |
 

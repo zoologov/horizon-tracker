@@ -21,6 +21,7 @@ import pytest
 from playwright.sync_api import (
     Browser,
     BrowserContext,
+    FloatRect,
     Keyboard,
     Locator,
     Mouse,
@@ -462,7 +463,7 @@ def test_log_off_opens_the_desktop_and_signs_out_through_scaled_winx_mouse(
         )
 
     clicks: list[tuple[float, float, str | None]] = []
-    click_bounds: list[dict[str, float]] = []
+    click_bounds: list[FloatRect] = []
     presses: list[str] = []
     focused_at_select_all: list[bool] = []
     typed_delays: list[float | int | None] = []
