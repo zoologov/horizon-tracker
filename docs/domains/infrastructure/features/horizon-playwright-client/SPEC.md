@@ -229,24 +229,30 @@ candidate directory after a successful production check-in. Attempt 1 visibly ty
 `shutdown /l` and pressed Enter, then timed out. Its final fresh-list screenshot showed
 `No Running items` behind Fullscreen, but no fresh-list Cancel was logged: this offer
 appeared after the immediate pre-menu check. Attempt 2 skipped as `already_logged_off`,
-which proves Windows ended but is not first-attempt `NO_SESSION` confirmation. The bounded
-wait and recheck below address that asynchronous appearance without treating the visible
-list text as the broker verdict.
+which proves Windows ended but is not first-attempt `NO_SESSION` confirmation. The subsequent
+100 ms wait and recheck did not establish a synchronization boundary.
+
+**Merged candidate evidence from 6b041fd.** Import-path inspection confirmed that the VPS ran
+this exact merged source. The first attempt cancelled the initial Fullscreen offer, visibly
+typed `shutdown /l` and pressed Enter, then timed out on the fresh list. The second attempt
+skipped as `already_logged_off`. Fullscreen appeared later than 100 ms and intercepted the
+actual overflow click. The recovery below therefore starts from that click's timeout rather
+than from another observation delay.
 
 The broker remains the confirmation authority:
 
 - every confirmation read reloads `#/launchitems`, so the tiles are built from a list
   the broker sent, and reads the tile from that list. A client dialog on that fresh list,
   including Fullscreen over a list that already says `No Running items`, is cancelled
-  through the same Cancel-only helper as the morning capture. When that immediate check is
-  clean, the adapter waits at most 100 ms, and never beyond the remaining action budget,
-  for a visible Cancel or OK button. It then makes a second check through the same helper,
-  because fresh-list rendering can queue Fullscreen asynchronously. Only a visible Cancel
-  is clicked, and the read waits for both dialog buttons to be hidden before opening the
-  tile menu. OK is never accepted. An OK-only or otherwise
-  uncleared dialog blocks the read. The `No Running items` text never decides `NO_SESSION`;
-  only the tile's unchanged `canLogoff`-backed Log Off item does. A reload that lands on
-  the login form logs in again in a fresh context, which fetches the list as well;
+  through the same Cancel-only helper as the morning capture before the state read. Each
+  overflow click has a 1000 ms actionability bound within the remaining action budget. If
+  that click times out, the adapter requires the same helper to find a visible dialog and
+  waits for both existing dialog buttons to hide before retrying only the same read-only
+  menu opening. A timeout without a visible dialog is not retried. Only a visible Cancel is
+  clicked; OK is never accepted. An OK-only or otherwise uncleared dialog blocks the read.
+  The `No Running items` text never decides `NO_SESSION`; only the tile's unchanged
+  `canLogoff`-backed Log Off item does. A reload that lands on the login form logs in again
+  in a fresh context, which fetches the list as well;
 - the page is left on the last list fetched, so a `desktop_status()` after `log_off()`
   (the check-out's second read) reads the broker's state too. The port contract is
   unchanged;
@@ -456,12 +462,14 @@ clicks and the existing-Run input event; the plain-desktop regression retains th
 event, so the two states cannot silently collapse into one path. With
 `fullscreen_on_fresh_list`, the reloaded broker list carries a modal Fullscreen offer that
 blocks the tile menu until Cancel. `fullscreen_on_fresh_list_delay_ms` instead queues that
-offer asynchronously. The production-shaped acceptance scenario uses a 50 ms delay; the
-integration regression proves that the first check is absent, holds the overflow click
-until the offer is visible, and requires a fresh-list Cancel before the unchanged tile
-read. Both require no OK and confirmed `NO_SESSION` after one Enter. Separate hooks raise
-Fullscreen as the post-Run
-wait and pre-Enter screenshot return. Both regressions require Cancel, fresh painted
+offer asynchronously. The delayed acceptance scenarios use 50 ms and 250 ms offers. Their
+step holds the real overflow click until the modal is visible and requires a genuine
+Playwright timeout, so neither a fast menu open nor a synthetic exception can satisfy them.
+The 250 ms scenario is the merged-6b041fd control and was RED with `logoff_not_confirmed`.
+The integration regression proves that the first check is absent, records one real blocked
+overflow click, and requires a fresh-list Cancel before the unchanged tile read. All require
+no OK and confirmed `NO_SESSION` after one Enter. Separate hooks raise Fullscreen as the
+post-Run wait and pre-Enter screenshot return. Both regressions require Cancel, fresh painted
 readiness and surface focus before Ctrl+A, typing and Enter, no OK, exactly one Windows
 Enter and fresh `NO_SESSION`. A final-focus regression raises the offer after the last
 `focus()` and proves that its clean-dialog check blocks all further keys.
@@ -501,18 +509,19 @@ less than a sample needs. Every case the capture rule refuses returns `None` and
 file. The sign-out tests prove that a black desktop receives no Windows input and that a
 desktop painted later receives it only after the paint.
 
-Five acceptance scenarios drive this adapter on the fixture portal. Two run through the
+Six acceptance scenarios drive this adapter on the fixture portal. Two run through the
 check-in to the message the owner gets
 (`tests/acceptance/features/client_dialog_in_the_photo.feature`):
 
 - `A successful check-in's photo shows the desktop without a client dialog`
 - `A client dialog that cannot be dismissed leaves the check-in a text success`
 
-Three scenarios in `tests/acceptance/features/windows_sign_out.feature` drive the evening
+Four scenarios in `tests/acceptance/features/windows_sign_out.feature` drive the evening
 adapter directly:
 
 - `Windows Win+X sign-out is confirmed by a fresh broker list`
 - `An already-open Windows Run dialog is reused without Win+X`
+- `Fullscreen intercepting a fresh-list menu click is cancelled before retry`
 - `Fullscreen arising in Run input gaps is cancelled before Windows input`
 
 The check-in scenarios read the photo with `tests/support/photo.py`, which

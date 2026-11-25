@@ -130,4 +130,5 @@ and carries no status. The Tracker cell holds `-` until the beads are created, a
 
 - [ ] Scenario: `Windows Win+X sign-out is confirmed by a fresh broker list`
 - [ ] Scenario: `An already-open Windows Run dialog is reused without Win+X`
+- [ ] Scenario: `Fullscreen intercepting a fresh-list menu click is cancelled before retry`
 - [ ] Scenario: `Evening check-out on an already logged-off desktop reports it and stops`

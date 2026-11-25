@@ -30,6 +30,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from horizon_tracker.domain.ports import HorizonClient, HorizonClientError
 from horizon_tracker.domain.report import Reason
@@ -43,7 +44,7 @@ from horizon_tracker.infrastructure.horizon_playwright import (
 from tests.support.htmlaccess_portal import (
     DESKTOP,
     FAST,
-    FRESH_LIST_DIALOG_DELAY_MS,
+    FRESH_LIST_CLICK_INTERCEPT_DELAY_MS,
     PASSWORD,
     QUOTED_DESKTOP,
     USERNAME,
@@ -633,7 +634,7 @@ def test_log_off_cancels_fullscreen_on_a_fresh_list_before_confirmation(
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
-def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
+def test_log_off_retries_the_fresh_tile_menu_after_fullscreen_blocks_its_click(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,
     monkeypatch: pytest.MonkeyPatch,
@@ -642,7 +643,7 @@ def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
     portal.state.paint_desktop = "rgb(0, 120, 215)"
     portal.state.run_already_open = True
     portal.state.fullscreen_on_fresh_list = True
-    portal.state.fullscreen_on_fresh_list_delay_ms = FRESH_LIST_DIALOG_DELAY_MS
+    portal.state.fullscreen_on_fresh_list_delay_ms = FRESH_LIST_CLICK_INTERCEPT_DELAY_MS
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
     page = client._page
@@ -650,6 +651,7 @@ def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
     fresh_list_reloaded = False
     dialog_cancelled = False
     first_check_absent: list[bool] = []
+    blocked_overflow_clicks = 0
     real_reload = client._reload_launch_items
     real_dialog_check = client._dialog_in_the_way
     real_click = Locator.click
@@ -661,11 +663,11 @@ def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
 
     def observe_first_dialog_check(observed_page: Page, deadline: float) -> bool:
         if fresh_list_reloaded and not first_check_absent:
-            first_check_absent.append(not observed_page.locator("#dialog").is_visible())
+            first_check_absent.append(not observed_page.locator("#logoffDialog").is_visible())
         return real_dialog_check(observed_page, deadline)
 
     def click(locator: Locator, *args: Any, **kwargs: Any) -> None:
-        nonlocal dialog_cancelled
+        nonlocal dialog_cancelled, blocked_overflow_clicks
         if fresh_list_reloaded and not dialog_cancelled:
             element_id = locator.get_attribute("id")
             classes = locator.get_attribute("class") or ""
@@ -674,10 +676,17 @@ def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
                 dialog_cancelled = True
                 return
             if "overflow-button" in classes:
-                # Hold the tile interaction until the asynchronous offer is visible. The
-                # old immediate check then clicks under the modal and times out.
-                page.locator("#dialog").wait_for(state="visible", timeout=1_000)
-                assert page.locator("#dialog").is_visible()
+                # Hold the real tile interaction until the offer, later than the retired
+                # 100 ms observation window, is visible. Only a genuine Playwright timeout
+                # counts as interception; no test substitute raises one for the adapter.
+                page.locator("#logoffDialog").wait_for(state="visible", timeout=1_000)
+                assert page.locator("#logoffDialog").is_visible()
+                try:
+                    real_click(locator, *args, **kwargs)
+                except PlaywrightTimeoutError:
+                    blocked_overflow_clicks += 1
+                    raise
+                return
         real_click(locator, *args, **kwargs)
 
     monkeypatch.setattr(client, "_reload_launch_items", reload_fresh_list)
@@ -687,10 +696,62 @@ def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
     client.log_off(DESKTOP)
 
     assert first_check_absent == [True]
+    assert blocked_overflow_clicks == 1
     events = portal.state.events
     assert "fullscreen-cancelled-fresh-list" in events
     assert "fullscreen-accepted-fresh-list" not in events
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_log_off_reraises_a_fresh_menu_timeout_without_a_client_dialog(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: an unrelated overlay blocks the fresh menu without offering a client dialog.
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    real_click = Locator.click
+    fresh_menu_attempts = 0
+    actionability_timeouts = 0
+
+    def block_fresh_menu(locator: Locator, *args: Any, **kwargs: Any) -> None:
+        nonlocal fresh_menu_attempts, actionability_timeouts
+        classes = locator.get_attribute("class") or ""
+        if "overflow-button" in classes and "windows-sign-out" in portal.state.events:
+            fresh_menu_attempts += 1
+            if fresh_menu_attempts == 1:
+                locator.page.evaluate(
+                    """() => {
+                        const overlay = document.createElement('div');
+                        overlay.id = 'unrelated-blocking-overlay';
+                        overlay.style.cssText =
+                            'position:fixed;inset:0;z-index:2147483647;background:transparent';
+                        document.body.appendChild(overlay);
+                    }"""
+                )
+            try:
+                real_click(locator, *args, **kwargs)
+            except PlaywrightTimeoutError:
+                actionability_timeouts += 1
+                raise
+            raise AssertionError("The unrelated overlay did not cause a real actionability timeout")
+        real_click(locator, *args, **kwargs)
+
+    monkeypatch.setattr(Locator, "click", block_fresh_menu)
+
+    # Act
+    fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    # Assert: the timeout escapes immediately instead of being mistaken for Fullscreen.
+    assert fresh_menu_attempts == 1
+    assert actionability_timeouts == 1
+    assert portal.state.events.count("windows-sign-out") == 1
+    assert "fullscreen-cancelled-fresh-list" not in portal.state.events
+    assert "fullscreen-accepted-fresh-list" not in portal.state.events
 
 
 @pytest.mark.parametrize("gap", ["post-run-wait", "pre-enter-screenshot"])

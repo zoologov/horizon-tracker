@@ -7,7 +7,7 @@
 
 ## Current Bead
 
-**Bead:** ht-51k — Verify the delayed-dialog correction in production
+**Bead:** ht-51k — Verify the click-interception recovery in production
 **Goal:** Exercise the corrected fresh-list confirmation path on the VPS and check the attendance record.
 **Done when:** A first check-out attempt with an existing session confirms `NO_SESSION` and the attendance record observes Windows sign-out.
 
@@ -31,6 +31,7 @@
 - [x] Post-Run wait, pre-Enter screenshot and final-focus Fullscreen gaps reproduced RED and guarded GREEN locally
 - [x] PR #24 Linux fresh-list fixture race reproduced deterministically and corrected without a production guard change
 - [x] Merged candidate 5a81342's delayed fresh-list Fullscreen race reproduced RED and corrected GREEN locally
+- [x] Merged candidate 6b041fd's beyond-100 ms actual-click interception reproduced RED and recovered GREEN locally
 - [ ] Release v1.1.6 through the tag workflow
 - [ ] Production check-in → check-out and attendance-record verification after deployment
 
@@ -38,10 +39,10 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Delayed fresh-list Fullscreen absent at the first check and visible before tile interaction now receives a 100 ms bounded wait/recheck through the morning Cancel-only helper; race checks 20/20 tree and 10/10 clean room, full room green with 3 macOS baselines deselected; Gate green |
-| ht-0tu | Done | Delayed fresh-list Fullscreen old-behavior controls RED with logoff_not_confirmed/TimeoutError; corrected integration+acceptance 20/20 tree and 20/20 room; room targeted 81 passed, 92.01% coverage; full 2045 passed, 5 skipped, 3 macOS baselines deselected; static and Beadloom validation green |
+| ht-oe6 | Done | Merged 6b041fd still failed live because Fullscreen arrived beyond 100 ms and intercepted the real fresh-list overflow click. New acceptance and integration controls were RED with logoff_not_confirmed/TimeoutError. The 100 ms wait is removed: a 1000 ms actionability-bounded click catches only PlaywrightTimeoutError, requires the existing morning Cancel-only helper and both existing buttons hidden, then retries only the same read-only menu opening within action_ms. Controls passed 20/20 tree and 10/10 clean room; full tree and room each passed 2046 tests, 5 skipped, 3 macOS baselines deselected; static checks and Gate green. No OK, No Running items inference, repeated Enter/Log Off, public API or live access. |
+| ht-0tu | Done | Independently restored HEAD 6b041fd in a disposable room: beyond-100 ms integration and acceptance controls were RED with logoff_not_confirmed/TimeoutError from real overflow clicks. Corrected controls passed 20/20 each on the tree and 20/20 each in room-ht-0tu. Added one no-dialog actionability-timeout regression proving re-raise, one attempt, no Cancel/OK and no repeated Windows sign-out. Targeted: 83 passed, 3 macOS baselines deselected; 92.18% coverage (484 statements, 130 branches). Full room: 2047 passed, 5 skipped, 3 deselected in 272.54 s. Static and Beadloom checks green. Source audit confirmed only the morning Cancel-only helper, both buttons hidden before retry, the read-only canLogoff-backed menu read, and no No Running items inference or repeated Enter/Log Off. |
 | ht-pea | Done | Final independent re-review OK |
-| ht-ga0 | Done | Delayed fresh-list Fullscreen 100 ms bounded wait, second Cancel-only helper check, button-hide barrier and unchanged canLogoff-backed NO_SESSION read documented; No Running items explicitly non-authoritative; measured Run geometry and input guards preserved; assigned pairs ok, stale 0; reindex/lint/doctor/Gate/diff checks passed |
+| ht-ga0 | Done | Actual fresh-list overflow-click timeout recovery documented: the Cancel-only helper, both-button hidden barrier and same read-only menu retry precede the unchanged canLogoff-backed NO_SESSION read. Adapter Testing now lists all six fixture-backed acceptance scenarios, including four Windows sign-out scenarios and the omitted menu-interception case. Related infrastructure and portal prose already matched; assigned pairs ok, stale 0; reindex/lint/doctor/Gate/diff checks passed |
 
 ## Notes
 

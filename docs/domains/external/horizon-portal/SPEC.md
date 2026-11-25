@@ -98,13 +98,14 @@ never a broker document's content.
   This asks Windows to end its own session. The adapter sends no Meta+R or tile-menu
   `kill-session` request; the broker's fresh launch-items list remains the confirmation
   authority. A Fullscreen dialog on that fresh list is cancelled (Cancel, never OK), even
-  when the list already says `No Running items`. If the immediate Cancel-only helper check
-  is clean, the adapter waits at most 100 ms for a visible dialog button and repeats that
-  helper check, covering an offer queued by fresh-list rendering. Only a visible Cancel is
-  clicked. Both dialog buttons must be hidden before the tile menu opens. An OK-only or
-  otherwise uncleared dialog blocks the read rather than being
-  bypassed. The list's visible text never decides the session state; the tile's unchanged
-  `canLogoff`-backed Log Off item remains authoritative.
+  when the list already says `No Running items`. The existing morning Cancel-only helper
+  runs before the state read. Each overflow click has a 1000 ms actionability bound within
+  the existing action budget. If Fullscreen intercepts that click, its specific Playwright
+  timeout triggers the same helper again. Both existing dialog buttons must be hidden before
+  the adapter retries only the same read-only menu opening. A timeout without a visible
+  dialog is not retried. An OK-only or otherwise uncleared dialog blocks the read rather
+  than being bypassed. The list's visible text never decides the session state; the tile's
+  unchanged `canLogoff`-backed Log Off item remains authoritative.
 
 ## Invariants
 

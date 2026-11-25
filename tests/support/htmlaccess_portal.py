@@ -56,6 +56,9 @@ FAST = HorizonTimeouts(
     desktop_paint_ms=600,
 )
 FRESH_LIST_DIALOG_DELAY_MS = 50
+# Later than the retired 100 ms observation window; the test holds the real overflow click
+# until this offer is visible, so the browser rather than a fake exception proves interception.
+FRESH_LIST_CLICK_INTERCEPT_DELAY_MS = 250
 # How long a kill-session the broker never answers holds its handler thread when the
 # test does not release it first.
 UNANSWERED_HOLD_S = 30.0

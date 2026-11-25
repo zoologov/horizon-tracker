@@ -24,6 +24,17 @@ Feature: Windows sign-out through Horizon HTML Access
     And no kill-session command reached the broker
     And the desktop has no session on the fixture broker
 
+  Scenario: Fullscreen intercepting a fresh-list menu click is cancelled before retry
+    Given the fixture portal's desktop has a disconnected session
+    And the fixture Windows Run dialog is already open at the v1.1.6 production geometry
+    And the fixture offers Fullscreen beyond the old fresh-list observation window
+    When the Playwright client logs off "DEV desktop"
+    Then the blocked fresh-list overflow click was retried after Cancel without OK
+    And Windows received the existing Run field, "shutdown /l" and Enter in order
+    And Windows received Enter exactly once
+    And no kill-session command reached the broker
+    And the desktop has no session on the fixture broker
+
   Scenario: Fullscreen arising in Run input gaps is cancelled before Windows input
     Given the fixture portal's desktop has a disconnected session
     And the fixture Windows Run dialog is already open at the v1.1.6 production geometry
