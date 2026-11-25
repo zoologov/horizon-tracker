@@ -222,18 +222,31 @@ screenshot said `No Running items` behind a Fullscreen dialog. The broker read h
 to open the tile menu without cancelling that modal. The corrected candidate measures
 the live Run geometry, accepts its contrasting border and cancels a fresh-list dialog
 before reading the tile. Offline browser checks recognise all three desktop evidence
-frames and reject the launch-list frame. The corrected candidate has not been retested
-against the live portal.
+frames and reject the launch-list frame.
+
+**Merged candidate evidence from 5a81342.** The exact merged source ran from the VPS
+candidate directory after a successful production check-in. Attempt 1 visibly typed
+`shutdown /l` and pressed Enter, then timed out. Its final fresh-list screenshot showed
+`No Running items` behind Fullscreen, but no fresh-list Cancel was logged: this offer
+appeared after the immediate pre-menu check. Attempt 2 skipped as `already_logged_off`,
+which proves Windows ended but is not first-attempt `NO_SESSION` confirmation. The bounded
+wait and recheck below address that asynchronous appearance without treating the visible
+list text as the broker verdict.
 
 The broker remains the confirmation authority:
 
 - every confirmation read reloads `#/launchitems`, so the tiles are built from a list
   the broker sent, and reads the tile from that list. A client dialog on that fresh list,
   including Fullscreen over a list that already says `No Running items`, is cancelled
-  through the same Cancel-only helper as the morning capture, and the read waits for both
-  dialog buttons to disappear before opening the tile menu. OK is never accepted. An
-  OK-only or otherwise uncleared dialog blocks the read. A reload that lands on the login
-  form logs in again in a fresh context, which fetches the list as well;
+  through the same Cancel-only helper as the morning capture. When that immediate check is
+  clean, the adapter waits at most 100 ms, and never beyond the remaining action budget,
+  for a visible Cancel or OK button. It then makes a second check through the same helper,
+  because fresh-list rendering can queue Fullscreen asynchronously. Only a visible Cancel
+  is clicked, and the read waits for both dialog buttons to be hidden before opening the
+  tile menu. OK is never accepted. An OK-only or otherwise
+  uncleared dialog blocks the read. The `No Running items` text never decides `NO_SESSION`;
+  only the tile's unchanged `canLogoff`-backed Log Off item does. A reload that lands on
+  the login form logs in again in a fresh context, which fetches the list as well;
 - the page is left on the last list fetched, so a `desktop_status()` after `log_off()`
   (the check-out's second read) reads the broker's state too. The port contract is
   unchanged;
@@ -442,8 +455,12 @@ focused blue borders, and starts with its field active. The regression requires 
 clicks and the existing-Run input event; the plain-desktop regression retains the Win+X
 event, so the two states cannot silently collapse into one path. With
 `fullscreen_on_fresh_list`, the reloaded broker list carries a modal Fullscreen offer that
-blocks the tile menu until Cancel. The same regression requires one Cancel, no OK and a
-confirmed `NO_SESSION` after one Enter. Separate hooks raise Fullscreen as the post-Run
+blocks the tile menu until Cancel. `fullscreen_on_fresh_list_delay_ms` instead queues that
+offer asynchronously. The production-shaped acceptance scenario uses a 50 ms delay; the
+integration regression proves that the first check is absent, holds the overflow click
+until the offer is visible, and requires a fresh-list Cancel before the unchanged tile
+read. Both require no OK and confirmed `NO_SESSION` after one Enter. Separate hooks raise
+Fullscreen as the post-Run
 wait and pre-Enter screenshot return. Both regressions require Cancel, fresh painted
 readiness and surface focus before Ctrl+A, typing and Enter, no OK, exactly one Windows
 Enter and fresh `NO_SESSION`. A final-focus regression raises the offer after the last

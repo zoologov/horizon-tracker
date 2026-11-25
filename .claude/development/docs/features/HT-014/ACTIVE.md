@@ -7,9 +7,9 @@
 
 ## Current Bead
 
-**Bead:** ht-51k — Verify the corrected Windows sign-out candidate in production
-**Goal:** Exercise the corrected existing-Run and fresh-list confirmation path on the VPS and check the attendance record.
-**Done when:** A production check-out with an existing session confirms `NO_SESSION` and the attendance record observes Windows sign-out.
+**Bead:** ht-51k — Verify the delayed-dialog correction in production
+**Goal:** Exercise the corrected fresh-list confirmation path on the VPS and check the attendance record.
+**Done when:** A first check-out attempt with an existing session confirms `NO_SESSION` and the attendance record observes Windows sign-out.
 
 ## Progress
 
@@ -30,6 +30,7 @@
 - [x] v1.1.6 Run geometry and fresh-list Fullscreen failures reproduced and corrected locally
 - [x] Post-Run wait, pre-Enter screenshot and final-focus Fullscreen gaps reproduced RED and guarded GREEN locally
 - [x] PR #24 Linux fresh-list fixture race reproduced deterministically and corrected without a production guard change
+- [x] Merged candidate 5a81342's delayed fresh-list Fullscreen race reproduced RED and corrected GREEN locally
 - [ ] Release v1.1.6 through the tag workflow
 - [ ] Production check-in → check-out and attendance-record verification after deployment
 
@@ -37,10 +38,10 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Fixture configuration now precedes initial rendering; deterministic regression passed 20/20 on the tree and 10/10 in the clean room, full room 2044 passed, 5 skipped, 3 baseline deselected; Gate green |
-| ht-0tu | Done | Independent pre-fix control RED with the exact PR #24 Linux event list; corrected regression 20/20 tree and 20/20 room; room targeted 80 passed, 91.89% coverage; full 2044 passed, 5 skipped, 3 baseline deselected |
+| ht-oe6 | Done | Delayed fresh-list Fullscreen absent at the first check and visible before tile interaction now receives a 100 ms bounded wait/recheck through the morning Cancel-only helper; race checks 20/20 tree and 10/10 clean room, full room green with 3 macOS baselines deselected; Gate green |
+| ht-0tu | Done | Delayed fresh-list Fullscreen old-behavior controls RED with logoff_not_confirmed/TimeoutError; corrected integration+acceptance 20/20 tree and 20/20 room; room targeted 81 passed, 92.01% coverage; full 2045 passed, 5 skipped, 3 macOS baselines deselected; static and Beadloom validation green |
 | ht-pea | Done | Final independent re-review OK |
-| ht-ga0 | Done | Measured Run bands and contrasting borders, fresh-list Cancel-only handling and post-wait/pre-Enter/final-focus guards documented; assigned pairs ok, stale 0; reindex/lint/doctor/Gate/diff checks passed |
+| ht-ga0 | Done | Delayed fresh-list Fullscreen 100 ms bounded wait, second Cancel-only helper check, button-hide barrier and unchanged canLogoff-backed NO_SESSION read documented; No Running items explicitly non-authoritative; measured Run geometry and input guards preserved; assigned pairs ok, stale 0; reindex/lint/doctor/Gate/diff checks passed |
 
 ## Notes
 

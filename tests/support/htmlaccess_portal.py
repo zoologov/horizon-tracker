@@ -55,6 +55,7 @@ FAST = HorizonTimeouts(
     poll_ms=100,
     desktop_paint_ms=600,
 )
+FRESH_LIST_DIALOG_DELAY_MS = 50
 # How long a kill-session the broker never answers holds its handler thread when the
 # test does not release it first.
 UNANSWERED_HOLD_S = 30.0
@@ -103,6 +104,8 @@ class PortalState:
     run_already_open: bool = False
     # A freshly loaded launch-items list carries one cancellable Fullscreen offer.
     fullscreen_on_fresh_list: bool = False
+    # The offer can appear asynchronously after the first post-reload dialog check.
+    fullscreen_on_fresh_list_delay_ms: int = 0
     # Test hooks raise Fullscreen as the post-Run wait or pre-Enter screenshot returns.
     fullscreen_after_run_wait: bool = False
     fullscreen_on_pre_enter_screenshot: bool = False
@@ -155,6 +158,9 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "repaint_desktop_after_ms": self.state.repaint_desktop_after_ms,
                     "run_already_open": self.state.run_already_open,
                     "fullscreen_on_fresh_list": self.state.fullscreen_on_fresh_list,
+                    "fullscreen_on_fresh_list_delay_ms": (
+                        self.state.fullscreen_on_fresh_list_delay_ms
+                    ),
                     "fullscreen_again_after_ms": self.state.fullscreen_again_after_ms,
                     "fullscreen_on_surface_click": self.state.fullscreen_on_surface_click,
                     "fullscreen_on_start_click": self.state.fullscreen_on_start_click,
