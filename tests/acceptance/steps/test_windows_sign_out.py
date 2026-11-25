@@ -5,13 +5,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from playwright.sync_api import Page
+from playwright.sync_api import Locator, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from tests.support.htmlaccess_portal import (
     FAST,
+    FRESH_LIST_CLICK_INTERCEPT_DELAY_MS,
     FRESH_LIST_DIALOG_DELAY_MS,
     PASSWORD,
     USERNAME,
@@ -50,6 +52,8 @@ def windows_client(
     )
     real_wait = Page.wait_for_timeout
     real_screenshot = Page.screenshot
+    real_click = Locator.click
+    fresh_list_click_held = False
 
     def wait_then_offer_fullscreen(page: Page, timeout: float) -> None:
         real_wait(page, timeout)
@@ -64,8 +68,29 @@ def windows_client(
             offer_fullscreen(page, fixture_portal.state, "fullscreen-offered-pre-enter")
         return png
 
+    def click_with_fresh_list_interception(locator: Locator, *args: Any, **kwargs: Any) -> None:
+        nonlocal fresh_list_click_held
+        classes = locator.get_attribute("class") or ""
+        should_hold = (
+            not fresh_list_click_held
+            and "overflow-button" in classes
+            and fixture_portal.state.fullscreen_on_fresh_list_delay_ms > 0
+            and "windows-sign-out" in fixture_portal.state.events
+        )
+        if should_hold:
+            fresh_list_click_held = True
+            locator.page.locator("#logoffDialog").wait_for(state="visible", timeout=1_000)
+            try:
+                real_click(locator, *args, **kwargs)
+            except PlaywrightTimeoutError:
+                fixture_portal.state.record("fresh-list-overflow-click-blocked")
+                raise
+            raise AssertionError("Fullscreen did not intercept the fresh-list overflow click")
+        real_click(locator, *args, **kwargs)
+
     monkeypatch.setattr(Page, "wait_for_timeout", wait_then_offer_fullscreen)
     monkeypatch.setattr(Page, "screenshot", screenshot_then_offer_fullscreen)
+    monkeypatch.setattr(Locator, "click", click_with_fresh_list_interception)
     yield client
     client.close()
 
@@ -90,6 +115,12 @@ def fullscreen_over_fresh_list(fixture_portal: Portal) -> None:
 def delayed_fullscreen_over_fresh_list(fixture_portal: Portal) -> None:
     fullscreen_over_fresh_list(fixture_portal)
     fixture_portal.state.fullscreen_on_fresh_list_delay_ms = FRESH_LIST_DIALOG_DELAY_MS
+
+
+@given("the fixture offers Fullscreen beyond the old fresh-list observation window")
+def click_intercepting_fullscreen_over_fresh_list(fixture_portal: Portal) -> None:
+    fullscreen_over_fresh_list(fixture_portal)
+    fixture_portal.state.fullscreen_on_fresh_list_delay_ms = FRESH_LIST_CLICK_INTERCEPT_DELAY_MS
 
 
 @given("the fixture offers Fullscreen during the post-Run wait")
@@ -133,6 +164,14 @@ def no_winx_sequence(fixture_portal: Portal) -> None:
 @then("the fresh-list Fullscreen offer was cancelled without OK")
 def fresh_list_fullscreen_cancelled(fixture_portal: Portal) -> None:
     events = fixture_portal.state.events
+    assert "fullscreen-cancelled-fresh-list" in events
+    assert "fullscreen-accepted-fresh-list" not in events
+
+
+@then("the blocked fresh-list overflow click was retried after Cancel without OK")
+def blocked_fresh_list_click_retried(fixture_portal: Portal) -> None:
+    events = fixture_portal.state.events
+    assert "fresh-list-overflow-click-blocked" in events
     assert "fullscreen-cancelled-fresh-list" in events
     assert "fullscreen-accepted-fresh-list" not in events
 

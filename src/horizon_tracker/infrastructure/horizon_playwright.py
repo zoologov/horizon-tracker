@@ -101,9 +101,9 @@ BLAST_PATH_PREFIXES = ("/r/", "/d/")
 # so a slow dialog and the Blast delivery do not lose the first characters.
 _RUN_DIALOG_WAIT_MS = 2_000
 _WINDOWS_TYPE_DELAY_MS = 50
-# Fresh-list rendering can queue Fullscreen after the first dialog check. Give that
-# asynchronous appearance a short bound without delaying a clean read by action_ms.
-_FRESH_LIST_DIALOG_WAIT_MS = 100
+# One fresh-list overflow click gets a short actionability bound. A timeout is the signal
+# to cancel a dialog and retry that read-only click, never a delay that guesses its arrival.
+_FRESH_LIST_MENU_CLICK_MS = 1_000
 # Live-proven Windows coordinates on the owner's 1280x720 desktop. Every click is scaled
 # into the current CSS bounds of the remote surface rather than treated as a page pixel.
 _REMOTE_WIDTH = 1280.0
@@ -638,25 +638,37 @@ class PlaywrightHorizonClient:
         return SessionState.DISCONNECTED if offered else SessionState.NO_SESSION
 
     def _broker_session_state(self, name: str) -> SessionState:
-        """Read the fresh tile after a bounded wait for an asynchronous client dialog."""
+        """Read the fresh tile, recovering when Fullscreen intercepts its menu click."""
         self._reload_launch_items()
         page = self._live_page()
         deadline = time.monotonic() + self._timeouts.action_ms / 1000
-        dialog = self._dialog_in_the_way(page, deadline)
-        if not dialog:
-            shown_dialog = page.locator(f"{_SHOWN_DIALOG_CANCEL}, {_SHOWN_DIALOG_OK}")
-            with suppress(PlaywrightTimeoutError):
-                shown_dialog.first.wait_for(
-                    state="visible",
-                    timeout=min(_FRESH_LIST_DIALOG_WAIT_MS, _remaining_ms(deadline)),
-                )
-            dialog = self._dialog_in_the_way(page, deadline)
-        if dialog:
-            # Cancel-only dismissal is shared with the morning capture. An OK-only dialog
-            # stays unanswered and the bounded tile read fails instead of bypassing it.
-            for selector in (DIALOG_CANCEL, DIALOG_OK):
-                page.locator(selector).wait_for(state="hidden", timeout=_remaining_ms(deadline))
-        return self._tile_session_state(self._tile(name))
+        if self._dialog_in_the_way(page, deadline):
+            self._wait_for_client_dialog_hidden(page, deadline)
+        tile = self._tile(name)
+        offered = _offered(self._open_fresh_tile_menu(tile, deadline))
+        self._close_tile_menu(tile)
+        return SessionState.DISCONNECTED if offered else SessionState.NO_SESSION
+
+    def _open_fresh_tile_menu(self, tile: Locator, deadline: float) -> Locator:
+        """Open one fresh tile's menu, cancelling a dialog that blocks its overflow click."""
+        page = self._live_page()
+        button = tile.locator(TILE_MENU_BUTTON).first
+        while True:
+            try:
+                button.click(timeout=min(_FRESH_LIST_MENU_CLICK_MS, _remaining_ms(deadline)))
+                break
+            except PlaywrightTimeoutError:
+                if time.monotonic() >= deadline or not self._dialog_in_the_way(page, deadline):
+                    raise
+                self._wait_for_client_dialog_hidden(page, deadline)
+        menu = tile.locator(TILE_MENU)
+        menu.wait_for(state="visible", timeout=_remaining_ms(deadline))
+        return menu.locator(LOGOFF_MENU_ITEM)
+
+    def _wait_for_client_dialog_hidden(self, page: Page, deadline: float) -> None:
+        """Require both existing client dialog buttons to hide before any menu retry."""
+        for selector in (DIALOG_CANCEL, DIALOG_OK):
+            page.locator(selector).wait_for(state="hidden", timeout=_remaining_ms(deadline))
 
     # --- steps ------------------------------------------------------------------------
 
