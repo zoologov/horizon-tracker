@@ -19,9 +19,12 @@ Keep the `HorizonClient.log_off(name)` contract and the `EveningCheckout` use ca
 adapter, open the named desktop over Blast and wait until the remote desktop is drawn and ready for input. Right-click
 Start at remote `(20,700)`, left-click Run at `(85,600)` on the owner's 1280×720 desktop, scaling both points into the
 current surface bounds, then use **Ctrl+A**, type `shutdown /l` with pacing, capture the field, and press **Enter**
-once. Cancel any HTML Access dialog and restore painted readiness and surface focus at every action boundary. Then read
-freshly fetched launch items until the broker reports `NO_SESSION`, preserving the existing confirmation, failure and
-screenshot semantics. This live-proven Win+X path replaces both Meta+R and the broker's tile-menu `kill-session` path.
+once. When Run is already open, recognise its language-independent window and input geometry only after the HTML
+Access dialog guards and reuse it without another Start or Run click. An absent or uncertain Run reading retains the
+scaled Win+X path. Cancel any HTML Access dialog and restore painted readiness and surface focus at every action
+boundary. Then read freshly fetched launch items until the broker reports `NO_SESSION`, preserving the existing
+confirmation, failure and screenshot semantics. This live-proven Win+X path replaces both Meta+R and the broker's
+tile-menu `kill-session` path.
 
 The work is sequential: dev changes the adapter, test extends its local HTML Access fixture and adapter checks,
 review verifies the result, and tech-writer refreshes the affected documentation. No live portal login is permitted
@@ -126,4 +129,5 @@ and carries no status. The Tracker cell holds `-` until the beads are created, a
 ## Acceptance Criteria
 
 - [ ] Scenario: `Windows Win+X sign-out is confirmed by a fresh broker list`
+- [ ] Scenario: `An already-open Windows Run dialog is reused without Win+X`
 - [ ] Scenario: `Evening check-out on an already logged-off desktop reports it and stops`

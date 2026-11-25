@@ -7,9 +7,9 @@
 
 ## Current Bead
 
-**Bead:** ht-51k — Release v1.1.5 and verify production check-in → check-out
-**Goal:** Deploy the live-proven Win+X sign-out path, then create a session and close it with the production command.
-**Done when:** The host runs v1.1.5 and production `checkout --force` confirms `NO_SESSION` after opening and signing out of Windows.
+**Bead:** ht-51k — Release v1.1.6 and verify production check-in → check-out
+**Goal:** Deploy existing-Run reuse and the Win+X fallback, then create a session and close it with the production command.
+**Done when:** The host runs v1.1.6 and production `checkout --force` confirms `NO_SESSION` after opening and signing out of Windows.
 
 ## Progress
 
@@ -24,17 +24,20 @@
 - [x] Releases v1.1.1–v1.1.4 deployed; staged diagnostics isolated keyboard-focus and readiness failures
 - [x] Live diagnostic proved Start right-click → Run → `shutdown /l` → Enter ends Windows
 - [x] Production Win+X path, fixture/acceptance coverage, independent review and docs complete
-- [ ] Release v1.1.5 through the tag workflow
+- [x] v1.1.5 production check-in succeeded; checkout exposed an already-open Run state with no typing
+- [x] Guarded existing-Run detection and no-reopen fixture/acceptance coverage implemented
+- [x] Full validation, documentation refresh and landing without a version bump or live access
+- [ ] Release v1.1.6 through the tag workflow
 - [ ] Production check-in → check-out and attendance-record verification after deployment
 
 ## Results
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Live-proven scaled Win+X path; tree and clean room 2037 passed, 5 skipped, 3 baseline failures |
-| ht-0tu | Done | Scaled Win+X a5655fb: 48/48 regressions and 72 adapter tests passed; clean room 2037 passed, 5 skipped, 3 baseline failures |
+| ht-oe6 | Done | Guarded existing-Run reuse and Win+X fallback; tree and clean room 2039 passed, 5 skipped, 3 baseline failures |
+| ht-0tu | Done | Existing Run e52fefb: 8/8 state checks and 73 adapter tests passed; clean room 2039 passed, 5 skipped, 3 baseline failures |
 | ht-pea | Done | Final independent re-review OK |
-| ht-ga0 | Done | Win+X guards, paced input, pre-Enter evidence and staged live success documented; stale pairs 0 |
+| ht-ga0 | Done | Existing-Run geometry, direct typing, Win+X fallback and v1.1.5 readiness evidence documented; stale pairs 0 |
 
 ## Notes
 
@@ -49,3 +52,8 @@ port reuses the dialog/paint readiness and focus guards at every action boundary
 Enter. The diagnostic remains untracked. No live portal login was made from the development sandbox; the owner explicitly
 authorised the VPS checks. The existing `.beads/issues.jsonl` modification and untracked `.DS_Store` / metrics files
 predated HT-014 and are not part of its implementation.
+
+The v1.1.5 production check-in succeeded, but all three checkout attempts stopped at `Horizon desktop not ready for
+Windows input`. Their screenshots showed an empty Windows Run dialog left open by the staged diagnostics. The v1.1.6
+follow-up recognises that window's language-independent frame and input geometry only between HTML Access dialog guards,
+refocuses it and skips Win+X. A plain desktop or uncertain reading still uses the proven scaled Start/Run path.

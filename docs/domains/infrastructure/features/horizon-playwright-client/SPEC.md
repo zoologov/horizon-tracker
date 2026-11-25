@@ -29,7 +29,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
 | `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and either the grid's luminance range or a cell's chroma reaches 24, with no dialog in the frame, bounded by `desktop_paint_ms` (60 s); a blank, uniformly gray, or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | checks that the tile still has a session, opens the desktop, and at every action boundary cancels any client dialog, waits for painted input and restores surface focus. It right-clicks Start at remote `(20,700)`, left-clicks Run at `(85,600)`, scaling both owner-desktop coordinates into the surface bounds, waits 2 s, replaces the field through Ctrl+A and paced `shutdown /l` typing, captures checkout evidence, then presses Enter once. It polls freshly loaded launch-items lists until the tile has no session (see "Confirming a log off") and answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | checks that the tile still has a session, opens the desktop, and at every action boundary cancels any client dialog, waits for painted input and restores surface focus. It reuses an already-visible Windows Run dialog recognised by its remote frame/input geometry; otherwise it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`, scaling both owner-desktop coordinates into the surface bounds. It waits 2 s, replaces the field through Ctrl+A and paced `shutdown /l` typing, captures checkout evidence, then presses Enter once. Freshly loaded launch-items lists confirm the session is gone (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -115,6 +115,15 @@ can make the Fullscreen offer reappear. Cancel moves focus to the dialog button,
 final focus returns the next action to Windows. The adapter uses `focus()` rather than a
 click whose actionability could be blocked by a dialog between mouse-down and mouse-up.
 
+Before opening Run, the adapter looks for an existing one in a composited remote frame.
+The reading requires the standard window's light title and body, white input and dark
+input border in the owner desktop's expected geometry. It uses no localized title, OCR or
+HTML Access selector. HTML Access dialog guards run immediately before and after the
+frame, so Fullscreen cannot be interpreted as Windows Run. A positive reading skips
+Win+X and all mouse clicks. The readiness/refocus pass restores the remote surface's
+focus, and typing proceeds directly in the existing Run dialog. An absent or uncertain
+reading falls back to the scaled Win+X path.
+
 The Windows path is the one proven by the live diagnostic. On the owner's 1280×720 remote
 desktop it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`. Each point
 is scaled into the largest surface's current CSS bounding box; missing or empty bounds
@@ -122,10 +131,10 @@ stop the sequence before Windows input. These are explicit coordinates for that 
 not a claim about every Windows layout.
 
 Windows gives the browser no readiness signal for Run's edit field, so the adapter waits
-2 s after the Run click. Ctrl+A selects any existing partial command, then `shutdown /l`
-is typed with 50 ms between keys. After another readiness/refocus boundary, a checkout
-page screenshot preserves the field before one Enter. A missing screenshot does not
-change the logout verdict.
+2 s before typing whether Run was reused or opened. Ctrl+A selects any existing partial
+command, then `shutdown /l` is typed with 50 ms between keys. After another
+readiness/refocus boundary, a checkout page screenshot preserves the field before one
+Enter. A missing screenshot does not change the logout verdict.
 
 The adapter does not send Meta+R or the broker's tile-menu `kill-session` command. The old
 `_confirm_logoff_dialog()` and `_answers_kill_session()` path is gone.
@@ -174,10 +183,17 @@ with a scaled Start right-click and Run left-click. It used Ctrl+A to replace th
 command already in Run, typed `shutdown /l`, captured the field before Enter, and pressed
 Enter once. The Windows session ended, and a subsequent production check-out returned
 `already_logged_off` with exit 0. This proves the diagnostic sequence, not the new
-production implementation. The production path above ports that sequence and has passed
-local fixture and acceptance verification, but it has not itself been retested against
-the live portal. The diagnostic stays outside the tracked source and no sandbox run logs
-in to the live portal.
+production implementation. The production path above ports that sequence. Its v1.1.5
+live result follows. The diagnostic stays outside the tracked source and no sandbox run
+logs in to the live portal.
+
+**Production state evidence from v1.1.5.** On 2026-11-25, production check-in succeeded,
+but all three checkout attempts stopped at `Horizon desktop not ready for Windows input`.
+Each failure screenshot showed an empty Windows Run dialog left open by the staged
+diagnostics, and no typing occurred. The existing-Run state path above addresses that
+state without weakening the HTML Access dialog guards. It has passed local fixture and
+acceptance verification, but the new reuse implementation itself has not been retested
+against the live portal.
 
 The broker remains the confirmation authority:
 
@@ -327,9 +343,11 @@ succeeded therefore does not exit 1 on the way out.
 - `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
   one in-page decode.
 - Every sign-out action boundary requires painted and dialog-free readiness and restores
-  surface focus. Start and Run use the owner's remote `(20,700)` and `(85,600)` points,
-  scaled into the current surface bounds; missing or empty bounds stop the sequence.
-- After the Run click, `log_off` waits 2 s, presses Ctrl+A and types `shutdown /l` with
+  surface focus. An existing Windows Run is recognised only by its remote frame/input
+  geometry between HTML Access dialog guards and is never reopened. An absent or uncertain
+  reading uses Start `(20,700)` and Run `(85,600)`, scaled into the current surface bounds;
+  missing or empty bounds stop the sequence.
+- Once Run is available, `log_off` waits 2 s, presses Ctrl+A and types `shutdown /l` with
   50 ms between keys. It captures checkout evidence before exactly one Enter and never
   sends Meta+R.
 - A missing photograph never changes a step's verdict. `open_desktop` returns `None`
@@ -382,7 +400,11 @@ real client's focus requirement. Mouse coordinates are converted from the canvas
 into the 1280×720 remote space, so the sign-out regression proves coordinate scaling. It
 requires Start right-click, Run left-click, Ctrl+A, the typed command and Enter in order,
 with no Meta key and no broker `kill-session` request. Only the exact `shutdown /l`
-command ends the fixture Windows session.
+command ends the fixture Windows session. With `run_already_open`, the fixture instead
+draws Run's light frame, white input and dark border into the remote canvas and starts
+with its field active. The regression requires zero mouse clicks and the existing-Run
+input event; the plain-desktop regression retains the Win+X event, so the two states
+cannot silently collapse into one path.
 
 The fixture's Run dialog ignores command characters for its first 250 ms after either Run
 path. The sign-out regression asserts one 2000 ms wait, a 50 ms `Keyboard.type` delay and
@@ -419,16 +441,20 @@ less than a sample needs. Every case the capture rule refuses returns `None` and
 file. The sign-out tests prove that a black desktop receives no Windows input and that a
 desktop painted later receives it only after the paint.
 
-Three acceptance scenarios drive this adapter on the fixture portal. Two run through the
+Four acceptance scenarios drive this adapter on the fixture portal. Two run through the
 check-in to the message the owner gets
 (`tests/acceptance/features/client_dialog_in_the_photo.feature`):
 
 - `A successful check-in's photo shows the desktop without a client dialog`
 - `A client dialog that cannot be dismissed leaves the check-in a text success`
 
-`Windows Win+X sign-out is confirmed by a fresh broker list`
-(`tests/acceptance/features/windows_sign_out.feature`) drives the evening adapter
-directly. The check-in scenarios read the photo with `tests/support/photo.py`, which
+Two scenarios in `tests/acceptance/features/windows_sign_out.feature` drive the evening
+adapter directly:
+
+- `Windows Win+X sign-out is confirmed by a fresh broker list`
+- `An already-open Windows Run dialog is reused without Win+X`
+
+The check-in scenarios read the photo with `tests/support/photo.py`, which
 decodes the PNG in a browser page. Every scenario in the other features runs on a fake
 of the port (`tests/support/fakes.py`). A test on the fixture proves the fixture's
 contract. The live portal is reached only on the VPS.

@@ -84,10 +84,12 @@ never a broker document's content.
   browser context. Closing it closes the WebSocket: that is the quiet disconnect, and the
   Windows session lives on until the evening's sign-out.
 - **Windows sign-out.** The evening opens the desktop and guards every action with
-  painted/dialog-free readiness and restored surface focus. It right-clicks Start at
-  remote `(20,700)` and left-clicks Run at `(85,600)`, scaling both owner-desktop points
-  into the surface bounds, waits 2 s, replaces the field through Ctrl+A and paced
-  `shutdown /l` typing, captures checkout evidence, then presses Enter once.
+  painted/dialog-free readiness and restored surface focus. It reuses an existing Windows
+  Run dialog recognised by remote frame/input geometry between HTML Access dialog guards.
+  Otherwise it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`, scaling
+  both owner-desktop points into the surface bounds. It waits 2 s, replaces the field
+  through Ctrl+A and paced `shutdown /l` typing, captures checkout evidence, then presses
+  Enter once.
   This asks Windows to end its own session. The adapter sends no Meta+R or tile-menu
   `kill-session` request; the broker's fresh launch-items list remains the confirmation
   authority.

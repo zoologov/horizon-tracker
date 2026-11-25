@@ -50,6 +50,11 @@ def disconnected_session(fixture_portal: Portal) -> None:
     fixture_portal.state.paint_desktop = "rgb(0, 120, 215)"
 
 
+@given("the fixture Windows Run dialog is already open")
+def run_already_open(fixture_portal: Portal) -> None:
+    fixture_portal.state.run_already_open = True
+
+
 @when(parsers.parse('the Playwright client logs off "{desktop}"'))
 def log_off(windows_client: PlaywrightHorizonClient, desktop: str) -> None:
     windows_client.login()
@@ -66,6 +71,16 @@ def opened_before_sign_out(fixture_portal: Portal) -> None:
 def mouse_and_keyboard_sign_out(fixture_portal: Portal) -> None:
     sequence = "Win+X@20,700|Run@85,600|shutdown /l|Enter"
     assert f"windows-input:{sequence}" in fixture_portal.state.events
+
+
+@then('Windows received the existing Run field, "shutdown /l" and Enter in order')
+def existing_run_sign_out(fixture_portal: Portal) -> None:
+    assert "windows-input:Existing Run|shutdown /l|Enter" in fixture_portal.state.events
+
+
+@then("no Win+X mouse sequence reached Windows")
+def no_winx_sequence(fixture_portal: Portal) -> None:
+    assert not [event for event in fixture_portal.state.events if "Win+X@" in event]
 
 
 @then("no kill-session command reached the broker")

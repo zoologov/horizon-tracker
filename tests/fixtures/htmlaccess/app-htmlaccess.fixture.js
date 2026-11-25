@@ -58,6 +58,8 @@
 //    (paint_desktop): a painted Windows desktop, for a run that cannot paint it itself.
 //    A second colour and delay (repaint_desktop, repaint_desktop_after_ms) model a desktop
 //    that becomes painted only after the client has had time to show another dialog.
+//  - The page can draw an already-open Windows Run dialog (run_already_open) into the
+//    remote canvas, with a light frame, white input and dark border but no localized text.
 //  - The page can be told to offer Fullscreen again a while after the desktop drew
 //    (fullscreen_again_after_ms), as the live client did on 2026-10-24 after the adapter
 //    had cancelled the first offer, and to let that second offer ignore Cancel
@@ -392,6 +394,28 @@
       if (event.key.length === 1) { windowsCommand += event.key; }
     };
 
+    // Draws the owner desktop's standard Windows Run frame, not an HTML Access dialog.
+    // Its geometry deliberately carries no English or Russian text: production must use
+    // the window and input shape rather than OCR or a DOM selector.
+    function drawRunDialog(canvas) {
+      var context = canvas.getContext("2d");
+      context.fillStyle = "#f3f3f3";
+      context.fillRect(20, 480, 420, 190);
+      context.fillStyle = "#e8e8e8";
+      context.fillRect(21, 481, 418, 30);
+      context.strokeStyle = "#5a5a5a";
+      context.strokeRect(20, 480, 420, 190);
+      context.fillStyle = "#565656";
+      context.fillRect(80, 548, 340, 34);
+      context.fillStyle = "#ffffff";
+      context.fillRect(82, 550, 336, 30);
+      context.fillStyle = "#e1e1e1";
+      context.fillRect(245, 620, 85, 30);
+      context.fillRect(335, 620, 85, 30);
+      context.strokeRect(245, 620, 85, 30);
+      context.strokeRect(335, 620, 85, 30);
+    }
+
     // Draws once per Blast connection: a later answer to an offer must not clear the frame.
     function draw() {
       behaviour().then(function (portal) {
@@ -405,6 +429,7 @@
           context.fillStyle = portal.paint_desktop;
           context.fillRect(0, 0, canvas.width, canvas.height);
         }
+        if (portal.run_already_open) { drawRunDialog(canvas); }
         if (portal.repaint_desktop && portal.repaint_desktop_after_ms > 0) {
           setTimeout(function () {
             var repaint = canvas.getContext("2d");
@@ -431,6 +456,11 @@
     }
 
     behaviour().then(function (portal) {
+      if (portal.run_already_open) {
+        runDialog = true;
+        runReadyAt = Date.now();
+        inputPrefix = "Existing Run";
+      }
       window.blast = new WebSocket(scheme + location.host + portal.blast_path + id + "/");
       window.blast.addEventListener("open", function () { wmks = startWmks(); draw(); });
       window.blast.addEventListener("close", function () {

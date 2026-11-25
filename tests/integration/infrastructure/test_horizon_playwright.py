@@ -557,6 +557,42 @@ def test_log_off_opens_the_desktop_and_signs_out_through_scaled_winx_mouse(
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
+def test_log_off_reuses_an_already_open_run_without_winx(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    clicks: list[tuple[float, float, str | None]] = []
+    presses: list[str] = []
+    real_click = Mouse.click
+    real_press = Keyboard.press
+
+    def click(mouse: Mouse, x: float, y: float, *args: Any, **kwargs: Any) -> None:
+        clicks.append((x, y, kwargs.get("button")))
+        real_click(mouse, x, y, *args, **kwargs)
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        presses.append(key)
+        real_press(keyboard, key, *args, **kwargs)
+
+    monkeypatch.setattr(Mouse, "click", click)
+    monkeypatch.setattr(Keyboard, "press", press)
+
+    client.log_off(DESKTOP)
+
+    assert clicks == [], "an existing Windows Run dialog was reopened through Win+X"
+    assert presses == ["Control+A", "Enter"]
+    events = portal.state.events
+    assert "windows-input:Existing Run|shutdown /l|Enter" in events
+    assert not [event for event in events if "Win+X@" in event]
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
 def test_log_off_waits_for_a_painted_desktop_before_sending_windows_input(
     make_client: Callable[..., PlaywrightHorizonClient],
     portal: Portal,

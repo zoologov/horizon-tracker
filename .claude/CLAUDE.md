@@ -115,7 +115,7 @@ bd close <bead-id> --suggest-next
 - **Linter/formatter:** ruff (lint + format)
 - **Type checking:** mypy --strict
 - **Architecture:** DDD packages -- `application/`, `domain/`, `infrastructure/`
-- **Current version:** 1.1.5
+- **Current version:** 1.1.6
 <!-- beadloom:auto-end -->
 
 ---

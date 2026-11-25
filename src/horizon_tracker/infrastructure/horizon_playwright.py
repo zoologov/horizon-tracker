@@ -163,6 +163,49 @@ _LIT_CELLS = """async ({ data, side, channel }) => {
     }
     return { lit, luminanceRange: maxLuminance - minLuminance, maxChroma };
 }"""
+# Recognises the standard Run window on the owner's 1280x720 desktop by geometry, not
+# by its localised title or by HTML Access DOM. Three independent regions are required:
+# the light dialog/title, its white edit field and that field's dark border. This runs
+# only on a frame bracketed by the HTML Access dialog guards, never on the web dialog.
+_RUN_DIALOG_FRAME = """async (data) => {
+    const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+    const frame = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const canvas = document.createElement("canvas");
+    canvas.width = 1280;
+    canvas.height = 720;
+    const context = canvas.getContext("2d");
+    context.imageSmoothingEnabled = false;
+    context.drawImage(frame, 0, 0, 1280, 720);
+    frame.close();
+    const pixels = context.getImageData(0, 0, 1280, 720).data;
+    const ratio = (x0, y0, x1, y1, step, accepts) => {
+        let accepted = 0;
+        let total = 0;
+        for (let y = y0; y < y1; y += step) {
+            for (let x = x0; x < x1; x += step) {
+                const offset = (y * 1280 + x) * 4;
+                if (accepts(pixels[offset], pixels[offset + 1], pixels[offset + 2])) {
+                    accepted += 1;
+                }
+                total += 1;
+            }
+        }
+        return total === 0 ? 0 : accepted / total;
+    };
+    const light = (r, g, b) => (
+        Math.min(r, g, b) >= 200 && Math.max(r, g, b) - Math.min(r, g, b) <= 35
+    );
+    const white = (r, g, b) => Math.min(r, g, b) >= 225;
+    const dark = (r, g, b) => Math.max(r, g, b) <= 170;
+    const title = ratio(24, 484, 436, 510, 4, light);
+    const body = ratio(24, 514, 436, 665, 4, light);
+    const input = ratio(84, 552, 416, 578, 2, white);
+    const border = Math.min(
+        ratio(80, 548, 420, 550, 2, dark),
+        ratio(80, 580, 420, 582, 2, dark)
+    );
+    return title >= 0.75 && body >= 0.65 && input >= 0.85 && border >= 0.40;
+}"""
 _CANVAS_IS_DRAWN = """(selector) => Array.from(document.querySelectorAll(selector)).some(
     (canvas) => {
         const box = canvas.getBoundingClientRect();
@@ -428,8 +471,23 @@ class PlaywrightHorizonClient:
         surface.focus()
         return True
 
+    def _windows_run_is_open(self, page: Page, surface: Locator) -> bool:
+        """Recognise Windows Run in a frame bracketed by HTML Access dialog guards."""
+        deadline = time.monotonic() + self._timeouts.desktop_paint_ms / 1000
+        if self._dialog_in_the_way(page, deadline):
+            return False
+        png = surface.screenshot(type="png", timeout=_remaining_ms(deadline))
+        if self._dialog_in_the_way(page, deadline):
+            return False
+        return _run_dialog_in_frame(page, png)
+
     def _open_windows_run(self, page: Page, surface: Locator) -> bool:
-        """Open Windows Run through the live-proven, scaled Win+X mouse path."""
+        """Reuse visible Windows Run or open it through the scaled Win+X mouse path."""
+        if not self._refocus_ready_surface(surface):
+            return False
+        if self._windows_run_is_open(page, surface):
+            logger.info("Windows Run dialog already open; Win+X skipped")
+            return True
         return (
             self._refocus_ready_surface(surface)
             and _click_remote(page, surface, _START_X, _START_Y, "right")
@@ -774,6 +832,14 @@ def _largest_surface(page: Page) -> Locator | None:
     if not isinstance(index, int) or not isinstance(drawn, bool):
         raise ValueError("surface reading")
     return page.locator(_DESKTOP_SURFACE).nth(index) if drawn else None
+
+
+def _run_dialog_in_frame(page: Page, png: bytes) -> bool:
+    """Whether a composited frame has the owner desktop's Windows Run geometry."""
+    reading = page.evaluate(_RUN_DIALOG_FRAME, base64.b64encode(png).decode("ascii"))
+    if not isinstance(reading, bool):
+        raise ValueError("Run dialog reading")
+    return reading
 
 
 def _frame_is_painted(page: Page, png: bytes) -> bool:
