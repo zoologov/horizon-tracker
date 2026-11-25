@@ -29,6 +29,7 @@
 - [x] Full validation, documentation refresh and landing without a version bump or live access
 - [x] v1.1.6 Run geometry and fresh-list Fullscreen failures reproduced and corrected locally
 - [x] Post-Run wait, pre-Enter screenshot and final-focus Fullscreen gaps reproduced RED and guarded GREEN locally
+- [x] PR #24 Linux fresh-list fixture race reproduced deterministically and corrected without a production guard change
 - [ ] Release v1.1.6 through the tag workflow
 - [ ] Production check-in → check-out and attendance-record verification after deployment
 
@@ -36,8 +37,8 @@
 
 | Bead | Status | Details |
 |------|--------|---------|
-| ht-oe6 | Done | Post-Run wait and pre-Enter screenshot now restore painted/dialog-free focus; final focus gets a Cancel-only clean-dialog check. Clean room 2044 passed, 5 skipped, 3 baseline cases deselected |
-| ht-0tu | Done | Four Fullscreen-gap/final-focus regressions GREEN and four old-behavior controls RED; room-ht-0tu targeted 80 passed, 91.89% coverage; full 2044 passed, 5 skipped, 3 baseline deselected |
+| ht-oe6 | Done | Fixture configuration now precedes initial rendering; deterministic regression passed 20/20 on the tree and 10/10 in the clean room, full room 2044 passed, 5 skipped, 3 baseline deselected; Gate green |
+| ht-0tu | Done | Independent pre-fix control RED with the exact PR #24 Linux event list; corrected regression 20/20 tree and 20/20 room; room targeted 80 passed, 91.89% coverage; full 2044 passed, 5 skipped, 3 baseline deselected |
 | ht-pea | Done | Final independent re-review OK |
 | ht-ga0 | Done | Measured Run bands and contrasting borders, fresh-list Cancel-only handling and post-wait/pre-Enter/final-focus guards documented; assigned pairs ok, stale 0; reindex/lint/doctor/Gate/diff checks passed |
 
@@ -74,3 +75,10 @@ and restored surface focus now precede Ctrl+A, typing and exactly one Enter. The
 clean-dialog check that fails closed before another key. Existing-Run geometry, fresh-list confirmation, safe
 screenshots and the public contracts are unchanged. The full clean-room suite passed 2044 tests with 5 skips and only
 the three recorded macOS child-process cases deselected; no live portal or release action was taken.
+
+PR #24 CI run 45557757282 then failed on both Linux test legs because the fixture omitted the requested fresh-list
+Fullscreen dialog. Its initial route rendered before the asynchronous behaviour response, so a fast launch-items
+response won the race. Delaying only the behaviour response reproduced the CI event list and assertion exactly. The
+fixture now loads configuration before its first render; the adapter and its Cancel-only guard are unchanged. The
+regression passed 20/20 tree repetitions and 10/10 clean-room repetitions, and the clean-room suite passed 2044 tests
+with 5 skips and the three recorded macOS cases deselected. No Linux leg was entered locally.

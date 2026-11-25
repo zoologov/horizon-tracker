@@ -535,6 +535,8 @@
     fullscreenOnSurfaceClick = portal.fullscreen_on_surface_click;
     fullscreenOnStartClick = portal.fullscreen_on_start_click;
     fullscreenOnFreshList = portal.fullscreen_on_fresh_list;
+    // Configuration must precede the first route's asynchronous launch-items read. On a
+    // reload, rendering first lets that read win and silently drops the requested dialog.
+    render();
   });
-  render();
 }());

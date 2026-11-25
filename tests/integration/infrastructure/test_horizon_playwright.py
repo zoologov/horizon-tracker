@@ -26,6 +26,7 @@ from playwright.sync_api import (
     Locator,
     Mouse,
     Page,
+    Route,
     sync_playwright,
 )
 from playwright.sync_api import Error as PlaywrightError
@@ -57,6 +58,8 @@ from tests.support.photo import colours_unlike
 
 # The fixture page falls back to the login page this long after the desktop drew.
 DROP_TO_LOGIN_AFTER_MS = 300
+# Long enough for a fresh launch-items response to arrive before its fixture configuration.
+FRESH_LIST_CONFIG_DELAY_S = 0.1
 
 
 # --- the fixture portal ---------------------------------------------------------------
@@ -604,11 +607,25 @@ def test_log_off_cancels_fullscreen_on_a_fresh_list_before_confirmation(
     portal.state.fullscreen_on_fresh_list = True
     client = make_client(run_kind=RunKind.CHECKOUT)
     client.login()
+    page = client._page
+    assert page is not None
+    delayed_configs: list[str] = []
+
+    def delay_fresh_list_config(route: Route) -> None:
+        # CI can answer launch-items before the asynchronous behaviour request. Hold the
+        # configuration back so the requested fresh-list dialog cannot rely on that race.
+        delayed_configs.append(route.request.url)
+        time.sleep(FRESH_LIST_CONFIG_DELAY_S)
+        route.continue_()
+
+    page.route("**/fixture/behaviour", delay_fresh_list_config)
 
     # Act
     client.log_off(DESKTOP)
 
     # Assert
+    assert delayed_configs
+    assert set(delayed_configs) == {f"{portal.url}fixture/behaviour"}
     events = portal.state.events
     assert "fullscreen-cancelled-fresh-list" in events
     assert "fullscreen-accepted-fresh-list" not in events
