@@ -49,6 +49,7 @@ from tests.support.htmlaccess_portal import (
     RecordingArtifacts,
     chrome_for_tests,
     closed_port_url,
+    offer_fullscreen,
     serve_portal,
     wait_for,
 )
@@ -591,6 +592,153 @@ def test_log_off_reuses_an_already_open_run_without_winx(
     assert "windows-input:Existing Run|shutdown /l|Enter" in events
     assert not [event for event in events if "Win+X@" in event]
     assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_log_off_cancels_fullscreen_on_a_fresh_list_before_confirmation(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    # Arrange: the production post-Enter state has Run open and Fullscreen over NO_SESSION.
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    portal.state.fullscreen_on_fresh_list = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    # Act
+    client.log_off(DESKTOP)
+
+    # Assert
+    events = portal.state.events
+    assert "fullscreen-cancelled-fresh-list" in events
+    assert "fullscreen-accepted-fresh-list" not in events
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+@pytest.mark.parametrize("gap", ["post-run-wait", "pre-enter-screenshot"])
+def test_log_off_recancels_fullscreen_arising_in_an_async_gap_before_windows_input(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+    gap: str,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    offered = f"fullscreen-offered-{gap}"
+    presses: list[str] = []
+    dialog_at_input: list[bool] = []
+    focused_at_input: list[bool] = []
+    real_wait = Page.wait_for_timeout
+    real_screenshot = Page.screenshot
+    real_press = Keyboard.press
+    real_type = Keyboard.type
+
+    def observe_input(page: Page, key: str) -> None:
+        presses.append(key)
+        dialog_at_input.append(page.locator("#dialog").is_visible())
+        focused_at_input.append(
+            page.evaluate(
+                "document.activeElement === document.querySelector('#canvas-container canvas')"
+            )
+        )
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        page = client._page
+        assert page is not None
+        observe_input(page, key)
+        real_press(keyboard, key, *args, **kwargs)
+
+    def type_text(keyboard: Keyboard, text: str, *args: Any, **kwargs: Any) -> None:
+        page = client._page
+        assert page is not None
+        dialog_at_input.append(page.locator("#dialog").is_visible())
+        focused_at_input.append(
+            page.evaluate(
+                "document.activeElement === document.querySelector('#canvas-container canvas')"
+            )
+        )
+        real_type(keyboard, text, *args, **kwargs)
+
+    def wait_then_offer(page: Page, timeout: float) -> None:
+        real_wait(page, timeout)
+        if timeout == 2_000 and offered not in portal.state.events:
+            offer_fullscreen(page, portal.state, offered)
+
+    def screenshot_then_offer(page: Page, *args: Any, **kwargs: Any) -> bytes:
+        png = real_screenshot(page, *args, **kwargs)
+        if offered not in portal.state.events:
+            offer_fullscreen(page, portal.state, offered)
+        return png
+
+    monkeypatch.setattr(Keyboard, "press", press)
+    monkeypatch.setattr(Keyboard, "type", type_text)
+    if gap == "post-run-wait":
+        monkeypatch.setattr(Page, "wait_for_timeout", wait_then_offer)
+    else:
+        monkeypatch.setattr(Page, "screenshot", screenshot_then_offer)
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    assert offered in events
+    assert "fullscreen-cancelled" in events[events.index(offered) :]
+    assert "fullscreen-accepted" not in events
+    assert presses == ["Control+A", "Enter"], "Windows did not receive exactly one Enter"
+    assert dialog_at_input == [False, False, False]
+    assert focused_at_input == [True, True, True]
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_log_off_checks_for_a_dialog_after_the_final_focus_before_ctrl_a(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    run_wait_finished = False
+    focuses_after_wait = 0
+    offered = "fullscreen-offered-final-focus"
+    presses: list[str] = []
+    real_wait = Page.wait_for_timeout
+    real_focus = Locator.focus
+    real_press = Keyboard.press
+
+    def wait(page: Page, timeout: float) -> None:
+        nonlocal run_wait_finished
+        real_wait(page, timeout)
+        if timeout == 2_000:
+            run_wait_finished = True
+
+    def focus(locator: Locator, *args: Any, **kwargs: Any) -> None:
+        nonlocal focuses_after_wait
+        real_focus(locator, *args, **kwargs)
+        if run_wait_finished:
+            focuses_after_wait += 1
+        if focuses_after_wait == 2 and offered not in portal.state.events:
+            offer_fullscreen(locator.page, portal.state, offered)
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        presses.append(key)
+        real_press(keyboard, key, *args, **kwargs)
+
+    monkeypatch.setattr(Page, "wait_for_timeout", wait)
+    monkeypatch.setattr(Locator, "focus", focus)
+    monkeypatch.setattr(Keyboard, "press", press)
+
+    fails_with(Reason.LOGOFF_NOT_CONFIRMED, lambda: client.log_off(DESKTOP))
+
+    events = portal.state.events
+    assert offered in events
+    assert "fullscreen-cancelled" in events[events.index(offered) :]
+    assert "fullscreen-accepted" not in events
+    assert presses == [], "Ctrl+A or Enter reached a dialog raised by the final focus"
 
 
 def test_log_off_waits_for_a_painted_desktop_before_sending_windows_input(

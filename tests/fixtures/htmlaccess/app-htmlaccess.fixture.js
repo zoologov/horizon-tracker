@@ -59,7 +59,9 @@
 //    A second colour and delay (repaint_desktop, repaint_desktop_after_ms) model a desktop
 //    that becomes painted only after the client has had time to show another dialog.
 //  - The page can draw an already-open Windows Run dialog (run_already_open) into the
-//    remote canvas, with a light frame, white input and dark border but no localized text.
+//    remote canvas at the v1.1.6 production geometry, with a focused blue input border.
+//  - A freshly loaded launch-items list can carry one modal Fullscreen offer
+//    (fullscreen_on_fresh_list), as the v1.1.6 post-Enter failure screenshot did.
 //  - The page can be told to offer Fullscreen again a while after the desktop drew
 //    (fullscreen_again_after_ms), as the live client did on 2026-10-24 after the adapter
 //    had cancelled the first offer, and to let that second offer ignore Cancel
@@ -79,6 +81,8 @@
   var killSessionSync = false;
   var fullscreenOnSurfaceClick = false;
   var fullscreenOnStartClick = false;
+  var fullscreenOnFreshList = false;
+  var freshListFullscreenVisible = false;
   var wmksCount = 0;
   var windowsInputHandler = null;
   var windowsMouseHandler = null;
@@ -202,6 +206,7 @@
     overflow.addEventListener("click", function (event) {
       event.stopPropagation();
       event.preventDefault();
+      if (freshListFullscreenVisible) { return; }
       toggleMenu(item, launchButton);
     });
     nameBox.appendChild(element("p", { "class": "ui-desktop-name", title: item.name }, item.name));
@@ -264,10 +269,30 @@
 
     launchItems().then(function (items) {
       items.forEach(function (item) { list.appendChild(tile(item)); });
+      var navigation = performance.getEntriesByType("navigation")[0];
+      if (fullscreenOnFreshList && navigation && navigation.type === "reload") {
+        fullscreenOnFreshList = false;
+        freshListFullscreenVisible = true;
+        dialog.querySelector("[data-title]").textContent = "Fullscreen";
+        dialog.querySelector("[data-message]").textContent = "Click OK to grant permission for full screen";
+        dialog.hidden = false;
+        record("fullscreen-offered-fresh-list");
+      }
     }).catch(function () {});
-    byId("cancelDialogBtn").addEventListener("click", function () { dialog.hidden = true; });
+    byId("cancelDialogBtn").addEventListener("click", function () {
+      dialog.hidden = true;
+      if (freshListFullscreenVisible) {
+        freshListFullscreenVisible = false;
+        record("fullscreen-cancelled-fresh-list");
+      }
+    });
     byId("okDialogBtn").addEventListener("click", function () {
       dialog.hidden = true;
+      if (freshListFullscreenVisible) {
+        freshListFullscreenVisible = false;
+        record("fullscreen-accepted-fresh-list");
+        return;
+      }
       var item = loggingOff;
       item.logoffEnabled = false;
       broker("<set-last-user-activity/>");
@@ -394,26 +419,27 @@
       if (event.key.length === 1) { windowsCommand += event.key; }
     };
 
-    // Draws the owner desktop's standard Windows Run frame, not an HTML Access dialog.
-    // Its geometry deliberately carries no English or Russian text: production must use
-    // the window and input shape rather than OCR or a DOM selector.
+    // Draws the Run frame measured in the v1.1.6 production screenshot, without localized
+    // text: its focused edit field has a blue border, not the old fixture's dark one.
     function drawRunDialog(canvas) {
       var context = canvas.getContext("2d");
-      context.fillStyle = "#f3f3f3";
-      context.fillRect(20, 480, 420, 190);
-      context.fillStyle = "#e8e8e8";
-      context.fillRect(21, 481, 418, 30);
-      context.strokeStyle = "#5a5a5a";
-      context.strokeRect(20, 480, 420, 190);
-      context.fillStyle = "#565656";
-      context.fillRect(80, 548, 340, 34);
       context.fillStyle = "#ffffff";
-      context.fillRect(82, 550, 336, 30);
+      context.fillRect(16, 422, 432, 142);
+      context.fillStyle = "#f0f0f0";
+      context.fillRect(16, 564, 432, 64);
+      context.strokeStyle = "#5a5a5a";
+      context.strokeRect(16, 422, 432, 206);
+      context.fillStyle = "#ffffff";
+      context.fillRect(112, 520, 322, 24);
+      context.fillStyle = "#0078d7";
+      context.fillRect(112, 521, 322, 1);
+      context.fillRect(112, 543, 322, 1);
+      context.fillStyle = "#ffffff";
+      context.fillRect(114, 522, 318, 20);
       context.fillStyle = "#e1e1e1";
-      context.fillRect(245, 620, 85, 30);
-      context.fillRect(335, 620, 85, 30);
-      context.strokeRect(245, 620, 85, 30);
-      context.strokeRect(335, 620, 85, 30);
+      context.fillRect(154, 584, 86, 26);
+      context.fillRect(248, 584, 86, 26);
+      context.fillRect(344, 584, 86, 26);
     }
 
     // Draws once per Blast connection: a later answer to an offer must not clear the frame.
@@ -508,6 +534,7 @@
     killSessionSync = portal.kill_session_sync;
     fullscreenOnSurfaceClick = portal.fullscreen_on_surface_click;
     fullscreenOnStartClick = portal.fullscreen_on_start_click;
+    fullscreenOnFreshList = portal.fullscreen_on_fresh_list;
   });
   render();
 }());

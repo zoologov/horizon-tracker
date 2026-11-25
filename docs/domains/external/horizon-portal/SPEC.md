@@ -85,14 +85,22 @@ never a broker document's content.
   Windows session lives on until the evening's sign-out.
 - **Windows sign-out.** The evening opens the desktop and guards every action with
   painted/dialog-free readiness and restored surface focus. It reuses an existing Windows
-  Run dialog recognised by remote frame/input geometry between HTML Access dialog guards.
-  Otherwise it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`, scaling
-  both owner-desktop points into the surface bounds. It waits 2 s, replaces the field
-  through Ctrl+A and paced `shutdown /l` typing, captures checkout evidence, then presses
-  Enter once.
+  Run dialog recognised between HTML Access dialog guards by title/body/input geometry
+  measured from the v1.1.6 production frame. Its contrasting input border can be dark or
+  chromatic, including the focused field's one-pixel blue borders, which are sampled on
+  every row. Otherwise the adapter right-clicks Start at `(20,700)` and left-clicks Run at
+  `(85,600)`, scaling both owner-desktop points into the surface bounds.
+  After the 2 s Run wait, another Cancel/readiness/refocus boundary precedes Ctrl+A and
+  paced `shutdown /l` typing. A further boundary precedes the pre-Enter checkout evidence,
+  and one more follows that asynchronous screenshot immediately before exactly one Enter.
+  Every boundary's final focus gets a Cancel-only clean-dialog check and fails closed if
+  that focus raised another dialog.
   This asks Windows to end its own session. The adapter sends no Meta+R or tile-menu
   `kill-session` request; the broker's fresh launch-items list remains the confirmation
-  authority.
+  authority. A Fullscreen dialog on that fresh list is cancelled (Cancel, never OK), even
+  when the list already says `No Running items`, and both dialog buttons must be hidden
+  before the tile is read. An OK-only or otherwise uncleared dialog blocks the read rather
+  than being bypassed.
 
 ## Invariants
 
