@@ -26,6 +26,8 @@ from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from playwright.sync_api import Page
+
 from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.infrastructure.horizon_playwright import HorizonTimeouts
 from tests.support.repository_root import repository_root
@@ -99,6 +101,11 @@ class PortalState:
     fullscreen_again_after_ms: int = 0
     # The Windows Run dialog is already drawn in the remote canvas before checkout.
     run_already_open: bool = False
+    # A freshly loaded launch-items list carries one cancellable Fullscreen offer.
+    fullscreen_on_fresh_list: bool = False
+    # Test hooks raise Fullscreen as the post-Run wait or pre-Enter screenshot returns.
+    fullscreen_after_run_wait: bool = False
+    fullscreen_on_pre_enter_screenshot: bool = False
     # A surface click offers Fullscreen again, after the first readiness check.
     fullscreen_on_surface_click: bool = False
     # The Windows Start right-click raises one more HTML Access Fullscreen offer.
@@ -147,6 +154,7 @@ class PortalHandler(SimpleHTTPRequestHandler):
                     "repaint_desktop": self.state.repaint_desktop,
                     "repaint_desktop_after_ms": self.state.repaint_desktop_after_ms,
                     "run_already_open": self.state.run_already_open,
+                    "fullscreen_on_fresh_list": self.state.fullscreen_on_fresh_list,
                     "fullscreen_again_after_ms": self.state.fullscreen_again_after_ms,
                     "fullscreen_on_surface_click": self.state.fullscreen_on_surface_click,
                     "fullscreen_on_start_click": self.state.fullscreen_on_start_click,
@@ -366,6 +374,17 @@ def closed_port_url() -> str:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     return f"http://127.0.0.1:{port}/"
+
+
+def offer_fullscreen(page: Page, state: PortalState, event: str) -> None:
+    """Raise the fixture's desktop Fullscreen dialog at an asynchronous test boundary."""
+    page.evaluate(
+        """() => {
+            document.querySelector('#dialogMessage').textContent = 'Enter full screen mode?';
+            document.querySelector('#dialog').hidden = false;
+        }"""
+    )
+    state.record(event)
 
 
 def wait_for(condition: Callable[[], bool], seconds: float = 3.0) -> bool:

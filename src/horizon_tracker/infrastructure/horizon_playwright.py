@@ -164,9 +164,11 @@ _LIT_CELLS = """async ({ data, side, channel }) => {
     return { lit, luminanceRange: maxLuminance - minLuminance, maxChroma };
 }"""
 # Recognises the standard Run window on the owner's 1280x720 desktop by geometry, not
-# by its localised title or by HTML Access DOM. Three independent regions are required:
-# the light dialog/title, its white edit field and that field's dark border. This runs
-# only on a frame bracketed by the HTML Access dialog guards, never on the web dialog.
+# by its localised title or by HTML Access DOM. The bands are measured from the v1.1.6
+# production frame. Three independent regions are required: the light dialog/title, its
+# white edit field and that field's contrasting border. A focused field's border is blue,
+# not necessarily dark. This runs only on a frame bracketed by the HTML Access dialog
+# guards, never on the web dialog.
 _RUN_DIALOG_FRAME = """async (data) => {
     const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
     const frame = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
@@ -196,13 +198,15 @@ _RUN_DIALOG_FRAME = """async (data) => {
         Math.min(r, g, b) >= 200 && Math.max(r, g, b) - Math.min(r, g, b) <= 35
     );
     const white = (r, g, b) => Math.min(r, g, b) >= 225;
-    const dark = (r, g, b) => Math.max(r, g, b) <= 170;
-    const title = ratio(24, 484, 436, 510, 4, light);
-    const body = ratio(24, 514, 436, 665, 4, light);
-    const input = ratio(84, 552, 416, 578, 2, white);
+    const contrasting = (r, g, b) => (
+        Math.max(r, g, b) <= 170 || Math.max(r, g, b) - Math.min(r, g, b) >= 80
+    );
+    const title = ratio(24, 424, 440, 452, 4, light);
+    const body = ratio(24, 456, 440, 514, 4, light);
+    const input = ratio(116, 522, 430, 540, 2, white);
     const border = Math.min(
-        ratio(80, 548, 420, 550, 2, dark),
-        ratio(80, 580, 420, 582, 2, dark)
+        ratio(112, 520, 434, 522, 1, contrasting),
+        ratio(112, 542, 434, 544, 1, contrasting)
     );
     return title >= 0.75 && body >= 0.65 && input >= 0.85 && border >= 0.40;
 }"""
@@ -469,7 +473,11 @@ class PlaywrightHorizonClient:
         if not self._wait_for_desktop_input():
             return False
         surface.focus()
-        return True
+        # The last focus is an asynchronous boundary too. Cancel-only checking after it
+        # prevents a dialog it raised from receiving the keyboard action that follows.
+        page = self._live_page()
+        deadline = time.monotonic() + self._timeouts.action_ms / 1000
+        return not self._dialog_in_the_way(page, deadline)
 
     def _windows_run_is_open(self, page: Page, surface: Locator) -> bool:
         """Recognise Windows Run in a frame bracketed by HTML Access dialog guards."""
@@ -512,6 +520,8 @@ class PlaywrightHorizonClient:
             if surface is None or not self._open_windows_run(page, surface):
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             page.wait_for_timeout(_RUN_DIALOG_WAIT_MS)
+            if not self._refocus_ready_surface(surface):
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             page.keyboard.press("Control+A")
             page.keyboard.type("shutdown /l", delay=_WINDOWS_TYPE_DELAY_MS)
             if not self._refocus_ready_surface(surface):
@@ -519,6 +529,10 @@ class PlaywrightHorizonClient:
             # Preserve evidence of the fully replaced Run command without making a failed
             # screenshot a new logout failure. No dialog is answered with OK.
             self._screenshot(RunKind.CHECKOUT)
+            # The screenshot is asynchronous: prove focus and a clean surface again before
+            # the one Enter, rather than letting a new Fullscreen offer receive it.
+            if not self._refocus_ready_surface(surface):
+                raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             page.keyboard.press("Enter")
             confirmed = self._poll(
                 lambda: self._broker_session_state(name) is SessionState.NO_SESSION or None,
@@ -621,8 +635,15 @@ class PlaywrightHorizonClient:
         return SessionState.DISCONNECTED if offered else SessionState.NO_SESSION
 
     def _broker_session_state(self, name: str) -> SessionState:
-        """The named tile's session state on a launch-items list fetched for this read."""
+        """The named tile's session state on a fresh list, after cancelling any dialog."""
         self._reload_launch_items()
+        page = self._live_page()
+        deadline = time.monotonic() + self._timeouts.action_ms / 1000
+        if self._dialog_in_the_way(page, deadline):
+            # Cancel-only dismissal is shared with the morning capture. An OK-only dialog
+            # stays unanswered and the bounded tile read fails instead of bypassing it.
+            for selector in (DIALOG_CANCEL, DIALOG_OK):
+                page.locator(selector).wait_for(state="hidden", timeout=_remaining_ms(deadline))
         return self._tile_session_state(self._tile(name))
 
     # --- steps ------------------------------------------------------------------------
