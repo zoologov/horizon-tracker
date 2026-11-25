@@ -62,6 +62,8 @@
 //    remote canvas at the v1.1.6 production geometry, with a focused blue input border.
 //  - A freshly loaded launch-items list can carry one modal Fullscreen offer
 //    (fullscreen_on_fresh_list), as the v1.1.6 post-Enter failure screenshot did.
+//    fullscreen_on_fresh_list_delay_ms makes that offer appear only after the first
+//    post-reload dialog check, matching the merged candidate's delayed live offer.
 //  - The page can be told to offer Fullscreen again a while after the desktop drew
 //    (fullscreen_again_after_ms), as the live client did on 2026-10-24 after the adapter
 //    had cancelled the first offer, and to let that second offer ignore Cancel
@@ -82,6 +84,7 @@
   var fullscreenOnSurfaceClick = false;
   var fullscreenOnStartClick = false;
   var fullscreenOnFreshList = false;
+  var fullscreenOnFreshListDelayMs = 0;
   var freshListFullscreenVisible = false;
   var wmksCount = 0;
   var windowsInputHandler = null;
@@ -263,6 +266,14 @@
     return host;
   }
 
+  function offerFreshListFullscreen(dialog) {
+    freshListFullscreenVisible = true;
+    dialog.querySelector("[data-title]").textContent = "Fullscreen";
+    dialog.querySelector("[data-message]").textContent = "Click OK to grant permission for full screen";
+    dialog.hidden = false;
+    record("fullscreen-offered-fresh-list");
+  }
+
   function initLaunchItems() {
     var list = byId("desktop-list");
     var dialog = byId("logoffDialog");
@@ -272,11 +283,11 @@
       var navigation = performance.getEntriesByType("navigation")[0];
       if (fullscreenOnFreshList && navigation && navigation.type === "reload") {
         fullscreenOnFreshList = false;
-        freshListFullscreenVisible = true;
-        dialog.querySelector("[data-title]").textContent = "Fullscreen";
-        dialog.querySelector("[data-message]").textContent = "Click OK to grant permission for full screen";
-        dialog.hidden = false;
-        record("fullscreen-offered-fresh-list");
+        if (fullscreenOnFreshListDelayMs > 0) {
+          setTimeout(function () { offerFreshListFullscreen(dialog); }, fullscreenOnFreshListDelayMs);
+        } else {
+          offerFreshListFullscreen(dialog);
+        }
       }
     }).catch(function () {});
     byId("cancelDialogBtn").addEventListener("click", function () {
@@ -535,6 +546,7 @@
     fullscreenOnSurfaceClick = portal.fullscreen_on_surface_click;
     fullscreenOnStartClick = portal.fullscreen_on_start_click;
     fullscreenOnFreshList = portal.fullscreen_on_fresh_list;
+    fullscreenOnFreshListDelayMs = portal.fullscreen_on_fresh_list_delay_ms || 0;
     // Configuration must precede the first route's asynchronous launch-items read. On a
     // reload, rendering first lets that read win and silently drops the requested dialog.
     render();

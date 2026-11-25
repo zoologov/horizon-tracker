@@ -12,6 +12,7 @@ from horizon_tracker.domain.schedule import RunKind
 from horizon_tracker.infrastructure.horizon_playwright import PlaywrightHorizonClient
 from tests.support.htmlaccess_portal import (
     FAST,
+    FRESH_LIST_DIALOG_DELAY_MS,
     PASSWORD,
     USERNAME,
     Portal,
@@ -83,6 +84,12 @@ def run_already_open(fixture_portal: Portal) -> None:
 @given("the fixture offers Fullscreen over the fresh broker list")
 def fullscreen_over_fresh_list(fixture_portal: Portal) -> None:
     fixture_portal.state.fullscreen_on_fresh_list = True
+
+
+@given("the fixture offers Fullscreen asynchronously over the fresh broker list")
+def delayed_fullscreen_over_fresh_list(fixture_portal: Portal) -> None:
+    fullscreen_over_fresh_list(fixture_portal)
+    fixture_portal.state.fullscreen_on_fresh_list_delay_ms = FRESH_LIST_DIALOG_DELAY_MS
 
 
 @given("the fixture offers Fullscreen during the post-Run wait")

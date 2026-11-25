@@ -101,6 +101,9 @@ BLAST_PATH_PREFIXES = ("/r/", "/d/")
 # so a slow dialog and the Blast delivery do not lose the first characters.
 _RUN_DIALOG_WAIT_MS = 2_000
 _WINDOWS_TYPE_DELAY_MS = 50
+# Fresh-list rendering can queue Fullscreen after the first dialog check. Give that
+# asynchronous appearance a short bound without delaying a clean read by action_ms.
+_FRESH_LIST_DIALOG_WAIT_MS = 100
 # Live-proven Windows coordinates on the owner's 1280x720 desktop. Every click is scaled
 # into the current CSS bounds of the remote surface rather than treated as a page pixel.
 _REMOTE_WIDTH = 1280.0
@@ -635,11 +638,20 @@ class PlaywrightHorizonClient:
         return SessionState.DISCONNECTED if offered else SessionState.NO_SESSION
 
     def _broker_session_state(self, name: str) -> SessionState:
-        """The named tile's session state on a fresh list, after cancelling any dialog."""
+        """Read the fresh tile after a bounded wait for an asynchronous client dialog."""
         self._reload_launch_items()
         page = self._live_page()
         deadline = time.monotonic() + self._timeouts.action_ms / 1000
-        if self._dialog_in_the_way(page, deadline):
+        dialog = self._dialog_in_the_way(page, deadline)
+        if not dialog:
+            shown_dialog = page.locator(f"{_SHOWN_DIALOG_CANCEL}, {_SHOWN_DIALOG_OK}")
+            with suppress(PlaywrightTimeoutError):
+                shown_dialog.first.wait_for(
+                    state="visible",
+                    timeout=min(_FRESH_LIST_DIALOG_WAIT_MS, _remaining_ms(deadline)),
+                )
+            dialog = self._dialog_in_the_way(page, deadline)
+        if dialog:
             # Cancel-only dismissal is shared with the morning capture. An OK-only dialog
             # stays unanswered and the bounded tile read fails instead of bypassing it.
             for selector in (DIALOG_CANCEL, DIALOG_OK):

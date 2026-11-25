@@ -16,7 +16,7 @@ Feature: Windows sign-out through Horizon HTML Access
   Scenario: An already-open Windows Run dialog is reused without Win+X
     Given the fixture portal's desktop has a disconnected session
     And the fixture Windows Run dialog is already open at the v1.1.6 production geometry
-    And the fixture offers Fullscreen over the fresh broker list
+    And the fixture offers Fullscreen asynchronously over the fresh broker list
     When the Playwright client logs off "DEV desktop"
     Then Windows received the existing Run field, "shutdown /l" and Enter in order
     And no Win+X mouse sequence reached Windows

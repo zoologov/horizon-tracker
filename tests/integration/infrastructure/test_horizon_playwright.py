@@ -43,6 +43,7 @@ from horizon_tracker.infrastructure.horizon_playwright import (
 from tests.support.htmlaccess_portal import (
     DESKTOP,
     FAST,
+    FRESH_LIST_DIALOG_DELAY_MS,
     PASSWORD,
     QUOTED_DESKTOP,
     USERNAME,
@@ -626,6 +627,66 @@ def test_log_off_cancels_fullscreen_on_a_fresh_list_before_confirmation(
     # Assert
     assert delayed_configs
     assert set(delayed_configs) == {f"{portal.url}fixture/behaviour"}
+    events = portal.state.events
+    assert "fullscreen-cancelled-fresh-list" in events
+    assert "fullscreen-accepted-fresh-list" not in events
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_log_off_recancels_delayed_fullscreen_before_reading_the_fresh_tile(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    portal.state.fullscreen_on_fresh_list = True
+    portal.state.fullscreen_on_fresh_list_delay_ms = FRESH_LIST_DIALOG_DELAY_MS
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    page = client._page
+    assert page is not None
+    fresh_list_reloaded = False
+    dialog_cancelled = False
+    first_check_absent: list[bool] = []
+    real_reload = client._reload_launch_items
+    real_dialog_check = client._dialog_in_the_way
+    real_click = Locator.click
+
+    def reload_fresh_list() -> None:
+        nonlocal fresh_list_reloaded
+        real_reload()
+        fresh_list_reloaded = True
+
+    def observe_first_dialog_check(observed_page: Page, deadline: float) -> bool:
+        if fresh_list_reloaded and not first_check_absent:
+            first_check_absent.append(not observed_page.locator("#dialog").is_visible())
+        return real_dialog_check(observed_page, deadline)
+
+    def click(locator: Locator, *args: Any, **kwargs: Any) -> None:
+        nonlocal dialog_cancelled
+        if fresh_list_reloaded and not dialog_cancelled:
+            element_id = locator.get_attribute("id")
+            classes = locator.get_attribute("class") or ""
+            if element_id == "cancelDialogBtn":
+                real_click(locator, *args, **kwargs)
+                dialog_cancelled = True
+                return
+            if "overflow-button" in classes:
+                # Hold the tile interaction until the asynchronous offer is visible. The
+                # old immediate check then clicks under the modal and times out.
+                page.locator("#dialog").wait_for(state="visible", timeout=1_000)
+                assert page.locator("#dialog").is_visible()
+        real_click(locator, *args, **kwargs)
+
+    monkeypatch.setattr(client, "_reload_launch_items", reload_fresh_list)
+    monkeypatch.setattr(client, "_dialog_in_the_way", observe_first_dialog_check)
+    monkeypatch.setattr(Locator, "click", click)
+
+    client.log_off(DESKTOP)
+
+    assert first_check_absent == [True]
     events = portal.state.events
     assert "fullscreen-cancelled-fresh-list" in events
     assert "fullscreen-accepted-fresh-list" not in events
