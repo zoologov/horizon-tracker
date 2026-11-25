@@ -119,9 +119,10 @@ Before opening Run, the adapter looks for an existing one in a composited remote
 The reading requires the standard window's light title and body, white input and dark
 input border in the owner desktop's expected geometry. It uses no localized title, OCR or
 HTML Access selector. HTML Access dialog guards run immediately before and after the
-frame, so Fullscreen cannot be interpreted as Windows Run. A positive reading skips all
-mouse clicks and the existing field receives focus; an absent or uncertain reading falls
-back to Win+X.
+frame, so Fullscreen cannot be interpreted as Windows Run. A positive reading skips
+Win+X and all mouse clicks. The readiness/refocus pass restores the remote surface's
+focus, and typing proceeds directly in the existing Run dialog. An absent or uncertain
+reading falls back to the scaled Win+X path.
 
 The Windows path is the one proven by the live diagnostic. On the owner's 1280×720 remote
 desktop it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`. Each point
@@ -190,8 +191,9 @@ logs in to the live portal.
 but all three checkout attempts stopped at `Horizon desktop not ready for Windows input`.
 Each failure screenshot showed an empty Windows Run dialog left open by the staged
 diagnostics, and no typing occurred. The existing-Run state path above addresses that
-state without weakening the HTML Access dialog guards; it has local fixture and
-acceptance verification, not a live-success claim.
+state without weakening the HTML Access dialog guards. It has passed local fixture and
+acceptance verification, but the new reuse implementation itself has not been retested
+against the live portal.
 
 The broker remains the confirmation authority:
 
