@@ -9,6 +9,18 @@ version number promises, and which change raises which part of it, is stated in
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-11-25
+
+`1.1.6` is a patch: it reuses an already-open Windows Run dialog during evening check-out,
+and the public surface does not change.
+
+### Fixed
+
+- **An existing Run dialog.** The adapter now recognises the Run window through guarded
+  remote-frame geometry, refocuses its input and types `shutdown /l` directly without opening
+  Win+X again. A plain desktop still uses the proven scaled Start right-click → **Выполнить**
+  path. This covers the state left by previous diagnostics and manual use.
+
 ## [1.1.5] - 2026-11-25
 
 `1.1.5` is a patch: it performs the evening sign-out through the Windows Win+X Run dialog,
@@ -183,7 +195,8 @@ variables and the deploy contract) is already in use.
   Dependabot proposes the updates weekly.
 - **One version source.** `horizon --version` prints the version `pyproject.toml` declares.
 
-[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/zoologov/horizon-tracker/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.6
 [1.1.5]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.5
 [1.1.4]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.4
 [1.1.3]: https://github.com/zoologov/horizon-tracker/releases/tag/v1.1.3
