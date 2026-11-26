@@ -45,6 +45,7 @@ from tests.support.htmlaccess_portal import (
     DESKTOP,
     FAST,
     FRESH_LIST_CLICK_INTERCEPT_DELAY_MS,
+    INITIAL_FULLSCREEN_DELAY_MS,
     PASSWORD,
     QUOTED_DESKTOP,
     USERNAME,
@@ -338,6 +339,24 @@ def test_open_desktop_cancels_fullscreen_and_returns_once_blast_is_up(
     assert client.desktop_status(DESKTOP).state is SessionState.CONNECTED
 
 
+def test_morning_open_stays_cancel_only_when_the_initial_offer_is_delayed(
+    client: PlaywrightHorizonClient, portal: Portal
+) -> None:
+    portal.state.initial_fullscreen_delay_ms = INITIAL_FULLSCREEN_DELAY_MS
+    client.login()
+
+    client.open_desktop(DESKTOP)
+    page = client._page
+    assert page is not None
+    page.locator("#dialog").wait_for(state="visible")
+    client.capture_open_desktop()
+
+    events = portal.state.events
+    assert events.index("desktop-painted") < events.index("fullscreen-offered-initial")
+    assert "fullscreen-cancelled" in events
+    assert "fullscreen-accepted" not in events
+
+
 def test_a_desktop_whose_blast_never_connects_did_not_open(
     client: PlaywrightHorizonClient, portal: Portal, artifacts: RecordingArtifacts
 ) -> None:
@@ -439,6 +458,66 @@ def test_windows_sign_out_event_records_input_before_ending_the_session(portal: 
 
     assert response.status == 200
     assert portal.state.events == [f"windows-input:{sequence}", "windows-sign-out"]
+
+
+def test_log_off_grants_a_delayed_initial_fullscreen_permission_once(
+    make_client: Callable[..., PlaywrightHorizonClient],
+    portal: Portal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    portal.state.initial_fullscreen_delay_ms = INITIAL_FULLSCREEN_DELAY_MS
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+    input_barriers: list[tuple[bool, bool, bool]] = []
+    real_press = Keyboard.press
+
+    def press(keyboard: Keyboard, key: str, *args: Any, **kwargs: Any) -> None:
+        page = client._page
+        assert page is not None
+        input_barriers.append(
+            (
+                not page.locator("#okDialogBtn").is_visible(),
+                not page.locator("#cancelDialogBtn").is_visible(),
+                page.evaluate(
+                    "document.activeElement === document.querySelector('#canvas-container canvas')"
+                ),
+            )
+        )
+        real_press(keyboard, key, *args, **kwargs)
+
+    monkeypatch.setattr(Keyboard, "press", press)
+
+    client.log_off(DESKTOP)
+
+    events = portal.state.events
+    assert events.count("fullscreen-accepted") == 1
+    assert events.index("desktop-painted") < events.index("fullscreen-offered-initial")
+    assert events.index("fullscreen-offered-initial") < events.index("fullscreen-accepted")
+    assert events.index("fullscreen-accepted") < events.index(
+        "windows-input:Existing Run|shutdown /l|Enter"
+    )
+    assert input_barriers == [(True, True, True), (True, True, True)]
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
+
+
+def test_log_off_never_accepts_ok_on_another_initial_dialog(
+    make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
+) -> None:
+    portal.state.session = "disconnected"
+    portal.state.paint_desktop = "rgb(0, 120, 215)"
+    portal.state.run_already_open = True
+    portal.state.initial_dialog_message = "Log Off Desktop"
+    client = make_client(run_kind=RunKind.CHECKOUT)
+    client.login()
+
+    client.log_off(DESKTOP)
+
+    assert "fullscreen-cancelled" in portal.state.events
+    assert "fullscreen-accepted" not in portal.state.events
+    assert client.desktop_status(DESKTOP).state is SessionState.NO_SESSION
 
 
 def test_log_off_opens_the_desktop_and_signs_out_through_scaled_winx_mouse(
@@ -823,8 +902,10 @@ def test_log_off_recancels_fullscreen_arising_in_an_async_gap_before_windows_inp
 
     events = portal.state.events
     assert offered in events
-    assert "fullscreen-cancelled" in events[events.index(offered) :]
-    assert "fullscreen-accepted" not in events
+    later_events = events[events.index(offered) :]
+    assert "fullscreen-cancelled" in later_events
+    assert "fullscreen-accepted" not in later_events
+    assert events.count("fullscreen-accepted") == 1, "the initial grant did not happen once"
     assert presses == ["Control+A", "Enter"], "Windows did not receive exactly one Enter"
     assert dialog_at_input == [False, False, False]
     assert focused_at_input == [True, True, True]
@@ -875,8 +956,10 @@ def test_log_off_checks_for_a_dialog_after_the_final_focus_before_ctrl_a(
 
     events = portal.state.events
     assert offered in events
-    assert "fullscreen-cancelled" in events[events.index(offered) :]
-    assert "fullscreen-accepted" not in events
+    later_events = events[events.index(offered) :]
+    assert "fullscreen-cancelled" in later_events
+    assert "fullscreen-accepted" not in later_events
+    assert events.count("fullscreen-accepted") == 1, "the initial grant did not happen once"
     assert presses == [], "Ctrl+A or Enter reached a dialog raised by the final focus"
 
 
@@ -1094,7 +1177,7 @@ def test_a_black_desktop_times_out_without_receiving_windows_input(
     assert "Horizon desktop not ready for Windows input" in caplog.text
 
 
-def test_log_off_cancels_a_dialog_before_sending_windows_input(
+def test_log_off_grants_initial_fullscreen_and_cancels_a_later_offer_before_input(
     make_client: Callable[..., PlaywrightHorizonClient], portal: Portal
 ) -> None:
     portal.state.session = "disconnected"
@@ -1111,10 +1194,10 @@ def test_log_off_cancels_a_dialog_before_sending_windows_input(
 
     events = portal.state.events
     cancelled_at = [index for index, event in enumerate(events) if event == "fullscreen-cancelled"]
-    assert len(cancelled_at) == 2, "the second Fullscreen offer was not cancelled"
+    assert len(cancelled_at) == 1, "the later Fullscreen offer was not cancelled"
     windows_input = "windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter"
     assert cancelled_at[-1] < events.index(windows_input)
-    assert "fullscreen-accepted" not in events
+    assert events.count("fullscreen-accepted") == 1, "the initial grant did not happen once"
 
 
 def test_log_off_recancels_fullscreen_after_the_start_right_click(
@@ -1133,7 +1216,8 @@ def test_log_off_recancels_fullscreen_after_the_start_right_click(
     cancelled = events.index("fullscreen-cancelled", offered)
     windows_input = "windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter"
     assert cancelled < events.index(windows_input)
-    assert "fullscreen-accepted" not in events
+    assert "fullscreen-accepted" not in events[offered:]
+    assert events.count("fullscreen-accepted") == 1, "the initial grant did not happen once"
 
 
 def test_log_off_recancels_fullscreen_after_focusing_the_surface(
@@ -1151,7 +1235,8 @@ def test_log_off_recancels_fullscreen_after_focusing_the_surface(
     offered = events.index("fullscreen-offered-focus")
     cancelled = events.index("fullscreen-cancelled", offered)
     assert cancelled < events.index("windows-input:Win+X@20,700|Run@85,600|shutdown /l|Enter")
-    assert "fullscreen-accepted" not in events
+    assert "fullscreen-accepted" not in events[offered:]
+    assert events.count("fullscreen-accepted") == 1, "the initial grant did not happen once"
 
 
 def test_log_off_without_a_session_is_already_logged_off(

@@ -29,7 +29,7 @@ needs it, and each `login` opens a fresh browser context on it.
 | `open_desktop(name)` | clicks the tile's launch button, cancels the Fullscreen offer (`#cancelDialogBtn`), and once the desktop is open logs whether a WebSocket on a Blast path was seen; returns `None` and takes no success photograph | `DESKTOP_DID_NOT_OPEN` |
 | `capture_open_desktop()` | polls the largest canvas or video in `#canvas-container`: cancels a client dialog over it (never OK), takes an element screenshot, has the page decode that PNG onto a 32 by 32 grid, and saves the same PNG once at least 8 cells have `max(R, G, B) >= 24` and either the grid's luminance range or a cell's chroma reaches 24, with no dialog in the frame, bounded by `desktop_paint_ms` (60 s); a blank, uniformly gray, or dialog-covered timeout, a page closed or outside the screenshot allowlist, or a screenshot or decode error returns `None` (see "The check-in capture") | none: a missing photo never fails the step |
 | `disconnect()` | closes the browser context: the Blast connection goes with it, the Windows session keeps running | `UNEXPECTED` |
-| `log_off(name)` | checks that the tile still has a session, opens the desktop, and at every action boundary cancels any client dialog, waits for painted input and restores surface focus. It reuses an already-visible Windows Run dialog recognised by its measured remote frame/input geometry and contrasting border; otherwise it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`, scaling both owner-desktop coordinates into the surface bounds. It waits 2 s and restores readiness/focus before replacing the field through Ctrl+A and paced `shutdown /l` typing, captures checkout evidence and restores readiness/focus again before pressing Enter once. Freshly loaded launch-items lists confirm the session is gone (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
+| `log_off(name)` | checks that the tile still has a session and opens the desktop. Only during checkout, it grants the exact initial `Click OK to grant permission for full screen` permission once through the existing visible OK/Cancel controls, waits for both to hide, and restores painted surface focus before Windows input; a delayed offer is awaited by its visibility rather than an added input delay. Any other or later dialog keeps the Cancel-only behavior. It reuses an already-visible Windows Run dialog recognised by its measured remote frame/input geometry and contrasting border; otherwise it right-clicks Start at `(20,700)` and left-clicks Run at `(85,600)`, scaling both owner-desktop coordinates into the surface bounds. It waits 2 s and restores readiness/focus before replacing the field through Ctrl+A and paced `shutdown /l` typing, captures checkout evidence and restores readiness/focus again before pressing Enter once. Freshly loaded launch-items lists confirm the session is gone (see "Confirming a log off"). Answers with the success screenshot of that list, or `None` | `ALREADY_LOGGED_OFF`, `DESKTOP_DID_NOT_OPEN`, `LOGOFF_NOT_CONFIRMED`, `DESKTOP_NOT_FOUND`, or the reasons of `login()` when a reload lands on the login form |
 | `client_bundles()` | GETs `<portal>/index.html` through Playwright's request API, opens no page and does not log in, returns the file names of its `<script src="*.js">` bundles | `PORTAL_UNREACHABLE` (no answer or a status other than 200), `UNEXPECTED` (no bundle named) |
 | `browser_version()` | starts headless Chrome at `chrome_path` as a browser of its own, reads its version, closes it; opens no context and no page | `UNEXPECTED` |
 
@@ -55,7 +55,7 @@ log-off item wrong.
 | Constant | Value | What the bundle renders there |
 |----------|-------|-------------------------------|
 | `USERNAME_FIELD`, `PASSWORD_FIELD`, `LOGIN_BUTTON` | `#username`, `#password`, `#loginButton` | the login form on `#/home` |
-| `DIALOG_OK`, `DIALOG_CANCEL` | `#okDialogBtn`, `#cancelDialogBtn` | the client's dialog buttons: the rejected login and the Fullscreen offer. The check-in capture reads a dialog over the desktop by its visible buttons, clicks Cancel and never OK |
+| `DIALOG_OK`, `DIALOG_CANCEL`, `_DIALOG_MESSAGE` | `#okDialogBtn`, `#cancelDialogBtn`, `#dialogMessage` | the client's dialog buttons and message: the rejected login and the Fullscreen offer. The check-in capture reads a dialog over the desktop by its visible buttons, clicks Cancel and never OK. Checkout accepts OK only when the normalized message is exactly `Click OK to grant permission for full screen` and both buttons are visible |
 | `ANY_TILE` | `li:has(> button[id^='launch-'])` | a desktop tile `li#<id>`, which carries no `title` |
 | tile by name | `li:has(> button[id^='launch-'][title="<name>"])` | the tile whose launch button `button#launch-<id>` carries the desktop's name; the name is written as a CSS string, so quotes, backslashes and non-ASCII letters match |
 | `LAUNCH_BUTTON` | `button[id^='launch-']` | the launch button; it also holds the tile's icons, the "…" button and, while open, the menu |
@@ -102,6 +102,19 @@ every mouse or keyboard action it polls the same composited-frame rule as the ch
 capture: the largest remote surface must be painted and no client dialog may be over it.
 This wait is bounded by `desktop_paint_ms` and saves no artifact. A desktop that never
 becomes ready receives no further Windows input and fails as `LOGOFF_NOT_CONFIRMED`.
+
+Checkout consumes one initial Fullscreen permission before this input sequence. When the
+visible dialog has exactly the normalized message `Click OK to grant permission for full
+screen` and one visible OK plus Cancel, the adapter clicks the existing `#okDialogBtn`
+once and waits for both existing buttons to become hidden. The ordinary painted readiness
+and surface-focus barrier then runs before Start, Run or keyboard input. If the painted
+desktop arrives first, the adapter waits on visible OK for the delayed initial offer;
+this is an event-driven synchronization, not another fixed input delay. Different dialog
+text is never accepted, and the grant is consumed after that first dialog whether it was
+accepted or cancelled. Every later dialog, including one raised by focus, the Run wait,
+the evidence screenshot or fresh-list confirmation, remains Cancel-only. Morning
+`open_desktop()` and `capture_open_desktop()` never set the checkout grant and remain
+Cancel-only.
 
 Painted requires at least eight lit cells and either a luminance range of at least 24
 across the sampled cells or chroma of at least 24 within one cell. A uniform bright-gray
@@ -238,6 +251,16 @@ typed `shutdown /l` and pressed Enter, then timed out on the fresh list. The sec
 skipped as `already_logged_off`. Fullscreen appeared later than 100 ms and intercepted the
 actual overflow click. The recovery below therefore starts from that click's timeout rather
 than from another observation delay.
+
+**Merged candidate evidence from cd694c65.** Import-path inspection confirmed the exact merged
+source. Attempt 1 showed Fullscreen over Run after the final guards, with `shutdown /l`
+selected, and then failed immediately as `logoff_not_confirmed`. Attempt 2 ended Windows but
+fresh-list confirmation timed out; attempt 3 skipped as `already_logged_off`. Cancel-only
+recovery therefore remained asynchronous even with actual-click interception. The earlier
+staged diagnostic had already proved that the same `#okDialogBtn` click and full-hide barrier
+succeed for this exact permission; its Meta+R failure was unrelated. The checkout-only grant
+above removes the recurring initial offer at its source without changing morning Cancel
+behavior or the fresh-list recovery.
 
 The broker remains the confirmation authority:
 
@@ -396,11 +419,13 @@ succeeded therefore does not exit 1 on the way out.
 - `desktop_paint_ms` bounds the capture and the sign-out input-readiness wait to within
   one in-page decode.
 - Every sign-out action boundary requires painted and dialog-free readiness and restores
-  surface focus. The final focus is followed by a Cancel-only clean-dialog check. An
-  existing Windows Run is recognised only by its remote frame/input geometry between HTML
-  Access dialog guards and is never reopened. An absent or uncertain reading uses Start
-  `(20,700)` and Run `(85,600)`, scaled into the current surface bounds; missing or empty
-  bounds stop the sequence.
+  surface focus. Before any Windows input, checkout grants only the exact known initial
+  Fullscreen permission once and waits for both dialog buttons to hide; a different or later
+  dialog is never accepted. Morning remains Cancel-only. The final focus is followed by a
+  Cancel-only clean-dialog check. An existing Windows Run is recognised only by its remote
+  frame/input geometry between HTML Access dialog guards and is never reopened. An absent or
+  uncertain reading uses Start `(20,700)` and Run `(85,600)`, scaled into the current surface
+  bounds; missing or empty bounds stop the sequence.
 - Once Run is available, `log_off` waits 2 s and restores readiness/focus before pressing
   Ctrl+A and typing `shutdown /l` with 50 ms between keys. It captures checkout evidence,
   restores readiness/focus again after that asynchronous screenshot, and then sends exactly
@@ -468,11 +493,19 @@ Playwright timeout, so neither a fast menu open nor a synthetic exception can sa
 The 250 ms scenario is the merged-6b041fd control and was RED with `logoff_not_confirmed`.
 The integration regression proves that the first check is absent, records one real blocked
 overflow click, and requires a fresh-list Cancel before the unchanged tile read. All require
-no OK and confirmed `NO_SESSION` after one Enter. Separate hooks raise Fullscreen as the
-post-Run wait and pre-Enter screenshot return. Both regressions require Cancel, fresh painted
-readiness and surface focus before Ctrl+A, typing and Enter, no OK, exactly one Windows
+no fresh-list OK and confirmed `NO_SESSION` after one Enter. Separate hooks raise Fullscreen as
+the post-Run wait and pre-Enter screenshot return. Both regressions require Cancel, fresh painted
+readiness and surface focus before Ctrl+A, typing and Enter, no later OK, exactly one Windows
 Enter and fresh `NO_SESSION`. A final-focus regression raises the offer after the last
 `focus()` and proves that its clean-dialog check blocks all further keys.
+
+`initial_fullscreen_delay_ms=250` paints and opens the desktop before the initial offer. Its
+integration and executable acceptance controls were RED on the old Cancel-only checkout: no
+grant was recorded before Windows input. They now require exactly one OK after the real offer
+and before real Start/Run mouse events, with both buttons hidden and the canvas focused at
+keyboard input. A post-Run offer in the same scenario must still be cancelled without another
+OK. A different initial dialog message is also cancelled without OK, and a delayed morning
+capture remains Cancel-only. These controls await dialog visibility and add no input delay.
 
 The fixture's Run dialog ignores command characters for its first 250 ms after either Run
 path. The sign-out regression asserts one 2000 ms wait, a 50 ms `Keyboard.type` delay and
@@ -485,8 +518,8 @@ The paint regressions reject a uniform `rgb(220, 220, 220)` frame without saving
 accept a blue desktop carrying normal grayscale windows. A focus/refocus regression
 changes the surface from that gray to `rgb(0, 120, 215)` and asserts that the Start
 right-click is sent only on the blue frame. Other regressions make focus or the Start
-click trigger the Fullscreen offer and require Cancel before Windows input, with no OK
-acceptance.
+click trigger the Fullscreen offer and require Cancel before Windows input, with no later OK
+acceptance after the one initial checkout grant.
 
 The fixture's own assumptions, each stated in its header and chosen so the adapter cannot
 lean on them: the list is fetched only when the page loads and after a login, never on a
@@ -509,20 +542,21 @@ less than a sample needs. Every case the capture rule refuses returns `None` and
 file. The sign-out tests prove that a black desktop receives no Windows input and that a
 desktop painted later receives it only after the paint.
 
-Six acceptance scenarios drive this adapter on the fixture portal. Two run through the
+Seven acceptance scenarios drive this adapter on the fixture portal. Two run through the
 check-in to the message the owner gets
 (`tests/acceptance/features/client_dialog_in_the_photo.feature`):
 
 - `A successful check-in's photo shows the desktop without a client dialog`
 - `A client dialog that cannot be dismissed leaves the check-in a text success`
 
-Four scenarios in `tests/acceptance/features/windows_sign_out.feature` drive the evening
+Five scenarios in `tests/acceptance/features/windows_sign_out.feature` drive the evening
 adapter directly:
 
 - `Windows Win+X sign-out is confirmed by a fresh broker list`
 - `An already-open Windows Run dialog is reused without Win+X`
 - `Fullscreen intercepting a fresh-list menu click is cancelled before retry`
 - `Fullscreen arising in Run input gaps is cancelled before Windows input`
+- `Checkout grants a delayed initial Fullscreen permission once before Windows input`
 
 The check-in scenarios read the photo with `tests/support/photo.py`, which
 decodes the PNG in a browser page. Every scenario in the other features runs on a fake

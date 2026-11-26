@@ -21,9 +21,12 @@ Start at remote `(20,700)`, left-click Run at `(85,600)` on the owner's 1280×72
 current surface bounds, then use **Ctrl+A**, type `shutdown /l` with pacing, capture the field, and press **Enter**
 once. When Run is already open, recognise its language-independent window and input geometry only after the HTML
 Access dialog guards and reuse it without another Start or Run click. An absent or uncertain Run reading retains the
-scaled Win+X path. Cancel any HTML Access dialog and restore painted readiness and surface focus at every action
-boundary. Then read freshly fetched launch items until the broker reports `NO_SESSION`, preserving the existing
-confirmation, failure and screenshot semantics. This live-proven Win+X path replaces both Meta+R and the broker's
+scaled Win+X path. Checkout grants the exact known initial Fullscreen permission once through the
+existing visible OK control, waits for the dialog to hide fully and restores painted surface focus
+before any Windows input. A delayed initial offer is awaited by visibility, not by another guessed
+input delay. Morning and every other or later dialog remain Cancel-only. Then read freshly fetched
+launch items until the broker reports `NO_SESSION`, preserving the existing confirmation, failure
+and screenshot semantics. This live-proven Win+X path replaces both Meta+R and the broker's
 tile-menu `kill-session` path.
 
 The work is sequential: dev changes the adapter, test extends its local HTML Access fixture and adapter checks,
@@ -131,4 +134,5 @@ and carries no status. The Tracker cell holds `-` until the beads are created, a
 - [ ] Scenario: `Windows Win+X sign-out is confirmed by a fresh broker list`
 - [ ] Scenario: `An already-open Windows Run dialog is reused without Win+X`
 - [ ] Scenario: `Fullscreen intercepting a fresh-list menu click is cancelled before retry`
+- [ ] Scenario: `Checkout grants a delayed initial Fullscreen permission once before Windows input`
 - [ ] Scenario: `Evening check-out on an already logged-off desktop reports it and stops`
