@@ -56,6 +56,7 @@ FAST = HorizonTimeouts(
     desktop_paint_ms=600,
 )
 FRESH_LIST_DIALOG_DELAY_MS = 50
+INITIAL_FULLSCREEN_DELAY_MS = 250
 # Later than the retired 100 ms observation window; the test holds the real overflow click
 # until this offer is visible, so the browser rather than a fake exception proves interception.
 FRESH_LIST_CLICK_INTERCEPT_DELAY_MS = 250
@@ -103,6 +104,10 @@ class PortalState:
     repaint_desktop_after_ms: int = 0
     # The page offers Fullscreen again this many ms after the desktop drew; 0 never.
     fullscreen_again_after_ms: int = 0
+    # The initial offer can arrive after the desktop is already painted and open.
+    initial_fullscreen_delay_ms: int = 0
+    # A non-permission initial dialog proves checkout never accepts another dialog's OK.
+    initial_dialog_message: str = "Click OK to grant permission for full screen"
     # The Windows Run dialog is already drawn in the remote canvas before checkout.
     run_already_open: bool = False
     # A freshly loaded launch-items list carries one cancellable Fullscreen offer.
@@ -165,6 +170,8 @@ class PortalHandler(SimpleHTTPRequestHandler):
                         self.state.fullscreen_on_fresh_list_delay_ms
                     ),
                     "fullscreen_again_after_ms": self.state.fullscreen_again_after_ms,
+                    "initial_fullscreen_delay_ms": self.state.initial_fullscreen_delay_ms,
+                    "initial_dialog_message": self.state.initial_dialog_message,
                     "fullscreen_on_surface_click": self.state.fullscreen_on_surface_click,
                     "fullscreen_on_start_click": self.state.fullscreen_on_start_click,
                     "fullscreen_sticks": self.state.fullscreen_sticks,

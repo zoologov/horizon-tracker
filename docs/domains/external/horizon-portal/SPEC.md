@@ -74,7 +74,9 @@ never a broker document's content.
 #### `blast:desktop-session` — horizon-portal → horizon-playwright-client
 
 - **Opening.** A click on the tile's launch button opens `#/desktop`. The client offers
-  Fullscreen in a dialog, which the adapter cancels (Cancel, never OK). The desktop counts
+  Fullscreen in a dialog. Morning check-in cancels it (Cancel, never OK). Checkout grants only
+  the exact known `Click OK to grant permission for full screen` permission once, through the
+  existing visible `#okDialogBtn`, and waits for both dialog buttons to hide. The desktop counts
   as open once a canvas inside `#canvas-container` has a non-zero size, within 90 s, and
   otherwise the result is `DESKTOP_DID_NOT_OPEN`.
 - **The WebSocket.** The Blast session is a WebSocket on a path that starts with `/r/` or
@@ -83,8 +85,12 @@ never a broker document's content.
   `HT_HOLD_SECONDS` (120 s by default) so Windows completes its logon, then closes the
   browser context. Closing it closes the WebSocket: that is the quiet disconnect, and the
   Windows session lives on until the evening's sign-out.
-- **Windows sign-out.** The evening opens the desktop and guards every action with
-  painted/dialog-free readiness and restored surface focus. It reuses an existing Windows
+- **Windows sign-out.** The evening opens the desktop and grants only the exact initial
+  Fullscreen permission once. If that offer arrives after the painted desktop, the adapter
+  awaits its visible OK control rather than adding an input delay. Full hide and restored
+  painted surface focus precede any Windows input. Other dialog text and every later offer
+  remain Cancel-only. The adapter guards every action with painted/dialog-free readiness and
+  restored surface focus. It reuses an existing Windows
   Run dialog recognised between HTML Access dialog guards by title/body/input geometry
   measured from the v1.1.6 production frame. Its contrasting input border can be dark or
   chromatic, including the focused field's one-pixel blue borders, which are sampled on

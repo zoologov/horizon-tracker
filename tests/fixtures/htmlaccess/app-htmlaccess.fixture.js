@@ -85,6 +85,8 @@
   var fullscreenOnStartClick = false;
   var fullscreenOnFreshList = false;
   var fullscreenOnFreshListDelayMs = 0;
+  var initialFullscreenDelayMs = 0;
+  var initialDialogMessage = "Click OK to grant permission for full screen";
   var freshListFullscreenVisible = false;
   var wmksCount = 0;
   var windowsInputHandler = null;
@@ -373,6 +375,7 @@
       };
       if (event.button === 2 && near(20, 700)) {
         event.preventDefault();
+        record("windows-start-right-click");
         startMenuOpen = true;
         runDialog = false;
         inputPrefix = "Win+X@20,700";
@@ -385,6 +388,7 @@
       }
       if (event.button === 0 && startMenuOpen && near(85, 600)) {
         event.preventDefault();
+        record("windows-run-click");
         startMenuOpen = false;
         runDialog = true;
         runReadyAt = Date.now() + RUN_DIALOG_READY_MS;
@@ -454,9 +458,11 @@
     }
 
     // Draws once per Blast connection: a later answer to an offer must not clear the frame.
+    // A delayed initial offer models the live painted desktop arriving before that dialog.
     function draw() {
       behaviour().then(function (portal) {
-        if (!portal.draw_canvas || !answered || wmks === null) { return; }
+        var awaitingInitialOffer = !answered && initialFullscreenDelayMs === 0;
+        if (!portal.draw_canvas || awaitingInitialOffer || wmks === null) { return; }
         if (wmks.style.display === "block") { return; }
         var canvas = wmks.querySelector("canvas");
         canvas.width = 1280;
@@ -475,6 +481,7 @@
           }, portal.repaint_desktop_after_ms);
         }
         wmks.style.display = "block";
+        record("desktop-painted");
         if (portal.drop_to_login_after_ms > 0) {
           setTimeout(function () { location.hash = "#/home"; }, portal.drop_to_login_after_ms);
         }
@@ -505,8 +512,16 @@
       });
     });
 
-    byId("dialogMessage").textContent = "Enter full screen mode?";
-    dialog.hidden = false;
+    function offerInitialFullscreen() {
+      byId("dialogMessage").textContent = initialDialogMessage;
+      dialog.hidden = false;
+      record("fullscreen-offered-initial");
+    }
+    if (initialFullscreenDelayMs > 0) {
+      setTimeout(offerInitialFullscreen, initialFullscreenDelayMs);
+    } else {
+      offerInitialFullscreen();
+    }
     byId("cancelDialogBtn").addEventListener("click", function () {
       if (sticky) { record("fullscreen-cancel-ignored"); return; }
       dialog.hidden = true;
@@ -547,6 +562,8 @@
     fullscreenOnStartClick = portal.fullscreen_on_start_click;
     fullscreenOnFreshList = portal.fullscreen_on_fresh_list;
     fullscreenOnFreshListDelayMs = portal.fullscreen_on_fresh_list_delay_ms || 0;
+    initialFullscreenDelayMs = portal.initial_fullscreen_delay_ms || 0;
+    initialDialogMessage = portal.initial_dialog_message;
     // Configuration must precede the first route's asynchronous launch-items read. On a
     // reload, rendering first lets that read win and silently drops the requested dialog.
     render();

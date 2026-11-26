@@ -15,6 +15,7 @@ from tests.support.htmlaccess_portal import (
     FAST,
     FRESH_LIST_CLICK_INTERCEPT_DELAY_MS,
     FRESH_LIST_DIALOG_DELAY_MS,
+    INITIAL_FULLSCREEN_DELAY_MS,
     PASSWORD,
     USERNAME,
     Portal,
@@ -128,6 +129,11 @@ def fullscreen_after_run_wait(fixture_portal: Portal) -> None:
     fixture_portal.state.fullscreen_after_run_wait = True
 
 
+@given("the fixture delays its initial Fullscreen permission")
+def delayed_initial_fullscreen(fixture_portal: Portal) -> None:
+    fixture_portal.state.initial_fullscreen_delay_ms = INITIAL_FULLSCREEN_DELAY_MS
+
+
 @given("the fixture offers Fullscreen during the pre-Enter screenshot")
 def fullscreen_on_pre_enter_screenshot(fixture_portal: Portal) -> None:
     fixture_portal.state.fullscreen_on_pre_enter_screenshot = True
@@ -181,8 +187,30 @@ def gap_fullscreen_cancelled(fixture_portal: Portal) -> None:
     events = fixture_portal.state.events
     for offered in ("fullscreen-offered-post-run-wait", "fullscreen-offered-pre-enter"):
         assert offered in events
-        assert "fullscreen-cancelled" in events[events.index(offered) :]
-    assert "fullscreen-accepted" not in events
+        later_events = events[events.index(offered) :]
+        assert "fullscreen-cancelled" in later_events
+        assert "fullscreen-accepted" not in later_events
+    assert events.count("fullscreen-accepted") == 1, "the initial grant did not happen once"
+
+
+@then("the initial Fullscreen permission was granted once before Start and Run input")
+def initial_fullscreen_granted_before_windows_input(fixture_portal: Portal) -> None:
+    events = fixture_portal.state.events
+    assert events.count("fullscreen-accepted") == 1
+    granted = events.index("fullscreen-accepted")
+    assert events.index("fullscreen-offered-initial") < granted
+    assert events.index("desktop-painted") < events.index("fullscreen-offered-initial")
+    assert granted < events.index("windows-start-right-click")
+    assert granted < events.index("windows-run-click")
+
+
+@then("the later Fullscreen offer was cancelled without another OK")
+def later_fullscreen_cancelled_after_one_grant(fixture_portal: Portal) -> None:
+    events = fixture_portal.state.events
+    offered = events.index("fullscreen-offered-post-run-wait")
+    later_events = events[offered:]
+    assert "fullscreen-cancelled" in later_events
+    assert "fullscreen-accepted" not in later_events
 
 
 @then("Windows received Enter exactly once")

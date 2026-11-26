@@ -64,6 +64,8 @@ PASSWORD_FIELD = "#password"
 LOGIN_BUTTON = "#loginButton"
 DIALOG_OK = "#okDialogBtn"
 DIALOG_CANCEL = "#cancelDialogBtn"
+_DIALOG_MESSAGE = "#dialogMessage"
+_FULLSCREEN_PERMISSION = "Click OK to grant permission for full screen"
 # A dialog the client shows over the remote surface, read by its buttons: the page holds
 # them only inside a dialog. The capture clicks Cancel, never OK, and waits out the rest.
 _SHOWN_DIALOG_CANCEL = f"{DIALOG_CANCEL}:visible"
@@ -293,6 +295,7 @@ class PlaywrightHorizonClient:
         self._page: Page | None = None
         self._websockets: list[WebSocket] = []
         self._opened_desktop: str | None = None
+        self._checkout_fullscreen_grant_pending = False
 
     def __repr__(self) -> str:
         return f"PlaywrightHorizonClient(horizon_url={self._base_url!r}, run_kind={self._run_kind})"
@@ -492,8 +495,36 @@ class PlaywrightHorizonClient:
             return False
         return _run_dialog_in_frame(page, png)
 
+    def _await_checkout_fullscreen(self, page: Page) -> None:
+        """Await a delayed initial offer and consume checkout's one permission grant."""
+        if not self._checkout_fullscreen_grant_pending:
+            return
+        deadline = time.monotonic() + self._timeouts.action_ms / 1000
+        page.locator(_SHOWN_DIALOG_OK).wait_for(state="visible", timeout=_remaining_ms(deadline))
+        self._grant_checkout_fullscreen(page, deadline)
+
+    def _grant_checkout_fullscreen(self, page: Page, deadline: float) -> bool:
+        """Accept only the exact Fullscreen permission, then require its dialog to hide."""
+        self._checkout_fullscreen_grant_pending = False
+        ok = page.locator(_SHOWN_DIALOG_OK)
+        cancel = page.locator(_SHOWN_DIALOG_CANCEL)
+        message = page.locator(_DIALOG_MESSAGE)
+        permission = " ".join((message.text_content() or "").split())
+        if (
+            message.count() != 1
+            or permission != _FULLSCREEN_PERMISSION
+            or ok.count() != 1
+            or cancel.count() != 1
+        ):
+            return False
+        ok.first.click(timeout=_remaining_ms(deadline))
+        logger.info("Horizon Fullscreen permission granted for checkout")
+        self._wait_for_client_dialog_hidden(page, deadline)
+        return True
+
     def _open_windows_run(self, page: Page, surface: Locator) -> bool:
         """Reuse visible Windows Run or open it through the scaled Win+X mouse path."""
+        self._await_checkout_fullscreen(page)
         if not self._refocus_ready_surface(surface):
             return False
         if self._windows_run_is_open(page, surface):
@@ -517,6 +548,7 @@ class PlaywrightHorizonClient:
         with self._step(Reason.LOGOFF_NOT_CONFIRMED):
             if self._tile_session_state(self._tile(name)) is SessionState.NO_SESSION:
                 raise self._failure(Reason.ALREADY_LOGGED_OFF)
+            self._checkout_fullscreen_grant_pending = True
             self.open_desktop(name)
             page = self._live_page()
             surface = _largest_surface(page)
@@ -530,7 +562,7 @@ class PlaywrightHorizonClient:
             if not self._refocus_ready_surface(surface):
                 raise self._failure(Reason.LOGOFF_NOT_CONFIRMED)
             # Preserve evidence of the fully replaced Run command without making a failed
-            # screenshot a new logout failure. No dialog is answered with OK.
+            # screenshot a new logout failure. Later dialogs remain Cancel-only.
             self._screenshot(RunKind.CHECKOUT)
             # The screenshot is asynchronous: prove focus and a clean surface again before
             # the one Enter, rather than letting a new Fullscreen offer receive it.
@@ -682,10 +714,14 @@ class PlaywrightHorizonClient:
         return None
 
     def _settle_desktop(self) -> bool | None:
-        """Cancel the Fullscreen offer if it is showing; True once the desktop is open."""
+        """Grant checkout's exact initial permission or cancel the morning offer."""
         page = self._live_page()
         cancel = page.locator(DIALOG_CANCEL)
         if _route(page.url) == DESKTOP_ROUTE and cancel.is_visible():
+            if self._checkout_fullscreen_grant_pending:
+                deadline = time.monotonic() + self._timeouts.action_ms / 1000
+                if self._grant_checkout_fullscreen(page, deadline):
+                    return self._desktop_is_open() or None
             cancel.click()
         return self._desktop_is_open() or None
 

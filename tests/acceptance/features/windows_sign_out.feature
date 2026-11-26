@@ -46,3 +46,15 @@ Feature: Windows sign-out through Horizon HTML Access
     And Windows received Enter exactly once
     And no kill-session command reached the broker
     And the desktop has no session on the fixture broker
+
+  Scenario: Checkout grants a delayed initial Fullscreen permission once before Windows input
+    Given the fixture portal's desktop has a disconnected session
+    And the fixture delays its initial Fullscreen permission
+    And the fixture offers Fullscreen during the post-Run wait
+    When the Playwright client logs off "DEV desktop"
+    Then the initial Fullscreen permission was granted once before Start and Run input
+    And the later Fullscreen offer was cancelled without another OK
+    And Windows received Start right-click, Run, "shutdown /l" and Enter in order
+    And Windows received Enter exactly once
+    And no kill-session command reached the broker
+    And the desktop has no session on the fixture broker
